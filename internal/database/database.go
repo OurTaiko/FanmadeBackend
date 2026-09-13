@@ -11,6 +11,9 @@ import (
 //go:embed schema.sql
 var schema string
 
+//go:embed 002_ese.sql
+var eseSchema string
+
 func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	pool, err := pgxpool.New(ctx, url)
 	if err != nil {
@@ -45,6 +48,17 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 			return fmt.Errorf("migration 001: %w", err)
 		}
 		if _, err = tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES(1)`); err != nil {
+			return err
+		}
+	}
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=2)`).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		if _, err = tx.Exec(ctx, eseSchema); err != nil {
+			return err
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES(2)`); err != nil {
 			return err
 		}
 	}

@@ -1,0 +1,148 @@
+package httpapi
+
+import (
+	"errors"
+	"net/http"
+	"regexp"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"golang.org/x/crypto/bcrypt"
+)
+
+type User struct {
+	ID            string `json:"id"`
+	Username      string `json:"username"`
+	EmailVerified bool   `json:"emailVerified"`
+}
+type session struct {
+	User User
+	CSRF string
+}
+
+var usernamePattern = regexp.MustCompile(`^[a-zA-Z0-9_]{3,24}$`)
+
+type credentials struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+func (s *Server) current(r *http.Request) (session, error) {
+	var v session
+	c, e := r.Cookie("ourtaiko_session")
+	if e != nil {
+		return v, pgx.ErrNoRows
+	}
+	if len(c.Value) != 64 {
+		return v, pgx.ErrNoRows
+	}
+	e = s.DB.QueryRow(r.Context(), `SELECT u.id,u.username,u.email_verified_at IS NOT NULL,s.csrf_token FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now()`, hash(c.Value)).Scan(&v.User.ID, &v.User.Username, &v.User.EmailVerified, &v.CSRF)
+	return v, e
+}
+func (s *Server) required(w http.ResponseWriter, r *http.Request, csrf bool) (session, bool) {
+	v, e := s.current(r)
+	if e != nil {
+		if errors.Is(e, pgx.ErrNoRows) {
+			problem(w, 401, "UNAUTHORIZED", "请先登录")
+		} else {
+			internal(w, e)
+		}
+		return v, false
+	}
+	if csrf && r.Header.Get("X-CSRF-Token") != v.CSRF {
+		problem(w, 403, "CSRF_INVALID", "会话已更新，请刷新页面后重试")
+		return v, false
+	}
+	return v, true
+}
+func (s *Server) me(w http.ResponseWriter, r *http.Request) {
+	v, e := s.current(r)
+	if errors.Is(e, pgx.ErrNoRows) {
+		respond(w, 200, map[string]any{"user": nil, "csrfToken": ""})
+		return
+	}
+	if e != nil {
+		internal(w, e)
+		return
+	}
+	respond(w, 200, map[string]any{"user": v.User, "csrfToken": v.CSRF})
+}
+func (s *Server) issue(w http.ResponseWriter, r *http.Request, u User) {
+	token, csrf := ID()+ID(), ID()+ID()
+	_, e := s.DB.Exec(r.Context(), `INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at) VALUES($1,$2,$3,$4)`, hash(token), u.ID, csrf, time.Now().Add(7*24*time.Hour))
+	if e != nil {
+		internal(w, e)
+		return
+	}
+	if old, e := r.Cookie("ourtaiko_session"); e == nil {
+		s.DB.Exec(r.Context(), `DELETE FROM sessions WHERE token_hash=$1`, hash(old.Value))
+	}
+	http.SetCookie(w, &http.Cookie{Name: "ourtaiko_session", Value: token, Path: "/", HttpOnly: true, Secure: s.Config.CookieSecure, SameSite: http.SameSiteStrictMode, MaxAge: 7 * 86400})
+	respond(w, 200, map[string]any{"user": u, "csrfToken": csrf})
+}
+func (s *Server) register(w http.ResponseWriter, r *http.Request) {
+	var c credentials
+	if !decode(w, r, &c) {
+		return
+	}
+	if !usernamePattern.MatchString(c.Username) || len(c.Password) < 8 || len(c.Password) > 72 {
+		problem(w, 422, "CREDENTIALS_INVALID", "用户名需为 3–24 位字母、数字或下划线，密码需为 8–72 字节")
+		return
+	}
+	h, e := bcrypt.GenerateFromPassword([]byte(c.Password), 12)
+	if e != nil {
+		internal(w, e)
+		return
+	}
+	u := User{ID: ID(), Username: c.Username}
+	_, e = s.DB.Exec(r.Context(), `INSERT INTO users(id,username,password_hash) VALUES($1,$2,$3)`, u.ID, u.Username, string(h))
+	if e != nil {
+		var pe *pgconn.PgError
+		if errors.As(e, &pe) && pe.Code == "23505" {
+			problem(w, 409, "USERNAME_EXISTS", "用户名已存在")
+		} else {
+			internal(w, e)
+		}
+		return
+	}
+	s.issue(w, r, u)
+}
+
+var dummyHash = func() []byte { h, _ := bcrypt.GenerateFromPassword([]byte("dummy-account-password"), 12); return h }()
+
+func (s *Server) login(w http.ResponseWriter, r *http.Request) {
+	var c credentials
+	if !decode(w, r, &c) {
+		return
+	}
+	var u User
+	var h string
+	e := s.DB.QueryRow(r.Context(), `SELECT id,username,password_hash,email_verified_at IS NOT NULL FROM users WHERE username=$1`, c.Username).Scan(&u.ID, &u.Username, &h, &u.EmailVerified)
+	if e != nil && !errors.Is(e, pgx.ErrNoRows) {
+		internal(w, e)
+		return
+	}
+	candidate := []byte(h)
+	if e != nil {
+		candidate = dummyHash
+	}
+	passwordErr := bcrypt.CompareHashAndPassword(candidate, []byte(c.Password))
+	if e != nil || passwordErr != nil {
+		problem(w, 401, "LOGIN_INVALID", "用户名或密码不正确")
+		return
+	}
+	s.issue(w, r, u)
+}
+func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.required(w, r, true); !ok {
+		return
+	}
+	c, _ := r.Cookie("ourtaiko_session")
+	if _, e := s.DB.Exec(r.Context(), `DELETE FROM sessions WHERE token_hash=$1`, hash(c.Value)); e != nil {
+		internal(w, e)
+		return
+	}
+	http.SetCookie(w, &http.Cookie{Name: "ourtaiko_session", Value: "", Path: "/", HttpOnly: true, Secure: s.Config.CookieSecure, SameSite: http.SameSiteStrictMode, MaxAge: -1})
+	respond(w, 200, map[string]bool{"ok": true})
+}
