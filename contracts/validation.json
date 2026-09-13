@@ -1,0 +1,256 @@
+[
+  {
+    "name": "valid",
+    "text": "TITLE:テスト\nBPM:120\nWAVE:音楽.ogg\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\n",
+    "audio": "音楽.ogg",
+    "code": "",
+    "encoding": "utf-8"
+  },
+  {
+    "name": "different chart name",
+    "text": "TITLE:テスト\nBPM:120\nWAVE:音楽.ogg\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\n",
+    "audio": "音楽.ogg",
+    "code": "",
+    "encoding": "utf-8"
+  },
+  {
+    "name": "mismatch",
+    "text": "TITLE:テスト\nBPM:120\nWAVE:音楽.ogg\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\n",
+    "audio": "other.ogg",
+    "code": "TJA_AUDIO_MISMATCH",
+    "encoding": "utf-8"
+  },
+  {
+    "name": "case sensitive",
+    "text": "TITLE:テスト\nBPM:120\nWAVE:Music.ogg\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\n",
+    "audio": "music.ogg",
+    "code": "TJA_AUDIO_MISMATCH",
+    "encoding": "utf-8"
+  },
+  {
+    "name": "missing wave",
+    "text": "TITLE:テスト\nBPM:120\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\n",
+    "audio": "音楽.ogg",
+    "code": "TJA_WAVE_MISSING",
+    "encoding": "utf-8"
+  },
+  {
+    "name": "duplicate wave",
+    "text": "TITLE:テスト\nBPM:120\nWAVE:音楽.ogg\nWAVE:音楽.ogg\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\n",
+    "audio": "音楽.ogg",
+    "code": "TJA_WAVE_DUPLICATE",
+    "encoding": "utf-8"
+  },
+  {
+    "name": "unsafe ../音楽.ogg",
+    "text": "TITLE:テスト\nBPM:120\nWAVE:../音楽.ogg\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\n",
+    "audio": "音楽.ogg",
+    "code": "TJA_WAVE_PATH_INVALID",
+    "encoding": "utf-8"
+  },
+  {
+    "name": "unsafe folder/音楽.ogg",
+    "text": "TITLE:テスト\nBPM:120\nWAVE:folder/音楽.ogg\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\n",
+    "audio": "音楽.ogg",
+    "code": "TJA_WAVE_PATH_INVALID",
+    "encoding": "utf-8"
+  },
+  {
+    "name": "unsafe C:\\音楽.ogg",
+    "text": "TITLE:テスト\nBPM:120\nWAVE:C:\\音楽.ogg\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\n",
+    "audio": "音楽.ogg",
+    "code": "TJA_WAVE_PATH_INVALID",
+    "encoding": "utf-8"
+  },
+  {
+    "name": "unsafe https://host/music.ogg",
+    "text": "TITLE:テスト\nBPM:120\nWAVE:https://host/music.ogg\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\n",
+    "audio": "音楽.ogg",
+    "code": "TJA_WAVE_PATH_INVALID",
+    "encoding": "utf-8"
+  },
+  {
+    "name": "unsafe \"音楽.ogg\"",
+    "text": "TITLE:テスト\nBPM:120\nWAVE:\"音楽.ogg\"\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\n",
+    "audio": "音楽.ogg",
+    "code": "TJA_WAVE_PATH_INVALID",
+    "encoding": "utf-8"
+  },
+  {
+    "name": "malicious upload name",
+    "text": "TITLE:テスト\nBPM:120\nWAVE:音楽.ogg\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\n",
+    "audio": "../音楽.ogg",
+    "code": "UPLOAD_FILENAME_INVALID",
+    "encoding": "utf-8"
+  },
+  {
+    "name": "lowercase wave",
+    "text": "TITLE:テスト\nBPM:120\nwave:音楽.ogg\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\n",
+    "audio": "音楽.ogg",
+    "code": "TJA_WAVE_INVALID",
+    "encoding": "utf-8"
+  },
+  {
+    "name": "late wave",
+    "text": "TITLE:テスト\nBPM:120\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\nWAVE:音楽.ogg\n",
+    "audio": "音楽.ogg",
+    "code": "TJA_WAVE_SCOPE_INVALID",
+    "encoding": "utf-8"
+  },
+  {
+    "name": "unicode normalization",
+    "text": "TITLE:テスト\nBPM:120\nWAVE:café.ogg\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\n",
+    "audio": "café.ogg",
+    "code": "",
+    "encoding": "utf-8"
+  },
+  {
+    "name": "bom CRLF comments",
+    "text": "﻿TITLE:テスト\r\nBPM:120\r\nWAVE: 音楽.ogg // comment\r\nCOURSE:Oni\r\nLEVEL:5\r\n#START\r\n1000,\r\n#END\r\n",
+    "audio": "音楽.ogg",
+    "code": "",
+    "encoding": "utf-8"
+  },
+  {
+    "name": "multi difficulty",
+    "text": "TITLE:テスト\nBPM:120\nWAVE:音楽.ogg\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\nCOURSE:Easy\nLEVEL:2\n#START\n1000,\n#END\n",
+    "audio": "音楽.ogg",
+    "code": "",
+    "encoding": "utf-8"
+  },
+  {
+    "name": "default course",
+    "text": "TITLE:テスト\nBPM:120\nWAVE:音楽.ogg\nLEVEL:5\n#START\n1000,\n#END\n",
+    "audio": "音楽.ogg",
+    "code": "",
+    "encoding": "utf-8"
+  },
+  {
+    "name": "missing end",
+    "text": "TITLE:テスト\nBPM:120\nWAVE:音楽.ogg\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n\n",
+    "audio": "音楽.ogg",
+    "code": "TJA_STRUCTURE_INVALID",
+    "encoding": "utf-8"
+  },
+  {
+    "name": "empty block",
+    "text": "TITLE:テスト\nBPM:120\nWAVE:音楽.ogg\nCOURSE:Oni\nLEVEL:5\n#START\n\n#END\n",
+    "audio": "音楽.ogg",
+    "code": "TJA_STRUCTURE_INVALID",
+    "encoding": "utf-8"
+  },
+  {
+    "name": "bad bpm",
+    "text": "TITLE:テスト\nBPM:NaN\nWAVE:音楽.ogg\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\n",
+    "audio": "音楽.ogg",
+    "code": "TJA_STRUCTURE_INVALID",
+    "encoding": "utf-8"
+  },
+  {
+    "name": "level limit",
+    "text": "TITLE:テスト\nBPM:120\nWAVE:音楽.ogg\nCOURSE:Oni\nLEVEL:11\n#START\n1000,\n#END\n",
+    "audio": "音楽.ogg",
+    "code": "TJA_STRUCTURE_INVALID",
+    "encoding": "utf-8"
+  },
+  {
+    "name": "lyrics dependency",
+    "text": "TITLE:テスト\nBPM:120\nLYRICS:words.vtt\nWAVE:音楽.ogg\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\n",
+    "audio": "音楽.ogg",
+    "code": "TJA_RESOURCE_UNSUPPORTED",
+    "encoding": "utf-8"
+  },
+  {
+    "name": "shift jis",
+    "text": "TITLE:テスト\nBPM:120\nWAVE:音楽.ogg\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\n",
+    "audio": "音楽.ogg",
+    "code": "",
+    "encoding": "shift-jis",
+    "raw": [
+      84,
+      73,
+      84,
+      76,
+      69,
+      58,
+      131,
+      101,
+      131,
+      88,
+      131,
+      103,
+      10,
+      66,
+      80,
+      77,
+      58,
+      49,
+      50,
+      48,
+      10,
+      87,
+      65,
+      86,
+      69,
+      58,
+      137,
+      185,
+      138,
+      121,
+      46,
+      111,
+      103,
+      103,
+      10,
+      67,
+      79,
+      85,
+      82,
+      83,
+      69,
+      58,
+      79,
+      110,
+      105,
+      10,
+      76,
+      69,
+      86,
+      69,
+      76,
+      58,
+      53,
+      10,
+      35,
+      83,
+      84,
+      65,
+      82,
+      84,
+      10,
+      49,
+      48,
+      48,
+      48,
+      44,
+      10,
+      35,
+      69,
+      78,
+      68,
+      10
+    ]
+  },
+  {
+    "name": "invalid utf8",
+    "text": "TITLE:テスト\nBPM:120\nWAVE:音楽.ogg\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\n",
+    "audio": "音楽.ogg",
+    "code": "TJA_ENCODING_INVALID",
+    "encoding": "utf-8",
+    "raw": [
+      255,
+      254,
+      128
+    ]
+  }
+]
