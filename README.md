@@ -1,6 +1,6 @@
 # OurTaiko Fanmade API
 
-独立的 Go + PostgreSQL 后端仓库。本地示范版已实现账号会话、TJA / OGG 上传校验、作品查询、试听资源、原文件 / ZIP 下载和本人作品删除。前端位于相邻的 `../frontend` 仓库，由 pnpm 管理。
+独立的 Go + PostgreSQL 后端仓库。本地示范版已实现账号会话、TJA / OGG 上传校验、作品查询、试听资源、原文件 / ZIP 下载和本人作品删除、登录用户成绩提交。前端位于相邻的 `../frontend` 仓库，由 pnpm 管理。
 
 ## 本地启动
 
@@ -40,10 +40,11 @@ python3 scripts/demo.py seed
 ```sh
 go test ./...
 go vet ./...
-DATABASE_TEST_URL='postgres://localhost/ourtaiko_fanmade?host=/tmp&sslmode=disable' go test ./internal/database -v
+DATABASE_TEST_URL='postgres://localhost/ourtaiko_fanmade?host=/tmp&sslmode=disable' go test ./internal/database ./internal/httpapi -v
 ESE_ROOT=~/Documents/GitHub/ESE go test ./internal/tja -v
 # API 运行中，读取真实 ESE 文件，创建测试账号并在结束时软删除测试作品：
 python3 scripts/demo.py test
+python3 scripts/score_smoke.py
 ```
 
 共享规则测试位于 `contracts/validation.json`。前端保存同内容副本；可用 `cmp contracts/validation.json ../frontend/contracts/validation.json` 检查一致性。
@@ -60,7 +61,7 @@ python3 scripts/demo.py test
 
 本示范版支持一个 TJA + 一个 Vorbis OGG，TJA 中可有多个难度、P1 / P2 和 Tower。`#NEXTSONG` 多音频谱暂不支持；不承诺完整游戏命令语义。试听在负数 DEMOSTART 时从 0 开始，不改写 TJA。
 
-DOUBLE 谱面不记录云端成绩，但仍可上传与下载。后端按块解析 STYLE 和 P1/P2，API 返回 `style` 与 `cloudScoreEligible`；混合文件的单人块保留资格。迁移 003 会读取 `STORAGE_DIR` 的已有 TJA 回填资格，因此迁移时必须提供配套资源目录；失败会事务回滚。当前未实现成绩提交接口，资格标记供后续游戏接入使用。数据库测试仅创建并清理临时 schema，不修改应用表。
+DOUBLE 谱面不记录云端成绩，但仍可上传与下载。后端按块解析 STYLE 和 P1/P2，API 返回 `style` 与 `cloudScoreEligible`；混合文件的单人块保留资格。迁移 003 会读取 `STORAGE_DIR` 的已有 TJA 回填资格，因此迁移时必须提供配套资源目录；失败会事务回滚。已提供 `POST /api/v1/scores`，提交歌曲 ID、难度、良／可／不可、总分及连打数；复用登录会话与 CSRF，可选幂等键防止重试重复保存，详情见 API 文档。当前记录客户端上报值，未重算成绩或实现排行榜。每个 TJA 的同一难度最多一个单人谱，重复在上传时返回带行号的 422。数据库测试仅创建并清理临时 schema，不修改应用表。
 
 后续功能：邮箱验证、替换资源版本、管理员界面、评论收藏、游戏接入、自动清理与备份。示范版软删除后停止公开访问，保留数据库和资源供开发检查。上传失败通常自动清理；数据库 COMMIT 结果不确定或进程崩溃时保留文件供核对，暂未实现后台孤儿文件回收。请同时备份数据库和 `.data/files`。
 
