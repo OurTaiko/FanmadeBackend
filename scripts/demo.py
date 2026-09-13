@@ -85,6 +85,11 @@ def smoke():
  client = Client(); user = client.auth('smoke_'+uuid.uuid4().hex[:10], secrets.token_urlsafe(24))
  other = Client(); other.auth('smoke_'+uuid.uuid4().hex[:10], secrets.token_urlsafe(24))
  rel = SAMPLES[0]
+ for duplicate_chart in ['02 Anime/Gekkouka/Gekkouka.tja', '02 Anime/Oto Melody/Oto Melody.tja']:
+  status, result, _ = client.upload(duplicate_chart)
+  assert status == 422 and result['code'] == 'TJA_DIFFICULTY_DUPLICATE', (status, result)
+  assert result['errors'][0]['line'] > 0
+ print('PASS duplicate Single difficulties rejected during upload with line numbers')
  for args, expected, code in [({'name':'wrong.ogg'},422,'TJA_AUDIO_MISMATCH'),({'name':'../Happy Synthesizer.ogg'},400,'UPLOAD_FILES_INVALID'),({'corrupt':True},422,'AUDIO_INVALID'),({'duplicate':True},400,'UPLOAD_FILES_INVALID')]:
   status, result, _ = client.upload(rel,**args)
   assert status == expected and result['code'] == code, (status,result)

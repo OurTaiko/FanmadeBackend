@@ -17,7 +17,7 @@ func TestCloudScoreEligibility(t *testing.T) {
 		{"double players", "STYLE:DOUBLE\n" + p1 + p2, []bool{false, false}},
 		{"players without style", p1 + p2 + single, []bool{false, false, true}},
 		{"single cannot override player", "STYLE:Single\n" + p2, []bool{false}},
-		{"mixed styles", single + "STYLE:Double\n" + p1 + p2 + "STYLE:Single\n" + single, []bool{true, false, false, true}},
+		{"mixed styles", single + "STYLE:Double\n" + p1 + p2 + "COURSE:Easy\nLEVEL:3\nSTYLE:Single\n" + single, []bool{true, false, false, true}},
 		{"numeric aliases", "STYLE:1\n" + single + "STYLE:0\n" + single, []bool{false, true}},
 		{"ESE duet alias", "STYLE:Duet\n" + p1 + p2, []bool{false, false}},
 		{"new course defaults single", "STYLE:Double\n" + p1 + "COURSE:Hard\nLEVEL:4\n" + single, []bool{false, true}},
@@ -45,6 +45,17 @@ func TestCloudScoreEligibility(t *testing.T) {
 		_, issue := Parse([]byte(header+body), "utf-8", "music.ogg")
 		if issue == nil || issue.Code != "TJA_STRUCTURE_INVALID" || issue.Line == 0 {
 			t.Fatalf("expected located STYLE error: %v", issue)
+		}
+	}
+}
+
+func TestRejectDuplicateSingleDifficulty(t *testing.T) {
+	const header = "TITLE:Test\nBPM:120\nWAVE:music.ogg\nCOURSE:Oni\nLEVEL:5\n"
+	const single = "#START\n1000,\n#END\n"
+	for _, middle := range []string{"", "COURSE:oni\nLEVEL:6\n", "COURSE:3\nLEVEL:5\n", "STYLE:Double\n#START P1\n2000,\n#END\nSTYLE:Single\n"} {
+		_, issue := Parse([]byte(header+single+middle+single), "utf-8", "music.ogg")
+		if issue == nil || issue.Code != "TJA_DIFFICULTY_DUPLICATE" || issue.Line <= 6 {
+			t.Fatalf("duplicate accepted or no location: %v", issue)
 		}
 	}
 }

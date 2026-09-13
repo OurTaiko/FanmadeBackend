@@ -15,7 +15,7 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-const Version = "tja-upload-v2"
+const Version = "tja-upload-v3"
 const MaxTJA = 2 * 1024 * 1024
 const MaxAudio = 100 * 1024 * 1024
 
@@ -97,6 +97,7 @@ func Parse(data []byte, encoding, audioName string) (Metadata, *Issue) {
 	started, inBlock, hasNotes := false, false, false
 	course, level := "Oni", 0
 	style := "Single"
+	singleCourses := map[string]int{}
 	seen := map[string]bool{}
 	courses := map[string]string{"0": "Easy", "1": "Normal", "2": "Hard", "3": "Oni", "4": "Edit", "easy": "Easy", "normal": "Normal", "hard": "Hard", "oni": "Oni", "edit": "Edit", "tower": "Tower", "dan": "Dan", "5": "Tower", "6": "Dan"}
 	for i, raw := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
@@ -121,6 +122,12 @@ func Parse(data []byte, encoding, audioName string) (Metadata, *Issue) {
 			// Player-labelled blocks never qualify, even without STYLE:Double.
 			if player != "" {
 				blockStyle = "Double"
+			}
+			if blockStyle == "Single" {
+				if firstLine, exists := singleCourses[course]; exists {
+					return m, fail("TJA_DIFFICULTY_DUPLICATE", fmt.Sprintf("%s 难度存在重复单人谱面，第 %d 行已声明；每个难度只允许一个单人谱面块", course, firstLine), line)
+				}
+				singleCourses[course] = line
 			}
 			m.Difficulties = append(m.Difficulties, Difficulty{
 				Course: course, Level: level, BlockIndex: len(m.Difficulties), Player: player,

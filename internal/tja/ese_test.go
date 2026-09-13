@@ -14,7 +14,7 @@ func TestESECorpus(t *testing.T) {
 	if root == "" {
 		t.Skip("set ESE_ROOT to test local reference charts")
 	}
-	count, supported, multi := 0, 0, 0
+	count, supported, multi, duplicates := 0, 0, 0, 0
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -49,6 +49,13 @@ func TestESECorpus(t *testing.T) {
 			}
 			return nil
 		}
+		if strings.HasSuffix(filepath.ToSlash(path), "02 Anime/Gekkouka/Gekkouka.tja") || strings.HasSuffix(filepath.ToSlash(path), "02 Anime/Oto Melody/Oto Melody.tja") {
+			duplicates++
+			if issue == nil || issue.Code != "TJA_DIFFICULTY_DUPLICATE" || issue.Line == 0 {
+				t.Errorf("expected duplicate Single course rejection: %s: %v", path, issue)
+			}
+			return nil
+		}
 		if issue != nil {
 			t.Errorf("reference rejected: %s: %v", path, issue)
 		} else {
@@ -62,5 +69,5 @@ func TestESECorpus(t *testing.T) {
 	if count == 0 {
 		t.Fatal("no ESE TJA files found")
 	}
-	t.Logf("ESE: %d total, %d single-audio accepted, %d multi-audio deferred", count, supported, multi)
+	t.Logf("ESE: %d total, %d single-audio accepted, %d multi-audio deferred, %d duplicate-course rejected", count, supported, multi, duplicates)
 }
