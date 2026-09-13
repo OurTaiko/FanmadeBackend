@@ -14,6 +14,7 @@
 | GET | /me/charts | 本人作品列表，查询参数与公开列表一致 |
 | POST | /charts | multipart：tja、audio、encoding（默认 utf-8）、description（可空）；首次创建 201，同请求重试 200 |
 | GET | /charts/{id} | 当前已发布版本详情 |
+| PATCH | /charts/{id} | 上传者修改默认英文及 ja/zh/ko 名称／副标题，返回更新后的作品 |
 | DELETE | /charts/{id} | 本人软删除；后续资源访问返回 404 |
 | GET | /charts/{id}/versions/{version}/tja | 原始 TJA 字节，attachment |
 | GET | /charts/{id}/versions/{version}/audio | OGG，支持 Range / ETag |
@@ -27,7 +28,7 @@
 
 数量：1 个 TJA + 1 个 OGG。TJA 最大 2 MiB，OGG 最大 100 MiB，请求最大 105 MiB，说明最大 4000 字节。文本 UTF-8 或显式 Shift-JIS。音频要求单逻辑流 Ogg Vorbis、完整 CRC 与 EOS、可完整解码，时长不超过 20 分钟。最多两个上传同时处理。
 
-邮箱验证、修改说明、替换版本、管理员接口仍为规划项，本次未提供对应端点。
+邮箱验证、修改说明、替换版本、管理员接口仍为规划项，本次未提供对应端点。名称／副标题编辑已提供，详见文末。
 
 ## 谱面块的云端成绩资格
 
@@ -41,7 +42,7 @@
 ]
 ```
 
-后端解析 STYLE 值时不区分大小写，支持 Single/0、Double/1 和 ESE 中的 Duet（按 Double）。STYLE 在当前 COURSE 内持续生效直到下一次 STYLE 声明，每次 COURSE 声明恢复默认 Single；P1/P2 块无论 STYLE 如何均按 Double。未知 STYLE 或在谱面块内部声明 STYLE 返回 422 `TJA_STRUCTURE_INVALID`，包含行号。后端校验版本为 `tja-upload-v3`；前端当前仍执行 v1 基础预检，新增规则由后端权威校验。
+后端解析 STYLE 值时不区分大小写，支持 Single/0、Double/1 和 ESE 中的 Duet（按 Double）。STYLE 在当前 COURSE 内持续生效直到下一次 STYLE 声明，每次 COURSE 声明恢复默认 Single；P1/P2 块无论 STYLE 如何均按 Double。未知 STYLE 或在谱面块内部声明 STYLE 返回 422 `TJA_STRUCTURE_INVALID`，包含行号。后端校验版本为 `tja-upload-v4`；前端当前仍执行 v1 基础预检，新增规则由后端权威校验。
 
 每个 TJA 的同一难度最多一个 Single 块。重复时在上传阶段返回 422 `TJA_DIFFICULTY_DUPLICATE`，`errors[0].line` 指向重复块的 #START，message 指出首次声明行号。难度名与数字别名归一化后比较，修改 LEVEL 不会使重复难度合法；P1/P2 和显式 Double 块不参与这个单人重复检查。
 
@@ -88,3 +89,11 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
 | 422 | DOUBLE_SCORE_UNSUPPORTED | 目标难度只有 DOUBLE 谱面 |
 
 当前保存的是登录用户上报值：未校验判定数量与谱面音符数、未重算总分、未验证回放、自动演奏或计分模式，不作为已验证竞技成绩。已有基础限流与上传接口共用（来源 IP 每分钟 40 次写请求）。
+
+## 多语言名称与编辑
+
+作品响应新增 `titleTranslations`、`subtitleTranslations` 对象，键为 ja/zh/ko，默认英文仍为 `title`、`subtitle`。缺失语言不返回对应键，显式空值保留为字符串 `""`。GET 列表的 q 同时搜索默认和多语言名称、副标题。
+
+`PATCH /api/v1/charts/{id}` 只接受四个字段：title、subtitle、titleTranslations、subtitleTranslations。登录上传者可以部分修改，缺省字段保持不变；null 恢复原文件值，副标题空字符串表示清空。JSON 请求需要现有 Cookie、Origin 与 X-CSRF-Token；成功 200 返回更新后的完整作品。返回 401 未登录、403 无所有权／CSRF／来源不正确、404 不存在或已下架、400 请求格式或未知字段错误、415 非 JSON、422 `METADATA_INVALID` 内容／语言／长度不合法。完整请求示例、逐语言恢复规则和存储边界见 [多语言与管理说明](LOCALIZATION.md)。
+
+编辑仅改变网站展示与搜索，下载仍是原始 TJA，已保存成绩和 versionId 不变。前端编辑表单尚未实现。
