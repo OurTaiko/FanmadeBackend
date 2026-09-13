@@ -1,0 +1,238 @@
+package httpapi
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"ourtaiko.dev/fanmade/api/internal/database"
+)
+
+func scoreTestDB(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	url := os.Getenv("DATABASE_TEST_URL")
+	if url == "" {
+		t.Skip("set DATABASE_TEST_URL to test score HTTP/SQL integration")
+	}
+	ctx := context.Background()
+	admin, err := database.Open(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := fmt.Sprintf("score_api_test_%d", time.Now().UnixNano())
+	if _, err = admin.Exec(ctx, "CREATE SCHEMA "+name); err != nil {
+		admin.Close()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { admin.Exec(ctx, "DROP SCHEMA "+name+" CASCADE"); admin.Close() })
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ConnConfig.RuntimeParams["search_path"] = name
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	storage := t.TempDir()
+	for i := 0; i < 2; i++ {
+		if err = database.Migrate(ctx, pool, storage); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return pool
+}
+
+func TestSubmitScore(t *testing.T) {
+	pool := scoreTestDB(t)
+	ctx := context.Background()
+	const song = "11111111111111111111111111111111"
+	const otherSong = "22222222222222222222222222222222"
+	const version = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const origin = "http://127.0.0.1:5173"
+	const csrf = "test-csrf"
+	const cookie = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const cookie2 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	_, err := pool.Exec(ctx, `INSERT INTO users(id,username,password_hash) VALUES('u','tester','unused'),('u2','tester2','unused');`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = pool.Exec(ctx, `INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at) VALUES($1,'u',$3,now()+interval '1 day'),($2,'u2',$3,now()+interval '1 day')`, hash(cookie), hash(cookie2), csrf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	_, err = tx.Exec(ctx, `INSERT INTO files(id,storage_key,original_filename,sha256,byte_size,media_type) VALUES
+ ('t','tja','test.tja',repeat('a',64),1,'application/octet-stream'),('a','ogg','test.ogg',repeat('b',64),1,'audio/ogg');
+ INSERT INTO charts(id,owner_id,current_version_id) VALUES('11111111111111111111111111111111','u','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+ INSERT INTO chart_versions(id,chart_id,version_number,title,bpm,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version)
+ VALUES('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','11111111111111111111111111111111',1,'Test',120,10,'utf-8','test.ogg','t','a','tja-upload-v2');
+ INSERT INTO difficulties(version_id,block_index,course,level,player,style) VALUES
+ ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',0,'Oni',5,'','Single'),
+ ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',1,'Oni',5,'P1','Double'),
+ ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',2,'Oni',5,'P2','Double'),
+ ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',3,'Hard',5,'','Double'),
+ ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',4,'Easy',5,'','Single'),
+ ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',5,'Easy',5,'','Single'),
+ ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',6,'Edit',5,'','Single');`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	handler := New(pool, Config{Origin: origin}).Handler()
+	body := `{"songId":"` + song + `","difficulty":"Oni","good":300,"ok":10,"bad":2,"score":900000,"drumroll":50}`
+	call := func(body, key, token string, headers map[string]string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "/api/v1/scores", strings.NewReader(body))
+		r.Header.Set("Origin", origin)
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("X-CSRF-Token", csrf)
+		if key != "" {
+			r.Header.Set("Idempotency-Key", key)
+		}
+		if token != "" {
+			r.AddCookie(&http.Cookie{Name: "ourtaiko_session", Value: token})
+		}
+		for k, v := range headers {
+			r.Header.Set(k, v)
+		}
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
+	}
+	assertStatus := func(w *httptest.ResponseRecorder, status int, code string) {
+		t.Helper()
+		if w.Code != status {
+			t.Fatalf("want %d got %d: %s", status, w.Code, w.Body.String())
+		}
+		if code != "" {
+			var result struct{ Code string }
+			if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil || result.Code != code {
+				t.Fatalf("want %s: %s", code, w.Body.String())
+			}
+		}
+	}
+	for _, tc := range []struct {
+		name, body, key, token string
+		headers                map[string]string
+		status                 int
+		code                   string
+	}{
+		{"anonymous", body, "", "", nil, 401, "UNAUTHORIZED"},
+		{"csrf", body, "", cookie, map[string]string{"X-CSRF-Token": ""}, 403, "CSRF_INVALID"},
+		{"origin", body, "", cookie, map[string]string{"Origin": "https://invalid.example"}, 403, "ORIGIN_INVALID"},
+		{"media", body, "", cookie, map[string]string{"Content-Type": "text/plain"}, 415, "CONTENT_TYPE_INVALID"},
+		{"negative", strings.Replace(body, `"good":300`, `"good":-1`, 1), "", cookie, nil, 422, "SCORE_INVALID"},
+		{"missing", strings.Replace(body, `"good":300,`, "", 1), "", cookie, nil, 422, "SCORE_INVALID"},
+		{"null", strings.Replace(body, `"ok":10`, `"ok":null`, 1), "", cookie, nil, 422, "SCORE_INVALID"},
+		{"fraction", strings.Replace(body, `"bad":2`, `"bad":2.5`, 1), "", cookie, nil, 400, "REQUEST_INVALID"},
+		{"count range", strings.Replace(body, `"drumroll":50`, `"drumroll":2147483648`, 1), "", cookie, nil, 422, "SCORE_INVALID"},
+		{"score range", strings.Replace(body, `"score":900000`, `"score":9007199254740992`, 1), "", cookie, nil, 422, "SCORE_INVALID"},
+		{"overflow", strings.Replace(body, `"good":300`, `"good":999999999999999999999`, 1), "", cookie, nil, 400, "REQUEST_INVALID"},
+		{"spoof user", strings.TrimSuffix(body, "}") + `,"userId":"u2"}`, "", cookie, nil, 400, "REQUEST_INVALID"},
+		{"trailing", body + " {}", "", cookie, nil, 400, "REQUEST_INVALID"},
+		{"null body", "null", "", cookie, nil, 422, "SCORE_INVALID"},
+		{"unknown course", strings.Replace(body, "Oni", "Invalid", 1), "", cookie, nil, 422, "SCORE_INVALID"},
+		{"missing song", strings.Replace(body, song, otherSong, 1), "", cookie, nil, 404, "CHART_NOT_FOUND"},
+		{"missing difficulty", strings.Replace(body, "Oni", "Normal", 1), "", cookie, nil, 404, "DIFFICULTY_NOT_FOUND"},
+		{"double", strings.Replace(body, "Oni", "Hard", 1), "", cookie, nil, 422, "DOUBLE_SCORE_UNSUPPORTED"},
+		{"ambiguous", strings.Replace(body, "Oni", "Easy", 1), "", cookie, nil, 409, "DIFFICULTY_AMBIGUOUS"},
+		{"invalid key", body, "short", cookie, nil, 400, "IDEMPOTENCY_KEY_INVALID"},
+	} {
+		t.Run(tc.name, func(t *testing.T) { assertStatus(call(tc.body, tc.key, tc.token, tc.headers), tc.status, tc.code) })
+	}
+	var count int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM scores`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("rejections inserted scores: %d %v", count, err)
+	}
+	const key = "score-request-0001"
+	w := call(body, key, cookie, nil)
+	assertStatus(w, 201, "")
+	var first Score
+	if err = json.Unmarshal(w.Body.Bytes(), &first); err != nil {
+		t.Fatal(err)
+	}
+	if first.UserID != "u" || first.VersionID != version || first.BlockIndex != 0 || first.Good != 300 || first.OK != 10 || first.Bad != 2 || first.Score != 900000 || first.Drumroll != 50 || first.SubmittedAt.IsZero() {
+		t.Fatalf("bad receipt: %+v", first)
+	}
+	stored, err := readScore(pool.QueryRow(ctx, `SELECT `+scoreColumns+` FROM scores WHERE id=$1`, first.ID))
+	if err != nil || stored != first {
+		t.Fatalf("stored receipt mismatch: %+v %v", stored, err)
+	}
+	w = call(strings.Replace(body, "Oni", "oni", 1), key, cookie, nil)
+	assertStatus(w, 200, "")
+	var replay Score
+	json.Unmarshal(w.Body.Bytes(), &replay)
+	if replay.ID != first.ID {
+		t.Fatal("retry inserted a new score")
+	}
+	assertStatus(call(strings.Replace(body, "900000", "900001", 1), key, cookie, nil), 409, "IDEMPOTENCY_CONFLICT")
+	assertStatus(call(body, key, cookie2, nil), 201, "")
+	assertStatus(call(body, "", cookie, nil), 201, "")
+	assertStatus(call(body, "", cookie, nil), 201, "")
+	zero := strings.NewReplacer("Oni", "ura", "300", "0", "10", "0", "2,", "0,", "900000", "0", "50", "0").Replace(body)
+	w = call(zero, "", cookie, nil)
+	assertStatus(w, 201, "")
+	var edit Score
+	json.Unmarshal(w.Body.Bytes(), &edit)
+	if edit.Difficulty != "Edit" || edit.Score != 0 || edit.Good != 0 {
+		t.Fatalf("zero/alias: %+v", edit)
+	}
+	// Concurrent retries must produce one persistent record and one receipt ID.
+	var wg sync.WaitGroup
+	responses := make(chan *httptest.ResponseRecorder, 6)
+	for i := 0; i < 6; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); responses <- call(body, "score-concurrent-0001", cookie, nil) }()
+	}
+	wg.Wait()
+	close(responses)
+	created := 0
+	ids := map[string]bool{}
+	for r := range responses {
+		if r.Code == 201 {
+			created++
+		} else {
+			assertStatus(r, 200, "")
+		}
+		var v Score
+		json.Unmarshal(r.Body.Bytes(), &v)
+		ids[v.ID] = true
+	}
+	if created != 1 || len(ids) != 1 {
+		t.Fatalf("concurrency: %d created %d IDs", created, len(ids))
+	}
+	// A receipt survives a rename and retries still return it after unpublishing.
+	if _, err = pool.Exec(ctx, `UPDATE chart_versions SET title='Renamed' WHERE id=$1`, version); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE charts SET status='deleted' WHERE id=$1`, song); err != nil {
+		t.Fatal(err)
+	}
+	assertStatus(call(body, "", cookie, nil), 404, "CHART_NOT_FOUND")
+	assertStatus(call(body, key, cookie, nil), 200, "")
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM scores`).Scan(&count); err != nil || count != 6 {
+		t.Fatalf("unexpected persisted plays: %d %v", count, err)
+	}
+	// Even SQL writes cannot attach a score to a Double or different difficulty.
+	if _, err = pool.Exec(ctx, `UPDATE scores SET block_index=1 WHERE id=$1`, first.ID); err == nil {
+		t.Fatal("database accepted Double target")
+	}
+	if _, err = pool.Exec(ctx, `UPDATE scores SET difficulty='Hard' WHERE id=$1`, first.ID); err == nil {
+		t.Fatal("database accepted mismatched difficulty")
+	}
+}
