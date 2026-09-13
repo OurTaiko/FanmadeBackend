@@ -45,6 +45,7 @@ ESE_ROOT=~/Documents/GitHub/ESE go test ./internal/tja -v
 # API 运行中，读取真实 ESE 文件，创建测试账号并在结束时软删除测试作品：
 python3 scripts/demo.py test
 python3 scripts/score_smoke.py
+python3 scripts/metadata_smoke.py
 ```
 
 共享规则测试位于 `contracts/validation.json`。前端保存同内容副本；可用 `cmp contracts/validation.json ../frontend/contracts/validation.json` 检查一致性。
@@ -54,6 +55,7 @@ python3 scripts/score_smoke.py
 - [项目规划](docs/PROJECT_PLAN.md)
 - [数据库结构](docs/DATABASE.md)
 - [API 说明](docs/API.md)
+- [多语言名称与编辑](docs/LOCALIZATION.md)
 - [ESE 兼容性](docs/ESE_COMPATIBILITY.md)
 - [验收记录](docs/VERIFICATION.md)
 
@@ -66,3 +68,5 @@ DOUBLE 谱面不记录云端成绩，但仍可上传与下载。后端按块解�
 后续功能：邮箱验证、替换资源版本、管理员界面、评论收藏、游戏接入、自动清理与备份。示范版软删除后停止公开访问，保留数据库和资源供开发检查。上传失败通常自动清理；数据库 COMMIT 结果不确定或进程崩溃时保留文件供核对，暂未实现后台孤儿文件回收。请同时备份数据库和 `.data/files`。
 
 所有变更使用 Conventional Commits。当前仓库只在本地初始化，未配置远程或推送。
+
+后端已解析 TITLE/SUBTITLE 的 JA、ZH、KO 字段并回填旧谱面；默认字段按英文保存。上传者可用 `PATCH /api/v1/charts/{id}` 修改默认及多语言名称、副标题，支持 null 恢复原值。修改只影响网站元数据和搜索，原始 TJA、文件版本与成绩不变；前端编辑表单尚未实现。

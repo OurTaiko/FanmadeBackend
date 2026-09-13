@@ -12,7 +12,7 @@
 | difficulties | version_id、block_index(integer)、course、level(integer)、player、style、cloud_score_eligible | 版本+块序号复合主键；支持 Easy/Normal/Hard/Oni/Edit/Tower/Dan；level 1–10；player 空/P1/P2；style 为 Single/Double；资格为数据库生成列 |
 | upload_requests | user_id、idempotency_key、payload_digest、chart_id、created_at | 用户+请求键复合主键；服务端计算载荷摘要，幂等冲突返回 409 |
 | scores | id、user_id、song_id、version_id、block_index、difficulty、cloud_score_eligible、good、ok、bad、score、drumroll、submitted_at、idempotency_key、payload_digest | 关联用户、作品版本及有资格的难度块；计数非负；同用户请求键唯一 |
-| schema_migrations | version(integer PK)、applied_at | 已应用版本为 1、2、3、4、5 |
+| schema_migrations | version(integer PK)、applied_at | 已应用版本为 1、2、3、4、5、6、7 |
 
 业务 ID 由服务端密码学随机数生成，为 32 位十六进制文本。时间戳使用 timestamptz。文本编码、BPM 和难度均从服务端实际读取的 TJA 中提取，不信任客户端元数据。
 
@@ -40,3 +40,9 @@ erDiagram
 查询索引覆盖发布作品时间顺序、用户作品列表、Session 过期时间和唯一邮箱。示范版搜索使用 ILIKE，分页使用 page/pageSize（每页 12）；全文索引与游标分页留到规模增长后。
 
 邮箱验证码／验证链接令牌表尚未创建。后续需要新增只存 token_hash 的单次限时验证表，并为未验证账号限制投稿；不把示范版用户自动视为邮箱已验证。
+
+## 多语言解析与展示修改
+
+新增迁移文件 `006_localized_titles.sql`、`007_metadata_overrides.sql`。迁移 006 为 chart_versions 增加 title_translations、subtitle_translations（JSONB，默认空对象），保存 ja/zh/ko 原始解析值；默认英文继续使用 title/subtitle。迁移从配套原始 TJA 回填所有版本，新上传直接写入，目前后端校验版本为 tja-upload-v4。
+
+迁移 007 为 charts 增加 title_override、subtitle_override（nullable text）、title_translation_overrides、subtitle_translation_overrides（JSONB）及 metadata_updated_at。NULL 默认字段／无覆盖语言键意味着继承文件版本的值。查询使用 COALESCE 与 JSONB 合并得到实际展示数据，成绩表与文件版本不改动。覆盖信息是作品级设置，未来替换版本功能需要明确继承／清除策略。详情见 [多语言与管理说明](LOCALIZATION.md)。
