@@ -27,3 +27,21 @@
 数量：1 个 TJA + 1 个 OGG。TJA 最大 2 MiB，OGG 最大 100 MiB，请求最大 105 MiB，说明最大 4000 字节。文本 UTF-8 或显式 Shift-JIS。音频要求单逻辑流 Ogg Vorbis、完整 CRC 与 EOS、可完整解码，时长不超过 20 分钟。最多两个上传同时处理。
 
 邮箱验证、修改说明、替换版本、管理员接口仍为规划项，本次未提供对应端点。
+
+## 谱面块的云端成绩资格
+
+上传成功、作品详情、公开列表与本人列表中的 `difficulties[]` 增加 `style` 和 `cloudScoreEligible`，已有 `course`、`level`、`blockIndex`、`player` 字段保留。例如：
+
+```json
+[
+  {"course":"Oni","level":7,"blockIndex":0,"player":"","style":"Single","cloudScoreEligible":true},
+  {"course":"Oni","level":7,"blockIndex":1,"player":"P1","style":"Double","cloudScoreEligible":false},
+  {"course":"Oni","level":7,"blockIndex":2,"player":"P2","style":"Double","cloudScoreEligible":false}
+]
+```
+
+后端解析 STYLE 值时不区分大小写，支持 Single/0、Double/1 和 ESE 中的 Duet（按 Double）。STYLE 在当前 COURSE 内持续生效直到下一次 STYLE 声明，每次 COURSE 声明恢复默认 Single；P1/P2 块无论 STYLE 如何均按 Double。未知 STYLE 或在谱面块内部声明 STYLE 返回 422 `TJA_STRUCTURE_INVALID`，包含行号。后端校验版本为 `tja-upload-v2`；前端当前仍执行 v1 基础预检，新增 STYLE 规则由后端权威校验。
+
+Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:false` 不是上传错误。同一 TJA 的每个块独立判定，不能因含 Double 而禁用整个作品的 Single 块。资格从数据库返回，上传请求不接受客户端指定 style 或资格。
+
+成绩提交与排行榜接口尚未实现。未来接入时必须根据服务端目标版本和块标识检查资格，拒绝 Double 的成绩；客户端不得通过选择 P1/P2 或自行报告 Single 来绕过检查。`cloudScoreEligible:true` 也不代表目前已经开放成绩上传。

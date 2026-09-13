@@ -40,6 +40,7 @@ python3 scripts/demo.py seed
 ```sh
 go test ./...
 go vet ./...
+DATABASE_TEST_URL='postgres://localhost/ourtaiko_fanmade?host=/tmp&sslmode=disable' go test ./internal/database -v
 ESE_ROOT=~/Documents/GitHub/ESE go test ./internal/tja -v
 # API 运行中，读取真实 ESE 文件，创建测试账号并在结束时软删除测试作品：
 python3 scripts/demo.py test
@@ -58,6 +59,8 @@ python3 scripts/demo.py test
 正式注册要求绑定并验证邮箱，当前明确暂缓：只实现用户名 / 密码注册，`email` 与 `email_verified_at` 均保持空值，无发送邮件、验证链接、找回密码或已验证账号权限限制。当前不面向公网开放。
 
 本示范版支持一个 TJA + 一个 Vorbis OGG，TJA 中可有多个难度、P1 / P2 和 Tower。`#NEXTSONG` 多音频谱暂不支持；不承诺完整游戏命令语义。试听在负数 DEMOSTART 时从 0 开始，不改写 TJA。
+
+DOUBLE 谱面不记录云端成绩，但仍可上传与下载。后端按块解析 STYLE 和 P1/P2，API 返回 `style` 与 `cloudScoreEligible`；混合文件的单人块保留资格。迁移 003 会读取 `STORAGE_DIR` 的已有 TJA 回填资格，因此迁移时必须提供配套资源目录；失败会事务回滚。当前未实现成绩提交接口，资格标记供后续游戏接入使用。数据库测试仅创建并清理临时 schema，不修改应用表。
 
 后续功能：邮箱验证、替换资源版本、管理员界面、评论收藏、游戏接入、自动清理与备份。示范版软删除后停止公开访问，保留数据库和资源供开发检查。上传失败通常自动清理；数据库 COMMIT 结果不确定或进程崩溃时保留文件供核对，暂未实现后台孤儿文件回收。请同时备份数据库和 `.data/files`。
 
