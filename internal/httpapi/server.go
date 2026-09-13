@@ -87,6 +87,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/upload-rules", func(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, map[string]any{"validationVersion": tja.Version, "maxTjaBytes": tja.MaxTJA, "maxAudioBytes": tja.MaxAudio, "encodings": []string{"utf-8", "shift-jis"}, "audioCodecs": []string{"vorbis"}})
 	})
+	mux.HandleFunc("POST /api/v1/game/login", s.login)
+	mux.HandleFunc("GET /api/v1/game/bootstrap", s.gameBootstrap)
+	mux.HandleFunc("POST /api/v1/game/scores", s.submitScore)
 	mux.HandleFunc("POST /api/v1/auth/register", s.register)
 	mux.HandleFunc("POST /api/v1/auth/login", s.login)
 	mux.HandleFunc("POST /api/v1/auth/logout", s.logout)
@@ -104,7 +107,7 @@ func (s *Server) Handler() http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Cache-Control", "no-store")
 		if r.Method != "GET" && r.Method != "HEAD" {
-			if r.Header.Get("Origin") != s.Config.Origin {
+			if (isGameRequest(r) && r.Header.Get("Origin") != "") || (!isGameRequest(r) && r.Header.Get("Origin") != s.Config.Origin) {
 				problem(w, 403, "ORIGIN_INVALID", "请求来源无效，请从本站页面操作")
 				return
 			}

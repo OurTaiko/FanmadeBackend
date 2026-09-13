@@ -99,3 +99,14 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
 编辑仅改变网站展示与搜索，下载仍是原始 TJA，已保存成绩和 versionId 不变。前端详情页已提供作者／管理员可见的编辑弹窗。
 
 用户对象新增 `isAdmin` 布尔值，来自数据库。PATCH 编辑权限为作者或管理员，其余登录用户返回 403；匿名返回 401。管理员同样要求 Origin 与 CSRF。角色不能在注册或编辑请求中指定，管理方式见 [管理员说明](ADMIN.md)。
+
+## 原生游戏接入（Fanmade v1）
+
+原生客户端使用独立 Bearer 会话，不发送浏览器的 Origin、Cookie 或 CSRF token。浏览器接口保留原有 Origin/CSRF 校验；两类 token 不能互换。所有非 GET 请求仍有每 IP 每分钟 40 次限制。公网部署使用 HTTPS。
+
+- `POST /api/v1/game/login`：JSON `{ "username": "...", "password": "..." }`，返回 `user`、`accessToken`、`expiresIn`（604800 秒）。无 Set-Cookie。后续原生请求使用 `Authorization: Bearer <accessToken>`。
+- `GET /api/v1/game/bootstrap`：返回 `{ "user": {...}, "charts": [...], "scores": [...] }`，在同一个 PostgreSQL repeatable-read 快照中读取全部已发布歌曲（完整详情字段、翻译、难度、文件 SHA-256）以及**当前登录用户**的全部历史成绩。历史版本成绩保留；当前难度展示最佳成绩时按 songId/versionId/difficulty 筛选。当前示范版为一次性完整快照，超大曲库后续改用快照分页/增量同步。
+- 原始文件继续使用 `GET /api/v1/charts/{id}/versions/{version}/{tja|audio}`。加载前重新获取 `GET /api/v1/charts/{id}` 核对 versionId 与哈希，文件下载后必须核对 SHA-256。
+- `POST /api/v1/game/scores`：七项原有字段加**必填** `versionId`，并使用每次游玩固定的 `Idempotency-Key`。字段示例：`{"songId":"<32 hex>","versionId":"<32 hex>","difficulty":"Oni","good":300,"ok":10,"bad":2,"score":900000,"drumroll":50}`。DOUBLE 仍不支持云端成绩。版本变化返回 `409 CHART_VERSION_CHANGED`，不将旧成绩写到新版本。临时失败重试时保持请求体和 key 不变。
+
+原有 `POST /api/v1/scores` 也接受可选 `versionId`，旧七字段请求保持兼容。原生会话在 sessions 表中使用 `SHA256("game:" + token)` 存储，浏览器会话仍使用 `SHA256(token)`，无需数据库迁移。

@@ -16,6 +16,7 @@ import (
 // Pointers distinguish required zero-valued counts from missing/null fields.
 type scoreSubmission struct {
 	SongID     string `json:"songId"`
+	VersionID  string `json:"versionId,omitempty"`
 	Difficulty string `json:"difficulty"`
 	Good       *int64 `json:"good"`
 	OK         *int64 `json:"ok"`
@@ -42,7 +43,7 @@ type Score struct {
 var songIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
 func (v *scoreSubmission) valid() bool {
-	if !songIDPattern.MatchString(v.SongID) {
+	if !songIDPattern.MatchString(v.SongID) || (v.VersionID != "" && !songIDPattern.MatchString(v.VersionID)) {
 		return false
 	}
 	courses := map[string]string{"easy": "Easy", "normal": "Normal", "hard": "Hard", "oni": "Oni", "edit": "Edit", "ura": "Edit", "tower": "Tower", "dan": "Dan"}
@@ -89,7 +90,7 @@ func (s *Server) submitScore(w http.ResponseWriter, r *http.Request) {
 		problem(w, 400, "REQUEST_INVALID", "请求只能包含一个 JSON 对象")
 		return
 	}
-	if !input.valid() {
+	if !input.valid() || (isGameRequest(r) && input.VersionID == "") {
 		problem(w, 422, "SCORE_INVALID", "需要有效的歌曲 ID、难度和全部五项非负整数；计数上限 2147483647，分数上限 9007199254740991")
 		return
 	}
@@ -140,6 +141,10 @@ func (s *Server) submitScore(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		internal(w, err)
+		return
+	}
+	if input.VersionID != "" && input.VersionID != version {
+		problem(w, 409, "CHART_VERSION_CHANGED", "谱面版本已更新，请刷新曲库后游玩；本次成绩不会归到新版本")
 		return
 	}
 	rows, err := tx.Query(r.Context(), `SELECT block_index,cloud_score_eligible FROM difficulties WHERE version_id=$1 AND course=$2 ORDER BY block_index FOR SHARE`, version, input.Difficulty)

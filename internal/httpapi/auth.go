@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -31,14 +32,21 @@ type credentials struct {
 
 func (s *Server) current(r *http.Request) (session, error) {
 	var v session
-	c, e := r.Cookie("ourtaiko_session")
-	if e != nil {
-		return v, pgx.ErrNoRows
+	var digest string
+	if isGameRequest(r) {
+		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !ok || len(token) != 64 {
+			return v, pgx.ErrNoRows
+		}
+		digest = hash("game:" + token)
+	} else {
+		c, e := r.Cookie("ourtaiko_session")
+		if e != nil || len(c.Value) != 64 {
+			return v, pgx.ErrNoRows
+		}
+		digest = hash(c.Value)
 	}
-	if len(c.Value) != 64 {
-		return v, pgx.ErrNoRows
-	}
-	e = s.DB.QueryRow(r.Context(), `SELECT u.id,u.username,u.email_verified_at IS NOT NULL,u.is_admin,s.csrf_token FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now()`, hash(c.Value)).Scan(&v.User.ID, &v.User.Username, &v.User.EmailVerified, &v.User.IsAdmin, &v.CSRF)
+	e := s.DB.QueryRow(r.Context(), `SELECT u.id,u.username,u.email_verified_at IS NOT NULL,u.is_admin,s.csrf_token FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now()`, digest).Scan(&v.User.ID, &v.User.Username, &v.User.EmailVerified, &v.User.IsAdmin, &v.CSRF)
 	return v, e
 }
 func (s *Server) required(w http.ResponseWriter, r *http.Request, csrf bool) (session, bool) {
@@ -51,7 +59,7 @@ func (s *Server) required(w http.ResponseWriter, r *http.Request, csrf bool) (se
 		}
 		return v, false
 	}
-	if csrf && r.Header.Get("X-CSRF-Token") != v.CSRF {
+	if csrf && !isGameRequest(r) && r.Header.Get("X-CSRF-Token") != v.CSRF {
 		problem(w, 403, "CSRF_INVALID", "会话已更新，请刷新页面后重试")
 		return v, false
 	}
@@ -71,9 +79,17 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) issue(w http.ResponseWriter, r *http.Request, u User) {
 	token, csrf := ID()+ID(), ID()+ID()
-	_, e := s.DB.Exec(r.Context(), `INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at) VALUES($1,$2,$3,$4)`, hash(token), u.ID, csrf, time.Now().Add(7*24*time.Hour))
+	digest := hash(token)
+	if isGameRequest(r) {
+		digest = hash("game:" + token)
+	}
+	_, e := s.DB.Exec(r.Context(), `INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at) VALUES($1,$2,$3,$4)`, digest, u.ID, csrf, time.Now().Add(7*24*time.Hour))
 	if e != nil {
 		internal(w, e)
+		return
+	}
+	if isGameRequest(r) {
+		respond(w, 200, map[string]any{"user": u, "accessToken": token, "expiresIn": 7 * 86400})
 		return
 	}
 	if old, e := r.Cookie("ourtaiko_session"); e == nil {

@@ -95,6 +95,37 @@ func TestSubmitScore(t *testing.T) {
 		t.Fatal(err)
 	}
 	handler := New(pool, Config{Origin: origin}).Handler()
+	nativeToken := strings.Repeat("c", 64)
+	if _, err = pool.Exec(ctx, `INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at) VALUES($1,'u','',now()+interval '1 day')`, hash("game:"+nativeToken)); err != nil {
+		t.Fatal(err)
+	}
+	native := func(method, path, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		r.Header.Set("Authorization", "Bearer "+nativeToken)
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Idempotency-Key", "game-integration-score-1")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
+	}
+	gameBody := `{"songId":"` + song + `","versionId":"` + version + `","difficulty":"Oni","good":5,"ok":1,"bad":0,"score":6000,"drumroll":2}`
+	if w := native("POST", "/api/v1/game/scores", strings.Replace(gameBody, version, strings.Repeat("d", 32), 1)); w.Code != 409 || !strings.Contains(w.Body.String(), "CHART_VERSION_CHANGED") {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if w := native("POST", "/api/v1/game/scores", gameBody); w.Code != 201 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if w := native("POST", "/api/v1/game/scores", gameBody); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if w := native("GET", "/api/v1/game/bootstrap", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"good":5`) {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	// Leave the existing count assertions isolated from this native submission.
+	if _, err = pool.Exec(ctx, `DELETE FROM scores WHERE idempotency_key='game-integration-score-1'`); err != nil {
+		t.Fatal(err)
+	}
+
 	body := `{"songId":"` + song + `","difficulty":"Oni","good":300,"ok":10,"bad":2,"score":900000,"drumroll":50}`
 	call := func(body, key, token string, headers map[string]string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("POST", "/api/v1/scores", strings.NewReader(body))
