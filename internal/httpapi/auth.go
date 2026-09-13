@@ -15,6 +15,7 @@ type User struct {
 	ID            string `json:"id"`
 	Username      string `json:"username"`
 	EmailVerified bool   `json:"emailVerified"`
+	IsAdmin       bool   `json:"isAdmin"`
 }
 type session struct {
 	User User
@@ -37,7 +38,7 @@ func (s *Server) current(r *http.Request) (session, error) {
 	if len(c.Value) != 64 {
 		return v, pgx.ErrNoRows
 	}
-	e = s.DB.QueryRow(r.Context(), `SELECT u.id,u.username,u.email_verified_at IS NOT NULL,s.csrf_token FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now()`, hash(c.Value)).Scan(&v.User.ID, &v.User.Username, &v.User.EmailVerified, &v.CSRF)
+	e = s.DB.QueryRow(r.Context(), `SELECT u.id,u.username,u.email_verified_at IS NOT NULL,u.is_admin,s.csrf_token FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now()`, hash(c.Value)).Scan(&v.User.ID, &v.User.Username, &v.User.EmailVerified, &v.User.IsAdmin, &v.CSRF)
 	return v, e
 }
 func (s *Server) required(w http.ResponseWriter, r *http.Request, csrf bool) (session, bool) {
@@ -118,7 +119,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	var u User
 	var h string
-	e := s.DB.QueryRow(r.Context(), `SELECT id,username,password_hash,email_verified_at IS NOT NULL FROM users WHERE username=$1`, c.Username).Scan(&u.ID, &u.Username, &h, &u.EmailVerified)
+	e := s.DB.QueryRow(r.Context(), `SELECT id,username,password_hash,email_verified_at IS NOT NULL,is_admin FROM users WHERE username=$1`, c.Username).Scan(&u.ID, &u.Username, &h, &u.EmailVerified, &u.IsAdmin)
 	if e != nil && !errors.Is(e, pgx.ErrNoRows) {
 		internal(w, e)
 		return

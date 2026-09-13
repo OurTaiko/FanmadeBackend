@@ -129,8 +129,8 @@ func (s *Server) editMetadata(w http.ResponseWriter, r *http.Request) {
 		internal(w, err)
 		return
 	}
-	if owner != u.User.ID {
-		problem(w, 403, "FORBIDDEN", "只能修改自己的作品")
+	if owner != u.User.ID && !u.User.IsAdmin {
+		problem(w, 403, "FORBIDDEN", "只有作品作者或网站管理员可以修改信息")
 		return
 	}
 	if !patch.apply(&overrides) {
