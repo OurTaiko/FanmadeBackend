@@ -37,7 +37,7 @@ type Chart struct {
 	tja.Metadata
 }
 
-const chartSelect = `SELECT c.id,c.owner_id,u.username,v.id,c.description,c.created_at,v.duration,v.encoding,tf.original_filename,af.original_filename,tf.sha256,af.sha256,af.byte_size,tf.storage_key,af.storage_key,v.title,v.subtitle,v.maker,v.bpm,v.offset_seconds,v.demo_start,v.wave_filename,v.title_translations,v.subtitle_translations,
+const chartSelect = `SELECT c.id,c.owner_id,u.username,v.id,c.description,c.created_at,v.duration,v.encoding,tf.original_filename,af.original_filename,tf.sha256,af.sha256,af.byte_size,tf.storage_key,af.storage_key,COALESCE(c.title_override,v.title),COALESCE(c.subtitle_override,v.subtitle),v.maker,v.bpm,v.offset_seconds,v.demo_start,v.wave_filename,v.title_translations || c.title_translation_overrides,v.subtitle_translations || c.subtitle_translation_overrides,
  COALESCE((SELECT jsonb_agg(jsonb_build_object('course',d.course,'level',d.level,'blockIndex',d.block_index,'player',d.player,'style',d.style,'cloudScoreEligible',d.cloud_score_eligible) ORDER BY d.block_index) FROM difficulties d WHERE d.version_id=v.id),'[]'::jsonb)
  FROM charts c JOIN users u ON u.id=c.owner_id JOIN chart_versions v ON v.id=c.current_version_id JOIN files tf ON tf.id=v.tja_file_id JOIN files af ON af.id=v.audio_file_id `
 
@@ -76,7 +76,9 @@ func (s *Server) listFor(w http.ResponseWriter, r *http.Request, owner string) {
 		return
 	}
 	course := r.URL.Query().Get("course")
-	where := ` WHERE c.status='published' AND ($1='' OR v.title ILIKE '%'||$1||'%' OR v.maker ILIKE '%'||$1||'%' OR u.username ILIKE '%'||$1||'%') AND ($2='' OR c.owner_id=$2) AND ($3='' OR EXISTS(SELECT 1 FROM difficulties d WHERE d.version_id=v.id AND d.course=$3))`
+	where := ` WHERE c.status='published' AND ($1='' OR COALESCE(c.title_override,v.title) ILIKE '%'||$1||'%' OR COALESCE(c.subtitle_override,v.subtitle) ILIKE '%'||$1||'%' OR v.maker ILIKE '%'||$1||'%' OR u.username ILIKE '%'||$1||'%'
+	 OR EXISTS(SELECT 1 FROM jsonb_each_text(v.title_translations || c.title_translation_overrides) t WHERE t.value ILIKE '%'||$1||'%')
+	 OR EXISTS(SELECT 1 FROM jsonb_each_text(v.subtitle_translations || c.subtitle_translation_overrides) t WHERE t.value ILIKE '%'||$1||'%')) AND ($2='' OR c.owner_id=$2) AND ($3='' OR EXISTS(SELECT 1 FROM difficulties d WHERE d.version_id=v.id AND d.course=$3))`
 	var total int
 	if e := s.DB.QueryRow(r.Context(), `SELECT count(*) FROM charts c JOIN chart_versions v ON v.id=c.current_version_id JOIN users u ON u.id=c.owner_id`+where, q, owner, course).Scan(&total); e != nil {
 		internal(w, e)
