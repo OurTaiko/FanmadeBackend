@@ -73,7 +73,7 @@ func TestCloudScoreMigration(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=3)`).Scan(&migrated); err != nil || migrated {
 		t.Fatalf("partial migration: %v", err)
 	}
-	data := "TITLE:Test\nBPM:120\nWAVE:music.ogg\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\nSTYLE:Double\n#START\n1000,\n#END\n#START P2\n2000,\n#END\n"
+	data := "TITLE:Test\nTITLEJA:日本語\nSUBTITLEZH:副标题\nBPM:120\nWAVE:music.ogg\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\nSTYLE:Double\n#START\n1000,\n#END\n#START P2\n2000,\n#END\n"
 	data += "COURSE:Easy\nLEVEL:3\n#START\n1000,\n#END\n"
 	if err = os.WriteFile(filepath.Join(storage, "chart.tja"), []byte(data), 0600); err != nil {
 		t.Fatal(err)
@@ -82,6 +82,10 @@ func TestCloudScoreMigration(t *testing.T) {
 		if err = Migrate(ctx, pool, storage); err != nil {
 			t.Fatal(err)
 		}
+	}
+	var title, subtitle string
+	if err = pool.QueryRow(ctx, `SELECT title_translations->>'ja',subtitle_translations->>'zh' FROM chart_versions WHERE id='v'`).Scan(&title, &subtitle); err != nil || title != "日本語" || subtitle != "副标题" {
+		t.Fatalf("localized backfill: %s %s %v", title, subtitle, err)
 	}
 	rows, err := pool.Query(ctx, `SELECT style,cloud_score_eligible FROM difficulties ORDER BY block_index`)
 	if err != nil {

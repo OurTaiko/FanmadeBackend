@@ -15,7 +15,7 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-const Version = "tja-upload-v3"
+const Version = "tja-upload-v4"
 const MaxTJA = 2 * 1024 * 1024
 const MaxAudio = 100 * 1024 * 1024
 
@@ -41,14 +41,16 @@ type Difficulty struct {
 	CloudScoreEligible bool   `json:"cloudScoreEligible"`
 }
 type Metadata struct {
-	Title        string       `json:"title"`
-	Subtitle     string       `json:"subtitle"`
-	Maker        string       `json:"maker"`
-	BPM          float64      `json:"bpm"`
-	Offset       float64      `json:"offset"`
-	DemoStart    float64      `json:"demoStart"`
-	Wave         string       `json:"wave"`
-	Difficulties []Difficulty `json:"difficulties"`
+	Title                string            `json:"title"`
+	Subtitle             string            `json:"subtitle"`
+	TitleTranslations    map[string]string `json:"titleTranslations"`
+	SubtitleTranslations map[string]string `json:"subtitleTranslations"`
+	Maker                string            `json:"maker"`
+	BPM                  float64           `json:"bpm"`
+	Offset               float64           `json:"offset"`
+	DemoStart            float64           `json:"demoStart"`
+	Wave                 string            `json:"wave"`
+	Difficulties         []Difficulty      `json:"difficulties"`
 }
 
 func SafeFilename(s string) bool {
@@ -64,6 +66,7 @@ func SafeFilename(s string) bool {
 }
 
 var number = regexp.MustCompile(`^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)$`)
+var localizedFields = map[string]string{"TITLEJA": "ja", "TITLEZH": "zh", "TITLEKO": "ko", "SUBTITLEJA": "ja", "SUBTITLEZH": "zh", "SUBTITLEKO": "ko"}
 
 func numeric(s string) (float64, bool) {
 	n, e := strconv.ParseFloat(s, 64)
@@ -71,7 +74,7 @@ func numeric(s string) (float64, bool) {
 }
 
 func Parse(data []byte, encoding, audioName string) (Metadata, *Issue) {
-	m := Metadata{Difficulties: []Difficulty{}}
+	m := Metadata{Difficulties: []Difficulty{}, TitleTranslations: map[string]string{}, SubtitleTranslations: map[string]string{}}
 	if len(data) == 0 || len(data) > MaxTJA {
 		return m, fail("FILE_SIZE_INVALID", "TJA 不能为空且不能超过 2 MiB", 0)
 	}
@@ -152,6 +155,21 @@ func Parse(data []byte, encoding, audioName string) (Metadata, *Issue) {
 		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
 		upper := strings.ToUpper(key)
+		if locale, ok := localizedFields[key]; ok {
+			if started || seen[key] {
+				return m, fail("TJA_STRUCTURE_INVALID", key+" 必须在谱面开始前且只声明一次", line)
+			}
+			if len(value) > 500 {
+				return m, fail("TJA_STRUCTURE_INVALID", "元数据字段过长", line)
+			}
+			seen[key] = true
+			if strings.HasPrefix(key, "SUBTITLE") {
+				m.SubtitleTranslations[locale] = value
+			} else {
+				m.TitleTranslations[locale] = value
+			}
+			continue
+		}
 		if upper == "STYLE" {
 			if inBlock {
 				return m, fail("TJA_STRUCTURE_INVALID", "STYLE 必须位于谱面块之外", line)

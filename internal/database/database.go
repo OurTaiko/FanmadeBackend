@@ -24,6 +24,9 @@ var cloudScoreSchema string
 //go:embed 005_scores.sql
 var scoresSchema string
 
+//go:embed 006_localized_titles.sql
+var localizedTitlesSchema string
+
 func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	pool, err := pgxpool.New(ctx, url)
 	if err != nil {
@@ -111,7 +114,60 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, storage string) error {
 			return err
 		}
 	}
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=6)`).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		if _, err = tx.Exec(ctx, localizedTitlesSchema); err != nil {
+			return fmt.Errorf("migration 006: %w", err)
+		}
+		if err = backfillLocalizedTitles(ctx, tx, storage); err != nil {
+			return fmt.Errorf("migration 006: %w", err)
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES(6)`); err != nil {
+			return err
+		}
+	}
 	return tx.Commit(ctx)
+}
+
+func backfillLocalizedTitles(ctx context.Context, tx pgx.Tx, storage string) error {
+	rows, err := tx.Query(ctx, `SELECT v.id,v.encoding,v.wave_filename,f.storage_key FROM chart_versions v JOIN files f ON f.id=v.tja_file_id`)
+	if err != nil {
+		return err
+	}
+	type version struct{ id, encoding, wave, key string }
+	versions := []version{}
+	for rows.Next() {
+		var v version
+		if err = rows.Scan(&v.id, &v.encoding, &v.wave, &v.key); err != nil {
+			rows.Close()
+			return err
+		}
+		versions = append(versions, v)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	for _, v := range versions {
+		if !filepath.IsLocal(v.key) {
+			return fmt.Errorf("invalid storage key for version %s", v.id)
+		}
+		data, err := os.ReadFile(filepath.Join(storage, v.key))
+		if err != nil {
+			return fmt.Errorf("read version %s: %w", v.id, err)
+		}
+		meta, issue := tja.Parse(data, v.encoding, v.wave)
+		if issue != nil {
+			return fmt.Errorf("parse version %s: %w", v.id, issue)
+		}
+		if _, err = tx.Exec(ctx, `UPDATE chart_versions SET title_translations=$2,subtitle_translations=$3 WHERE id=$1`, v.id, meta.TitleTranslations, meta.SubtitleTranslations); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Old rows only recorded P1/P2, so STYLE:Double with a plain #START must be
