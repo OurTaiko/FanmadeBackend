@@ -24,6 +24,20 @@ API 默认监听 `http://127.0.0.1:8080`，前端默认地址 `http://127.0.0.1:
 
 本机现有 PostgreSQL 使用 trust，本次未改认证文件或创建开机启动项。示范版默认仅监听 loopback。正式部署应配置数据库最小权限账号、密码认证、HTTPS 与安全 Cookie。
 
+## 局域网真机测试
+
+在本仓库目录用以下命令监听局域网：
+
+```sh
+LISTEN_ADDR=0.0.0.0:8080 go run ./cmd/server
+```
+
+手机和 Mac 连接同一个局域网，游戏配置的 `base_url` 填 `http://<Mac 的局域网 IP>:8080`。`0.0.0.0` 是监听地址，不能作为真机的服务器地址；真机上的 `127.0.0.1` 指向真机自己。Mac 可用 `ipconfig getifaddr en0` 查询 Wi-Fi IPv4 地址。
+
+真机浏览器打开 `http://<Mac IP>:8080/readyz`，返回 `{"ok":true}` 表示 API 和数据库可用。游戏使用 `/api/v1/game/login` 和 Bearer token，不发送浏览器 Origin/CSRF；网站仍可通过本机 Vite 代理访问。数据库连接继续使用本机 Unix socket。
+
+本机后台测试服务使用 `dev.ourtaiko.fanmade.api` 这个 launchd label，日志为 `.data/api.stdout.log` 和 `.data/api.stderr.log`。使用 `launchctl remove dev.ourtaiko.fanmade.api` 可停止；这是本次登录会话的后台进程，没有安装开机启动项。
+
 ## ESE 演示数据
 
 ```sh
@@ -65,8 +79,8 @@ python3 scripts/metadata_smoke.py
 
 DOUBLE 谱面不记录云端成绩，但仍可上传与下载。后端按块解析 STYLE 和 P1/P2，API 返回 `style` 与 `cloudScoreEligible`；混合文件的单人块保留资格。迁移 003 会读取 `STORAGE_DIR` 的已有 TJA 回填资格，因此迁移时必须提供配套资源目录；失败会事务回滚。已提供 `POST /api/v1/scores`，提交歌曲 ID、难度、良／可／不可、总分及连打数；复用登录会话与 CSRF，可选幂等键防止重试重复保存，详情见 API 文档。当前记录客户端上报值，未重算成绩或实现排行榜。每个 TJA 的同一难度最多一个单人谱，重复在上传时返回带行号的 422。数据库测试仅创建并清理临时 schema，不修改应用表。
 
-后续功能：邮箱验证、替换资源版本、管理员界面、评论收藏、游戏接入、自动清理与备份。示范版软删除后停止公开访问，保留数据库和资源供开发检查。上传失败通常自动清理；数据库 COMMIT 结果不确定或进程崩溃时保留文件供核对，暂未实现后台孤儿文件回收。请同时备份数据库和 `.data/files`。
+后续功能：邮箱验证、替换资源版本、管理员界面、评论收藏、自动清理与备份。示范版软删除后停止公开访问，保留数据库和资源供开发检查。上传失败通常自动清理；数据库 COMMIT 结果不确定或进程崩溃时保留文件供核对，暂未实现后台孤儿文件回收。请同时备份数据库和 `.data/files`。
 
-所有变更使用 Conventional Commits。当前仓库只在本地初始化，未配置远程或推送。
+所有变更使用 Conventional Commits。远端仓库：[OurTaiko/Fanmade_Backend](https://github.com/OurTaiko/Fanmade_Backend)，使用 `ourtaiko` 远端管理。
 
 后端已解析 TITLE/SUBTITLE 的 JA、ZH、KO 字段并回填旧谱面；默认字段按英文保存。作者或管理员可用 `PATCH /api/v1/charts/{id}` 修改默认及多语言名称、副标题，支持 null 恢复原值。修改只影响网站元数据和搜索，原始 TJA、文件版本与成绩不变；前端详情页已提供编辑弹窗。[管理员配置说明](docs/ADMIN.md)。
