@@ -99,6 +99,7 @@ def smoke():
   status, conflict, _ = client.upload(SAMPLES[5],key)
   assert status == 409 and conflict['code'] == 'IDEMPOTENCY_CONFLICT'
   assert len(chart['difficulties']) == 5 and chart['ownerId'] == user['id']
+  assert all(d['style'] == 'Single' and d['cloudScoreEligible'] is True for d in chart['difficulties'])
   suffix=f"/charts/{chart['id']}/versions/{chart['versionId']}"
   status, archive, _ = client.call('GET',suffix+'/download'); assert status == 200
   z=zipfile.ZipFile(io.BytesIO(archive)); original=ESE/rel
@@ -114,6 +115,27 @@ def smoke():
  finally:
   status, _, _ = client.call('DELETE','/charts/'+chart['id'],{}); assert status == 200
  status, _, _ = client.call('GET',suffix+'/download'); assert status == 404
+ # A mixed ESE file remains downloadable; only its Single blocks qualify.
+ status, mixed, _ = client.upload(SAMPLES[2])
+ assert status == 201, (status, mixed)
+ try:
+  blocks = mixed['difficulties']
+  assert any(d['style'] == 'Single' and d['cloudScoreEligible'] for d in blocks)
+  assert any(d['player'] == 'P1' for d in blocks) and any(d['player'] == 'P2' for d in blocks)
+  assert all(d['style'] == 'Double' and d['cloudScoreEligible'] is False for d in blocks if d['player'])
+  status, detail, _ = client.call('GET', '/charts/'+mixed['id'])
+  assert status == 200 and detail['difficulties'] == blocks
+  status, listed, _ = client.call('GET', '/me/charts')
+  assert status == 200 and next(c for c in listed['items'] if c['id'] == mixed['id'])['difficulties'] == blocks
+  status, archive, _ = client.call('GET', f"/charts/{mixed['id']}/versions/{mixed['versionId']}/download")
+  assert status == 200
+  original = ESE / SAMPLES[2]
+  with zipfile.ZipFile(io.BytesIO(archive)) as z:
+   assert z.read(original.name) == original.read_bytes()
+   assert z.read(mixed['wave']) == (original.parent/mixed['wave']).read_bytes()
+  print('PASS mixed Single/Double eligibility on upload, detail and list; original ZIP preserved')
+ finally:
+  status, _, _ = client.call('DELETE','/charts/'+mixed['id'],{}); assert status == 200
  status, _, _ = client.call('POST','/auth/logout',{}); assert status == 200
  status, result, _ = client.call('GET','/me'); assert result['user'] is None
  print('PASS deletion revokes downloads and logout revokes session')

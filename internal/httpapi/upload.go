@@ -226,7 +226,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, d := range meta.Difficulties {
-		if _, e = tx.Exec(r.Context(), `INSERT INTO difficulties(version_id,block_index,course,level,player) VALUES($1,$2,$3,$4,$5)`, versionID, d.BlockIndex, d.Course, d.Level, d.Player); e != nil {
+		if _, e = tx.Exec(r.Context(), `INSERT INTO difficulties(version_id,block_index,course,level,player,style) VALUES($1,$2,$3,$4,$5,$6)`, versionID, d.BlockIndex, d.Course, d.Level, d.Player, d.Style); e != nil {
 			internal(w, e)
 			return
 		}

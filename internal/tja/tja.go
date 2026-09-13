@@ -15,7 +15,7 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-const Version = "tja-upload-v1"
+const Version = "tja-upload-v2"
 const MaxTJA = 2 * 1024 * 1024
 const MaxAudio = 100 * 1024 * 1024
 
@@ -33,10 +33,12 @@ func fail(code, message string, line int) *Issue {
 }
 
 type Difficulty struct {
-	Course     string `json:"course"`
-	Level      int    `json:"level"`
-	BlockIndex int    `json:"blockIndex"`
-	Player     string `json:"player"`
+	Course             string `json:"course"`
+	Level              int    `json:"level"`
+	BlockIndex         int    `json:"blockIndex"`
+	Player             string `json:"player"`
+	Style              string `json:"style"`
+	CloudScoreEligible bool   `json:"cloudScoreEligible"`
 }
 type Metadata struct {
 	Title        string       `json:"title"`
@@ -94,6 +96,7 @@ func Parse(data []byte, encoding, audioName string) (Metadata, *Issue) {
 	waveLine, waves := 0, 0
 	started, inBlock, hasNotes := false, false, false
 	course, level := "Oni", 0
+	style := "Single"
 	seen := map[string]bool{}
 	courses := map[string]string{"0": "Easy", "1": "Normal", "2": "Hard", "3": "Oni", "4": "Edit", "easy": "Easy", "normal": "Normal", "hard": "Hard", "oni": "Oni", "edit": "Edit", "tower": "Tower", "dan": "Dan", "5": "Tower", "6": "Dan"}
 	for i, raw := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
@@ -113,7 +116,16 @@ func Parse(data []byte, encoding, audioName string) (Metadata, *Issue) {
 				return m, fail("TJA_STRUCTURE_INVALID", "每个谱面需要 LEVEL:1–10 和独立的 #START / #END", line)
 			}
 			started, inBlock, hasNotes = true, true, false
-			m.Difficulties = append(m.Difficulties, Difficulty{course, level, len(m.Difficulties), strings.TrimSpace(strings.TrimPrefix(s, "#START"))})
+			player := strings.TrimSpace(strings.TrimPrefix(s, "#START"))
+			blockStyle := style
+			// Player-labelled blocks never qualify, even without STYLE:Double.
+			if player != "" {
+				blockStyle = "Double"
+			}
+			m.Difficulties = append(m.Difficulties, Difficulty{
+				Course: course, Level: level, BlockIndex: len(m.Difficulties), Player: player,
+				Style: blockStyle, CloudScoreEligible: blockStyle == "Single" && player == "",
+			})
 			continue
 		}
 		if s == "#END" {
@@ -133,6 +145,20 @@ func Parse(data []byte, encoding, audioName string) (Metadata, *Issue) {
 		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
 		upper := strings.ToUpper(key)
+		if upper == "STYLE" {
+			if inBlock {
+				return m, fail("TJA_STRUCTURE_INVALID", "STYLE 必须位于谱面块之外", line)
+			}
+			switch strings.ToLower(value) {
+			case "single", "0":
+				style = "Single"
+			case "double", "duet", "1":
+				style = "Double"
+			default:
+				return m, fail("TJA_STRUCTURE_INVALID", "STYLE 需要 Single / Double（或 0 / 1）", line)
+			}
+			continue
+		}
 		if upper == "WAVE" {
 			if key != "WAVE" {
 				return m, fail("TJA_WAVE_INVALID", "请使用大写 WAVE:", line)

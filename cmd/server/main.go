@@ -28,7 +28,7 @@ func main() {
 		log.Fatal(err)
 	}
 	defer pool.Close()
-	if err = database.Migrate(ctx, pool); err != nil {
+	if err = database.Migrate(ctx, pool, env("STORAGE_DIR", ".data/files")); err != nil {
 		log.Fatal(err)
 	}
 	cancel()
