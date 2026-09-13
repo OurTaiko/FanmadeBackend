@@ -14,7 +14,7 @@
 | GET | /me/charts | 本人作品列表，查询参数与公开列表一致 |
 | POST | /charts | multipart：tja、audio、encoding（默认 utf-8）、description（可空）；首次创建 201，同请求重试 200 |
 | GET | /charts/{id} | 当前已发布版本详情 |
-| PATCH | /charts/{id} | 上传者修改默认英文及 ja/zh/ko 名称／副标题，返回更新后的作品 |
+| PATCH | /charts/{id} | 作者或管理员修改默认英文及 ja/zh/ko 名称／副标题，返回更新后的作品 |
 | DELETE | /charts/{id} | 本人软删除；后续资源访问返回 404 |
 | GET | /charts/{id}/versions/{version}/tja | 原始 TJA 字节，attachment |
 | GET | /charts/{id}/versions/{version}/audio | OGG，支持 Range / ETag |
@@ -96,4 +96,6 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
 
 `PATCH /api/v1/charts/{id}` 只接受四个字段：title、subtitle、titleTranslations、subtitleTranslations。登录上传者可以部分修改，缺省字段保持不变；null 恢复原文件值，副标题空字符串表示清空。JSON 请求需要现有 Cookie、Origin 与 X-CSRF-Token；成功 200 返回更新后的完整作品。返回 401 未登录、403 无所有权／CSRF／来源不正确、404 不存在或已下架、400 请求格式或未知字段错误、415 非 JSON、422 `METADATA_INVALID` 内容／语言／长度不合法。完整请求示例、逐语言恢复规则和存储边界见 [多语言与管理说明](LOCALIZATION.md)。
 
-编辑仅改变网站展示与搜索，下载仍是原始 TJA，已保存成绩和 versionId 不变。前端编辑表单尚未实现。
+编辑仅改变网站展示与搜索，下载仍是原始 TJA，已保存成绩和 versionId 不变。前端详情页已提供作者／管理员可见的编辑弹窗。
+
+用户对象新增 `isAdmin` 布尔值，来自数据库。PATCH 编辑权限为作者或管理员，其余登录用户返回 403；匿名返回 401。管理员同样要求 Origin 与 CSRF。角色不能在注册或编辑请求中指定，管理方式见 [管理员说明](ADMIN.md)。
