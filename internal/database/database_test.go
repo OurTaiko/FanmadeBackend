@@ -56,7 +56,7 @@ func TestCloudScoreMigration(t *testing.T) {
  INSERT INTO chart_versions(id,chart_id,version_number,title,bpm,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version)
  VALUES('v','c',1,'Test',120,10,'utf-8','music.ogg','t','a','tja-upload-v1');
  INSERT INTO difficulties(version_id,block_index,course,level,player)
- VALUES('v',0,'Oni',5,''),('v',1,'Oni',5,''),('v',2,'Oni',5,'P2');`)
+ VALUES('v',0,'Oni',5,''),('v',1,'Oni',5,''),('v',2,'Oni',5,'P2'),('v',3,'Easy',3,'');`)
 	if err != nil {
 		tx.Rollback(ctx)
 		t.Fatal(err)
@@ -74,6 +74,7 @@ func TestCloudScoreMigration(t *testing.T) {
 		t.Fatalf("partial migration: %v", err)
 	}
 	data := "TITLE:Test\nBPM:120\nWAVE:music.ogg\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\nSTYLE:Double\n#START\n1000,\n#END\n#START P2\n2000,\n#END\n"
+	data += "COURSE:Easy\nLEVEL:3\n#START\n1000,\n#END\n"
 	if err = os.WriteFile(filepath.Join(storage, "chart.tja"), []byte(data), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -94,17 +95,17 @@ func TestCloudScoreMigration(t *testing.T) {
 			t.Fatal(err)
 		}
 		expected := "Double"
-		if i == 0 {
+		if i == 0 || i == 3 {
 			expected = "Single"
 		}
-		if style != expected || eligible != (i == 0) {
+		if style != expected || eligible != (i == 0 || i == 3) {
 			t.Fatalf("block %d: %s %t", i, style, eligible)
 		}
 		i++
 	}
 	err = rows.Err()
 	rows.Close()
-	if err != nil || i != 3 {
+	if err != nil || i != 4 {
 		t.Fatalf("rows=%d error=%v", i, err)
 	}
 	if _, err = pool.Exec(ctx, `UPDATE difficulties SET cloud_score_eligible=true WHERE block_index=1`); err == nil {
@@ -112,5 +113,17 @@ func TestCloudScoreMigration(t *testing.T) {
 	}
 	if _, err = pool.Exec(ctx, `UPDATE difficulties SET style='Single' WHERE player='P2'`); err == nil {
 		t.Fatal("P2 must not become Single")
+	}
+	// Reproduce a database already migrated by the initial COURSE-leaking parser.
+	if _, err = pool.Exec(ctx, `UPDATE difficulties SET style='Double' WHERE block_index=3;
+	 DELETE FROM schema_migrations WHERE version=4`); err != nil {
+		t.Fatal(err)
+	}
+	if err = Migrate(ctx, pool, storage); err != nil {
+		t.Fatal(err)
+	}
+	var eligible bool
+	if err = pool.QueryRow(ctx, `SELECT cloud_score_eligible FROM difficulties WHERE block_index=3`).Scan(&eligible); err != nil || !eligible {
+		t.Fatalf("004 did not repair Easy: %v", err)
 	}
 }

@@ -121,6 +121,8 @@ def smoke():
  try:
   blocks = mixed['difficulties']
   assert any(d['style'] == 'Single' and d['cloudScoreEligible'] for d in blocks)
+  # Easy omits STYLE after the previous course's Double section.
+  assert all(d['style'] == 'Single' and d['cloudScoreEligible'] for d in blocks if d['course'] == 'Easy')
   assert any(d['player'] == 'P1' for d in blocks) and any(d['player'] == 'P2' for d in blocks)
   assert all(d['style'] == 'Double' and d['cloudScoreEligible'] is False for d in blocks if d['player'])
   status, detail, _ = client.call('GET', '/charts/'+mixed['id'])

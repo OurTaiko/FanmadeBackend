@@ -20,7 +20,7 @@ func TestCloudScoreEligibility(t *testing.T) {
 		{"mixed styles", single + "STYLE:Double\n" + p1 + p2 + "STYLE:Single\n" + single, []bool{true, false, false, true}},
 		{"numeric aliases", "STYLE:1\n" + single + "STYLE:0\n" + single, []bool{false, true}},
 		{"ESE duet alias", "STYLE:Duet\n" + p1 + p2, []bool{false, false}},
-		{"style persists across course", "STYLE:Double\n" + p1 + "COURSE:Hard\nLEVEL:4\n" + single, []bool{false, false}},
+		{"new course defaults single", "STYLE:Double\n" + p1 + "COURSE:Hard\nLEVEL:4\n" + single, []bool{false, true}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m, issue := Parse([]byte(header+tc.body), "utf-8", "music.ogg")

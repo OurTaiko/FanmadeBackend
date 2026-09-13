@@ -185,6 +185,8 @@ func Parse(data []byte, encoding, audioName string) (Metadata, *Issue) {
 				return m, fail("TJA_STRUCTURE_INVALID", "COURSE 需要 Easy / Normal / Hard / Oni / Edit / Tower / Dan（或 0–6）", line)
 			}
 			course, level = c, 0
+			// STYLE belongs to the course header. A new course defaults to Single.
+			style = "Single"
 			continue
 		}
 		if key == "LEVEL" {

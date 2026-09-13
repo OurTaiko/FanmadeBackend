@@ -85,6 +85,18 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, storage string) error {
 			return err
 		}
 	}
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=4)`).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		// Migration 004 repairs STYLE leaking across COURSE boundaries in 003.
+		if err = backfillStyles(ctx, tx, storage); err != nil {
+			return fmt.Errorf("migration 004: %w", err)
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES(4)`); err != nil {
+			return err
+		}
+	}
 	return tx.Commit(ctx)
 }
 
