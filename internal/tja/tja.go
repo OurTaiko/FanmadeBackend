@@ -36,6 +36,7 @@ type Difficulty struct {
 	Course     string `json:"course"`
 	Level      int    `json:"level"`
 	BlockIndex int    `json:"blockIndex"`
+	Player     string `json:"player"`
 }
 type Metadata struct {
 	Title        string       `json:"title"`
@@ -94,7 +95,7 @@ func Parse(data []byte, encoding, audioName string) (Metadata, *Issue) {
 	started, inBlock, hasNotes := false, false, false
 	course, level := "Oni", 0
 	seen := map[string]bool{}
-	courses := map[string]string{"0": "Easy", "1": "Normal", "2": "Hard", "3": "Oni", "4": "Edit", "Easy": "Easy", "Normal": "Normal", "Hard": "Hard", "Oni": "Oni", "Edit": "Edit"}
+	courses := map[string]string{"0": "Easy", "1": "Normal", "2": "Hard", "3": "Oni", "4": "Edit", "easy": "Easy", "normal": "Normal", "hard": "Hard", "oni": "Oni", "edit": "Edit", "tower": "Tower", "dan": "Dan", "5": "Tower", "6": "Dan"}
 	for i, raw := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
 		line := i + 1
 		if len(raw) > 65536 {
@@ -108,11 +109,11 @@ func Parse(data []byte, encoding, audioName string) (Metadata, *Issue) {
 			return m, fail("TJA_RESOURCE_UNSUPPORTED", "示范版暂不支持切歌或额外资源", line)
 		}
 		if strings.HasPrefix(s, "#START") {
-			if s != "#START" || inBlock || level == 0 {
-				return m, fail("TJA_STRUCTURE_INVALID", "每个谱面需要 LEVEL:1–10 和独立的 #START / #END；暂不支持双人谱", line)
+			if (s != "#START" && s != "#START P1" && s != "#START P2") || inBlock || level == 0 {
+				return m, fail("TJA_STRUCTURE_INVALID", "每个谱面需要 LEVEL:1–10 和独立的 #START / #END", line)
 			}
 			started, inBlock, hasNotes = true, true, false
-			m.Difficulties = append(m.Difficulties, Difficulty{course, level, len(m.Difficulties)})
+			m.Difficulties = append(m.Difficulties, Difficulty{course, level, len(m.Difficulties), strings.TrimSpace(strings.TrimPrefix(s, "#START"))})
 			continue
 		}
 		if s == "#END" {
@@ -153,9 +154,9 @@ func Parse(data []byte, encoding, audioName string) (Metadata, *Issue) {
 			}
 		}
 		if key == "COURSE" {
-			c, ok := courses[value]
+			c, ok := courses[strings.ToLower(value)]
 			if !ok || inBlock {
-				return m, fail("TJA_STRUCTURE_INVALID", "COURSE 需要 Easy / Normal / Hard / Oni / Edit（或 0–4）", line)
+				return m, fail("TJA_STRUCTURE_INVALID", "COURSE 需要 Easy / Normal / Hard / Oni / Edit / Tower / Dan（或 0–6）", line)
 			}
 			course, level = c, 0
 			continue
@@ -212,8 +213,8 @@ func Parse(data []byte, encoding, audioName string) (Metadata, *Issue) {
 	if norm.NFC.String(m.Wave) != norm.NFC.String(audioName) {
 		return m, &Issue{Code: "TJA_AUDIO_MISMATCH", Message: fmt.Sprintf("第 %d 行引用了「%s」，但你选择的是「%s」。请选择对应文件，或修改 TJA 的 WAVE 后重新选择。", waveLine, m.Wave, audioName), Line: waveLine, Expected: m.Wave, Actual: audioName}
 	}
-	if m.Title == "" || m.BPM <= 0 || m.DemoStart < 0 || inBlock || len(m.Difficulties) == 0 {
-		return m, fail("TJA_STRUCTURE_INVALID", "需要 TITLE、正数 BPM 和完整谱面块，DEMOSTART 不能为负数", 0)
+	if m.Title == "" || m.BPM <= 0 || inBlock || len(m.Difficulties) == 0 {
+		return m, fail("TJA_STRUCTURE_INVALID", "需要 TITLE、正数 BPM 和完整谱面块", 0)
 	}
 	return m, nil
 }

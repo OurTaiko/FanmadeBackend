@@ -252,5 +252,33 @@
       254,
       128
     ]
+  },
+  {
+    "name": "duet",
+    "text": "TITLE:テスト\nBPM:120\nWAVE:音楽.ogg\nCOURSE:Oni\nLEVEL:5\n#START P1\n1000,\n#END\n#START P2\n1000,\n#END\n",
+    "audio": "音楽.ogg",
+    "code": "",
+    "encoding": "utf-8"
+  },
+  {
+    "name": "tower",
+    "text": "TITLE:テスト\nBPM:120\nWAVE:音楽.ogg\nCOURSE:Tower\nLEVEL:5\n#START\n1000,\n#END\n",
+    "audio": "音楽.ogg",
+    "code": "",
+    "encoding": "utf-8"
+  },
+  {
+    "name": "lowercase course",
+    "text": "TITLE:テスト\nBPM:120\nWAVE:音楽.ogg\nCOURSE:oni\nLEVEL:5\n#START\n1000,\n#END\n",
+    "audio": "音楽.ogg",
+    "code": "",
+    "encoding": "utf-8"
+  },
+  {
+    "name": "negative preview",
+    "text": "TITLE:テスト\nBPM:120\nDEMOSTART:-0.038\nWAVE:音楽.ogg\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\n",
+    "audio": "音楽.ogg",
+    "code": "",
+    "encoding": "utf-8"
   }
 ]
