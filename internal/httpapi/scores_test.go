@@ -215,6 +215,9 @@ func TestSubmitScore(t *testing.T) {
 		t.Fatalf("bad receipt: %+v", first)
 	}
 	stored, err := readScore(pool.QueryRow(ctx, `SELECT `+scoreColumns+` FROM scores WHERE id=$1`, first.ID))
+	// Drivers may use time.Local for a UTC database timestamp; compare the same zone.
+	stored.SubmittedAt = stored.SubmittedAt.UTC()
+	first.SubmittedAt = first.SubmittedAt.UTC()
 	if err != nil || stored != first {
 		t.Fatalf("stored receipt mismatch: %+v %v", stored, err)
 	}
