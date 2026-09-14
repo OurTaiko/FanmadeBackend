@@ -37,6 +37,11 @@ type Chart struct {
 	tja.Metadata
 }
 
+// Mixed files are unsupported as a whole; never expose their regular blocks alone.
+const supportedCoursesSQL = "('Easy','Normal','Hard','Oni','Edit')"
+const publishedChart = `c.status='published' AND NOT EXISTS (SELECT 1 FROM difficulties excluded
+ WHERE excluded.version_id=c.current_version_id AND excluded.course NOT IN ` + supportedCoursesSQL + `)`
+
 const chartSelect = `SELECT c.id,c.owner_id,u.username,v.id,c.description,c.created_at,v.duration,v.encoding,tf.original_filename,af.original_filename,tf.sha256,af.sha256,af.byte_size,tf.storage_key,af.storage_key,COALESCE(c.title_override,v.title),COALESCE(c.subtitle_override,v.subtitle),v.maker,v.bpm,v.offset_seconds,v.demo_start,v.wave_filename,v.title_translations || c.title_translation_overrides,v.subtitle_translations || c.subtitle_translation_overrides,
  COALESCE((SELECT jsonb_agg(jsonb_build_object('course',d.course,'level',d.level,'blockIndex',d.block_index,'player',d.player,'style',d.style,'cloudScoreEligible',d.cloud_score_eligible) ORDER BY d.block_index) FROM difficulties d WHERE d.version_id=v.id),'[]'::jsonb)
  FROM charts c JOIN users u ON u.id=c.owner_id JOIN chart_versions v ON v.id=c.current_version_id JOIN files tf ON tf.id=v.tja_file_id JOIN files af ON af.id=v.audio_file_id `
@@ -51,7 +56,7 @@ func readChart(row pgx.Row) (Chart, error) {
 	return c, e
 }
 func (s *Server) chart(ctx context.Context, id string) (Chart, error) {
-	return readChart(s.DB.QueryRow(ctx, chartSelect+` WHERE c.id=$1 AND c.status='published'`, id))
+	return readChart(s.DB.QueryRow(ctx, chartSelect+` WHERE c.id=$1 AND `+publishedChart, id))
 }
 func (s *Server) list(w http.ResponseWriter, r *http.Request) { s.listFor(w, r, "") }
 func (s *Server) mine(w http.ResponseWriter, r *http.Request) {
@@ -76,7 +81,11 @@ func (s *Server) listFor(w http.ResponseWriter, r *http.Request, owner string) {
 		return
 	}
 	course := r.URL.Query().Get("course")
-	where := ` WHERE c.status='published' AND ($1='' OR COALESCE(c.title_override,v.title) ILIKE '%'||$1||'%' OR COALESCE(c.subtitle_override,v.subtitle) ILIKE '%'||$1||'%' OR v.maker ILIKE '%'||$1||'%' OR u.username ILIKE '%'||$1||'%'
+	if course != "" && course != "Easy" && course != "Normal" && course != "Hard" && course != "Oni" && course != "Edit" {
+		problem(w, 400, "DIFFICULTY_INVALID", "仅支持 Easy / Normal / Hard / Oni / Edit 难度")
+		return
+	}
+	where := ` WHERE ` + publishedChart + ` AND ($1='' OR COALESCE(c.title_override,v.title) ILIKE '%'||$1||'%' OR COALESCE(c.subtitle_override,v.subtitle) ILIKE '%'||$1||'%' OR v.maker ILIKE '%'||$1||'%' OR u.username ILIKE '%'||$1||'%'
 	 OR EXISTS(SELECT 1 FROM jsonb_each_text(v.title_translations || c.title_translation_overrides) t WHERE t.value ILIKE '%'||$1||'%')
 	 OR EXISTS(SELECT 1 FROM jsonb_each_text(v.subtitle_translations || c.subtitle_translation_overrides) t WHERE t.value ILIKE '%'||$1||'%')) AND ($2='' OR c.owner_id=$2) AND ($3='' OR EXISTS(SELECT 1 FROM difficulties d WHERE d.version_id=v.id AND d.course=$3))`
 	var total int

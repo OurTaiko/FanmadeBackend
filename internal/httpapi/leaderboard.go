@@ -38,7 +38,7 @@ func (s *Server) leaderboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	course := strings.ToLower(strings.TrimSpace(query.Get("difficulty")))
-	courses := map[string]string{"easy": "Easy", "normal": "Normal", "hard": "Hard", "oni": "Oni", "edit": "Edit", "ura": "Edit", "tower": "Tower", "dan": "Dan"}
+	courses := map[string]string{"easy": "Easy", "normal": "Normal", "hard": "Hard", "oni": "Oni", "edit": "Edit", "ura": "Edit"}
 	if course != "" {
 		var ok bool
 		course, ok = courses[course]
@@ -55,7 +55,7 @@ func (s *Server) leaderboard(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	result := leaderboardResponse{SongID: r.PathValue("id"), Page: page, PageSize: 20, Items: []leaderboardEntry{}}
-	err = tx.QueryRow(r.Context(), `SELECT current_version_id FROM charts WHERE id=$1 AND status='published'`, result.SongID).Scan(&result.VersionID)
+	err = tx.QueryRow(r.Context(), `SELECT current_version_id FROM charts c WHERE c.id=$1 AND `+publishedChart, result.SongID).Scan(&result.VersionID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		problem(w, 404, "CHART_NOT_FOUND", "歌曲不存在或已下架")
 		return

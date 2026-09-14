@@ -120,7 +120,7 @@ func (s *Server) editMetadata(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(r.Context())
 	var owner string
 	var overrides metadataOverrides
-	err = tx.QueryRow(r.Context(), `SELECT owner_id,title_override,subtitle_override,title_translation_overrides,subtitle_translation_overrides FROM charts WHERE id=$1 AND status='published' FOR UPDATE`, r.PathValue("id")).Scan(&owner, &overrides.Title, &overrides.Subtitle, &overrides.Titles, &overrides.Subtitles)
+	err = tx.QueryRow(r.Context(), `SELECT owner_id,title_override,subtitle_override,title_translation_overrides,subtitle_translation_overrides FROM charts c WHERE c.id=$1 AND `+publishedChart+` FOR UPDATE`, r.PathValue("id")).Scan(&owner, &overrides.Title, &overrides.Subtitle, &overrides.Titles, &overrides.Subtitles)
 	if errors.Is(err, pgx.ErrNoRows) {
 		problem(w, 404, "CHART_NOT_FOUND", "作品不存在或已下架")
 		return

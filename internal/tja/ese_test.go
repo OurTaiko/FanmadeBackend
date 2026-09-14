@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -14,7 +15,8 @@ func TestESECorpus(t *testing.T) {
 	if root == "" {
 		t.Skip("set ESE_ROOT to test local reference charts")
 	}
-	count, supported, multi, duplicates := 0, 0, 0, 0
+	count, supported, multi, duplicates, unsupported := 0, 0, 0, 0, 0
+	forbidden := regexp.MustCompile(`(?im)^\s*COURSE\s*:\s*(Tower|Dan|5|6)\s*(//.*)?$`)
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -36,6 +38,13 @@ func TestESECorpus(t *testing.T) {
 			}
 		}
 		_, issue := Parse(b, "utf-8", wave)
+		if forbidden.Match(b) {
+			unsupported++
+			if issue == nil || (issue.Code != "TJA_COURSE_UNSUPPORTED" && issue.Code != "TJA_RESOURCE_UNSUPPORTED") {
+				t.Errorf("expected unsupported course rejection: %s: %v", path, issue)
+			}
+			return nil
+		}
 		if strings.Contains(string(b), "#NEXTSONG") {
 			multi++
 			if issue == nil || issue.Code != "TJA_RESOURCE_UNSUPPORTED" {
@@ -69,5 +78,5 @@ func TestESECorpus(t *testing.T) {
 	if count == 0 {
 		t.Fatal("no ESE TJA files found")
 	}
-	t.Logf("ESE: %d total, %d single-audio accepted, %d multi-audio deferred, %d duplicate-course rejected", count, supported, multi, duplicates)
+	t.Logf("ESE: %d total, %d single-audio accepted, %d multi-audio deferred, %d duplicate-course rejected, %d unsupported-course rejected", count, supported, multi, duplicates, unsupported)
 }

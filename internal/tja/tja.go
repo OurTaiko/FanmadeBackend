@@ -15,7 +15,7 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-const Version = "tja-upload-v4"
+const Version = "tja-upload-v5"
 const MaxTJA = 2 * 1024 * 1024
 const MaxAudio = 100 * 1024 * 1024
 
@@ -102,7 +102,7 @@ func Parse(data []byte, encoding, audioName string) (Metadata, *Issue) {
 	style := "Single"
 	singleCourses := map[string]int{}
 	seen := map[string]bool{}
-	courses := map[string]string{"0": "Easy", "1": "Normal", "2": "Hard", "3": "Oni", "4": "Edit", "easy": "Easy", "normal": "Normal", "hard": "Hard", "oni": "Oni", "edit": "Edit", "tower": "Tower", "dan": "Dan", "5": "Tower", "6": "Dan"}
+	courses := map[string]string{"0": "Easy", "1": "Normal", "2": "Hard", "3": "Oni", "4": "Edit", "easy": "Easy", "normal": "Normal", "hard": "Hard", "oni": "Oni", "edit": "Edit"}
 	for i, raw := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
 		line := i + 1
 		if len(raw) > 65536 {
@@ -204,10 +204,14 @@ func Parse(data []byte, encoding, audioName string) (Metadata, *Issue) {
 				return m, fail("TJA_RESOURCE_UNSUPPORTED", "示范版仅接受 TJA 与单个 OGG", line)
 			}
 		}
-		if key == "COURSE" {
-			c, ok := courses[strings.ToLower(value)]
-			if !ok || inBlock {
-				return m, fail("TJA_STRUCTURE_INVALID", "COURSE 需要 Easy / Normal / Hard / Oni / Edit / Tower / Dan（或 0–6）", line)
+		if upper == "COURSE" {
+			normalized := strings.ToLower(value)
+			if normalized == "tower" || normalized == "dan" || normalized == "5" || normalized == "6" {
+				return m, fail("TJA_COURSE_UNSUPPORTED", "不支持塔（Tower）或段位（Dan）谱面，请移除这些谱面块后重新上传", line)
+			}
+			c, ok := courses[normalized]
+			if !ok || inBlock || key != "COURSE" {
+				return m, fail("TJA_STRUCTURE_INVALID", "请使用大写 COURSE，难度需要 Easy / Normal / Hard / Oni / Edit（或 0–4）", line)
 			}
 			course, level = c, 0
 			// STYLE belongs to the course header. A new course defaults to Single.

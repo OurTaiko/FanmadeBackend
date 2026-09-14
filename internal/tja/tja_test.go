@@ -14,6 +14,7 @@ func TestSharedContract(t *testing.T) {
 	var cases []struct {
 		Name, Text, Audio, Code, Encoding string
 		Raw                               []byte
+		Line                              int
 	}
 	if err := json.Unmarshal(data, &cases); err != nil {
 		t.Fatal(err)
@@ -31,6 +32,9 @@ func TestSharedContract(t *testing.T) {
 			}
 			if code != c.Code {
 				t.Fatalf("wanted %s, got %s: %v", c.Code, code, e)
+			}
+			if e != nil && c.Line > 0 && e.Line != c.Line {
+				t.Fatalf("wanted line %d, got %d", c.Line, e.Line)
 			}
 			if e == nil && (m.Title == "" || len(m.Difficulties) == 0) {
 				t.Fatal("missing parsed metadata")

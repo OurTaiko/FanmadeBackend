@@ -31,6 +31,12 @@
 
 邮箱验证、修改说明、替换版本、管理员接口仍为规划项，本次未提供对应端点。名称／副标题编辑已提供，详见文末。
 
+## 支持的难度
+
+仅接受 Easy / Normal / Hard / Oni / Edit；TJA 的 COURSE 值支持数字 0–4 和大小写变体。Tower / Dan / 5 / 6 返回 422 `TJA_COURSE_UNSUPPORTED`，`errors[].line` 指向 COURSE 行。只要出现不支持的 COURSE，整份 TJA 拒绝，不能只上传其中的普通难度块。
+
+列表 `course` 参数只允许五种规范英文名，其他非空值返回 400 `DIFFICULTY_INVALID`。成绩接口拒绝不支持的难度（422），排行榜查询同样拒绝（400）。已有不支持的当前版本由迁移 012 下架，列表和游戏曲库不返回，详情、编辑和所有文件下载返回 404；游戏快照排除不支持版本的全部成绩。数据仍保存在数据库和资源目录中。
+
 ## 谱面块的云端成绩资格
 
 上传成功、作品详情、公开列表与本人列表中的 `difficulties[]` 增加 `style` 和 `cloudScoreEligible`，已有 `course`、`level`、`blockIndex`、`player` 字段保留。例如：
@@ -43,7 +49,7 @@
 ]
 ```
 
-后端解析 STYLE 值时不区分大小写，支持 Single/0、Double/1 和 ESE 中的 Duet（按 Double）。STYLE 在当前 COURSE 内持续生效直到下一次 STYLE 声明，每次 COURSE 声明恢复默认 Single；P1/P2 块无论 STYLE 如何均按 Double。未知 STYLE 或在谱面块内部声明 STYLE 返回 422 `TJA_STRUCTURE_INVALID`，包含行号。后端校验版本为 `tja-upload-v4`；前端当前仍执行 v1 基础预检，新增规则由后端权威校验。
+后端解析 STYLE 值时不区分大小写，支持 Single/0、Double/1 和 ESE 中的 Duet（按 Double）。STYLE 在当前 COURSE 内持续生效直到下一次 STYLE 声明，每次 COURSE 声明恢复默认 Single；P1/P2 块无论 STYLE 如何均按 Double。未知 STYLE 或在谱面块内部声明 STYLE 返回 422 `TJA_STRUCTURE_INVALID`，包含行号。前后端校验标识为 `tja-upload-v5`，都拒绝不支持的难度；STYLE、重复单人难度等规则仍由后端权威校验。
 
 每个 TJA 的同一难度最多一个 Single 块。重复时在上传阶段返回 422 `TJA_DIFFICULTY_DUPLICATE`，`errors[0].line` 指向重复块的 #START，message 指出首次声明行号。难度名与数字别名归一化后比较，修改 LEVEL 不会使重复难度合法；P1/P2 和显式 Double 块不参与这个单人重复检查。
 
@@ -68,7 +74,7 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
 }
 ```
 
-示例 songId 需替换为作品 API 返回的 `id`，不是文件哈希或 versionId。八个字段全部必填，`max_combo` 为最大连击：good 为良、ok 为可、bad 为不可、score 为总分、drumroll 为连打数。六个数字不接受 null、字符串或小数；计数为 0–2147483647，总分为 0–9007199254740991（JSON/JavaScript 安全整数范围）。`max_combo` 为必填的 0–2147483647 整数；省略或 null 返回 422，非整数返回 400，负数或越界值返回 422。这些是存储边界，不是玩法理论上限。难度接受 Easy、Normal、Hard、Oni、Edit、Tower、Dan，不区分大小写、忽略首尾空白；Ura 归一为 Edit。
+示例 songId 需替换为作品 API 返回的 `id`，不是文件哈希或 versionId。八个字段全部必填，`max_combo` 为最大连击：good 为良、ok 为可、bad 为不可、score 为总分、drumroll 为连打数。六个数字不接受 null、字符串或小数；计数为 0–2147483647，总分为 0–9007199254740991（JSON/JavaScript 安全整数范围）。`max_combo` 为必填的 0–2147483647 整数；省略或 null 返回 422，非整数返回 400，负数或越界值返回 422。这些是存储边界，不是玩法理论上限。难度仅接受 Easy、Normal、Hard、Oni、Edit，不区分大小写、忽略首尾空白；Ura 归一为 Edit。
 
 后端锁定当前已发布版本，按难度寻找唯一有资格的单人块。同一难度含一个 Single 和若干 Double 时只选 Single；只有 Double 时拒绝。重复 Single 已在新上传时拦截，成绩接口仍对历史异常数据返回歧义错误。浏览器请求省略 versionId 时按提交时的当前版本归属；原生游戏接口要求 versionId 并校验版本一致。服务端保存客户端上报值，未根据游玩过程重算成绩。
 

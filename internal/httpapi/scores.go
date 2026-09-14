@@ -48,7 +48,7 @@ func (v *scoreSubmission) valid() bool {
 	if !songIDPattern.MatchString(v.SongID) || (v.VersionID != "" && !songIDPattern.MatchString(v.VersionID)) {
 		return false
 	}
-	courses := map[string]string{"easy": "Easy", "normal": "Normal", "hard": "Hard", "oni": "Oni", "edit": "Edit", "ura": "Edit", "tower": "Tower", "dan": "Dan"}
+	courses := map[string]string{"easy": "Easy", "normal": "Normal", "hard": "Hard", "oni": "Oni", "edit": "Edit", "ura": "Edit"}
 	c, ok := courses[strings.ToLower(strings.TrimSpace(v.Difficulty))]
 	if !ok {
 		return false
@@ -136,7 +136,7 @@ func (s *Server) submitScore(w http.ResponseWriter, r *http.Request) {
 	}
 	// Hold the published version stable until the score has been committed.
 	var version string
-	err = tx.QueryRow(r.Context(), `SELECT current_version_id FROM charts WHERE id=$1 AND status='published' FOR SHARE`, input.SongID).Scan(&version)
+	err = tx.QueryRow(r.Context(), `SELECT current_version_id FROM charts c WHERE c.id=$1 AND `+publishedChart+` FOR SHARE`, input.SongID).Scan(&version)
 	if errors.Is(err, pgx.ErrNoRows) {
 		problem(w, 404, "CHART_NOT_FOUND", "歌曲不存在或已下架")
 		return

@@ -24,7 +24,7 @@ func (s *Server) gameBootstrap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	rows, err := tx.Query(r.Context(), chartSelect+` WHERE c.status='published' ORDER BY c.id`)
+	rows, err := tx.Query(r.Context(), chartSelect+` WHERE `+publishedChart+` ORDER BY c.id`)
 	if err != nil {
 		internal(w, err)
 		return
@@ -45,7 +45,7 @@ func (s *Server) gameBootstrap(w http.ResponseWriter, r *http.Request) {
 		internal(w, err)
 		return
 	}
-	rows, err = tx.Query(r.Context(), `SELECT `+scoreColumns+` FROM scores WHERE user_id=$1 ORDER BY submitted_at,id`, u.User.ID)
+	rows, err = tx.Query(r.Context(), `SELECT `+scoreColumns+` FROM scores WHERE user_id=$1 AND difficulty IN `+supportedCoursesSQL+` AND NOT EXISTS (SELECT 1 FROM difficulties excluded WHERE excluded.version_id=scores.version_id AND excluded.course NOT IN `+supportedCoursesSQL+`) ORDER BY submitted_at,id`, u.User.ID)
 	if err != nil {
 		internal(w, err)
 		return
