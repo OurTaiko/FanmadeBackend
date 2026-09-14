@@ -1,6 +1,6 @@
 # PostgreSQL 数据结构（示范版实际实现）
 
-数据库：`ourtaiko_fanmade`。迁移源文件为 `internal/database/schema.sql`、`002_ese.sql`、`003_cloud_score_policy.sql`、`005_scores.sql` 等，新增最大连击迁移为 `010_max_combo.sql`；由 Go embed 编入程序并通过 `schema_migrations` 记录。迁移使用事务与 advisory lock，重复启动不会重建表。
+数据库：`ourtaiko_fanmade`。迁移源文件为 `internal/database/schema.sql`、`002_ese.sql`、`003_cloud_score_policy.sql`、`005_scores.sql` 等，最大连击迁移为 `010_max_combo.sql`，邮箱验证码迁移为 `011_email_verification.sql`；由 Go embed 编入程序并通过 `schema_migrations` 记录。迁移使用事务与 advisory lock，重复启动不会重建表。
 
 | 表 | 关键字段 | 关系与约束 |
 | --- | --- | --- |
@@ -55,3 +55,9 @@ erDiagram
 ## 最大连击（迁移 010）
 
 `scores.max_combo` 为非空 PostgreSQL integer，无默认值，CHECK 要求非负。迁移仅为已有开发数据填 0，保留原 ID、版本、分数和幂等摘要；迁移完成后插入必须显式提供最大连击。新提交独立保存每次游玩的最大连击，成绩回执、游戏启动快照和排行榜都读取同一字段。
+
+## 邮箱验证码（迁移 011）
+
+- `registration_codes`：规范化邮箱主键、随机 verification_id、bcrypt code_hash、expires_at、sent_at、attempts、window_started_at、send_count。只保存验证码哈希；成功创建用户的同一事务内删除。重发替换验证码并重置错误次数；发送失败回滚，保留此前有效的验证码。
+- `email_send_limits`：连接 IP 的 SHA-256、小时窗口起点、计数。发送失败也消耗 IP 额度；进程重启不会重置。代理请求按后端看到的连接 IP 限流，不信任任意 X-Forwarded-For。
+- 新注册在验证成功后插入已验证邮箱与时间；现有无邮箱的开发账号不变。相同邮箱的发送、注册使用事务级 advisory lock 串行处理；用户名/邮箱唯一索引作为最终约束。超过一天的验证码与限流窗口记录在成功发送后清理。

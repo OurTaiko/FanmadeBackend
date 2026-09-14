@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -97,33 +96,6 @@ func (s *Server) issue(w http.ResponseWriter, r *http.Request, u User) {
 	}
 	http.SetCookie(w, &http.Cookie{Name: "ourtaiko_session", Value: token, Path: "/", HttpOnly: true, Secure: s.Config.CookieSecure, SameSite: http.SameSiteStrictMode, MaxAge: 7 * 86400})
 	respond(w, 200, map[string]any{"user": u, "csrfToken": csrf})
-}
-func (s *Server) register(w http.ResponseWriter, r *http.Request) {
-	var c credentials
-	if !decode(w, r, &c) {
-		return
-	}
-	if !usernamePattern.MatchString(c.Username) || len(c.Password) < 8 || len(c.Password) > 72 {
-		problem(w, 422, "CREDENTIALS_INVALID", "用户名需为 3–24 位字母、数字或下划线，密码需为 8–72 字节")
-		return
-	}
-	h, e := bcrypt.GenerateFromPassword([]byte(c.Password), 12)
-	if e != nil {
-		internal(w, e)
-		return
-	}
-	u := User{ID: ID(), Username: c.Username}
-	_, e = s.DB.Exec(r.Context(), `INSERT INTO users(id,username,password_hash) VALUES($1,$2,$3)`, u.ID, u.Username, string(h))
-	if e != nil {
-		var pe *pgconn.PgError
-		if errors.As(e, &pe) && pe.Code == "23505" {
-			problem(w, 409, "USERNAME_EXISTS", "用户名已存在")
-		} else {
-			internal(w, e)
-		}
-		return
-	}
-	s.issue(w, r, u)
 }
 
 var dummyHash = func() []byte { h, _ := bcrypt.GenerateFromPassword([]byte("dummy-account-password"), 12); return h }()

@@ -4,7 +4,8 @@
 
 | 方法 | 路径 | 行为 |
 | --- | --- | --- |
-| POST | /auth/register | JSON username/password；成功 200 并建立会话；邮箱验证暂缓 |
+| POST | /auth/email-code | JSON email；发送验证码，成功 200 返回 verificationId/expiresIn/retryAfter |
+| POST | /auth/register | JSON username/password/email/verificationId/code；验证成功后创建账号、绑定邮箱并建立会话 |
 | POST | /auth/login | JSON username/password；返回 user / csrfToken 并设置 HttpOnly Cookie |
 | POST | /auth/logout | 撤销 Session，清 Cookie |
 | GET | /me | `{user, csrfToken}`；未登录返回 200，user 为 null |
@@ -121,3 +122,5 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
 - 返回 `{songId, versionId, difficulty, supported, items, total, page, pageSize}`；`items` 中包含成绩字段以及 `username`、`rank`，不暴露邮箱或认证信息。
 - DOUBLE 难度返回 `supported: false` 与空列表。不存在的歌曲／难度返回 404，旧版本参数返回 409 `CHART_VERSION_CHANGED`，有歧义的单人难度返回 409。
 - 修改展示标题和副标题不影响成绩；谱面版本更新后新旧成绩分开统计。原始成绩记录保留。
+
+邮箱验证码的错误码、重发限制及 SMTP 配置详见 [EMAIL_VERIFICATION.md](EMAIL_VERIFICATION.md)。

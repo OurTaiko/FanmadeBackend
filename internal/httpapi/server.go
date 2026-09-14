@@ -19,16 +19,22 @@ import (
 	"ourtaiko.dev/fanmade/api/internal/tja"
 )
 
+type RegistrationMailer interface {
+	SendRegistration(context.Context, string, string) error
+}
+
 type Config struct {
 	Origin, Storage string
 	CookieSecure    bool
+	Mailer          RegistrationMailer
 }
 type Server struct {
-	DB      *pgxpool.Pool
-	Config  Config
-	uploads chan struct{}
-	mu      sync.Mutex
-	limits  map[string]window
+	DB         *pgxpool.Pool
+	Config     Config
+	uploads    chan struct{}
+	emailSends chan struct{}
+	mu         sync.Mutex
+	limits     map[string]window
 }
 type window struct {
 	since time.Time
@@ -36,7 +42,7 @@ type window struct {
 }
 
 func New(pool *pgxpool.Pool, cfg Config) *Server {
-	return &Server{DB: pool, Config: cfg, uploads: make(chan struct{}, 2), limits: map[string]window{}}
+	return &Server{DB: pool, Config: cfg, uploads: make(chan struct{}, 2), emailSends: make(chan struct{}, 2), limits: map[string]window{}}
 }
 func ID() string {
 	b := make([]byte, 16)
@@ -90,6 +96,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/game/login", s.login)
 	mux.HandleFunc("GET /api/v1/game/bootstrap", s.gameBootstrap)
 	mux.HandleFunc("POST /api/v1/game/scores", s.submitScore)
+	mux.HandleFunc("POST /api/v1/auth/email-code", s.sendEmailCode)
 	mux.HandleFunc("POST /api/v1/auth/register", s.register)
 	mux.HandleFunc("POST /api/v1/auth/login", s.login)
 	mux.HandleFunc("POST /api/v1/auth/logout", s.logout)

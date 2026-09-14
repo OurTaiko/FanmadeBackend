@@ -2,15 +2,19 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
-	"ourtaiko.dev/fanmade/api/internal/database"
-	"ourtaiko.dev/fanmade/api/internal/httpapi"
 	"syscall"
 	"time"
+
+	"github.com/joho/godotenv"
+	"ourtaiko.dev/fanmade/api/internal/database"
+	"ourtaiko.dev/fanmade/api/internal/httpapi"
+	"ourtaiko.dev/fanmade/api/internal/mailer"
 )
 
 func env(key, fallback string) string {
@@ -20,6 +24,9 @@ func env(key, fallback string) string {
 	return fallback
 }
 func main() {
+	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Fatal("Cannot parse .env; check its syntax")
+	}
 	migrateOnly := flag.Bool("migrate", false, "apply migrations and exit")
 	flag.Parse()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -36,7 +43,16 @@ func main() {
 		log.Print("PostgreSQL migrations completed")
 		return
 	}
-	app := httpapi.New(pool, httpapi.Config{Origin: env("APP_ORIGIN", "http://127.0.0.1:5173"), Storage: env("STORAGE_DIR", ".data/files"), CookieSecure: env("COOKIE_SECURE", "false") == "true"})
+	var sender httpapi.RegistrationMailer
+	if os.Getenv("SMTP_PASSWORD") != "" {
+		sender, err = mailer.New(mailer.Config{Host: env("SMTP_HOST", "smtp.example.com"), Port: env("SMTP_PORT", "25"), Username: env("SMTP_USERNAME", "smtp-user@example.com"), Password: os.Getenv("SMTP_PASSWORD"), FromAddress: env("SMTP_FROM_ADDRESS", "no-reply@mail.ourtaiko.org"), FromName: env("SMTP_FROM_NAME", "OurTaiko")})
+		if err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		log.Print("SMTP_PASSWORD is not configured; registration email delivery is unavailable")
+	}
+	app := httpapi.New(pool, httpapi.Config{Mailer: sender, Origin: env("APP_ORIGIN", "http://127.0.0.1:5173"), Storage: env("STORAGE_DIR", ".data/files"), CookieSecure: env("COOKIE_SECURE", "false") == "true"})
 	if err = app.EnsureStorage(); err != nil {
 		log.Fatal(err)
 	}

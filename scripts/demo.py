@@ -40,10 +40,18 @@ class Client:
   result = json.loads(body) if 'application/json' in response.headers.get('Content-Type', '') else body
   return response.status, result, response.headers
  def auth(self, username, password, register=True):
-  status, result, _ = self.call('POST', '/auth/register' if register else '/auth/login', {'username': username, 'password': password})
-  if status == 409 and register: return self.auth(username, password, False)
+  status, result, _ = self.call('POST', '/auth/login', {'username': username, 'password': password})
+  if status == 401 and register:
+   # Smoke accounts also use the public email verification flow.
+   email = input(f'Email for new account {username}: ').strip()
+   status, sent, _ = self.call('POST', '/auth/email-code', {'email': email})
+   assert status == 200, (status, sent)
+   code = input('Six-digit code from your email: ').strip()
+   status, result, _ = self.call('POST', '/auth/register', {
+    'username': username, 'password': password, 'email': email,
+    'verificationId': sent['verificationId'], 'code': code,
+   })
   assert status == 200, (status, result)
-  assert result['user']['emailVerified'] is False
   self.csrf = result['csrfToken']; return result['user']
  def upload(self, rel, key=None, name=None, corrupt=False, duplicate=False):
   path = ESE / rel; tja = path.read_bytes()
