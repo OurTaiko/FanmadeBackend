@@ -48,3 +48,6 @@ erDiagram
 新增迁移文件 `006_localized_titles.sql`、`007_metadata_overrides.sql`。迁移 006 为 chart_versions 增加 title_translations、subtitle_translations（JSONB，默认空对象），保存 ja/zh/ko 原始解析值；默认英文继续使用 title/subtitle。迁移从配套原始 TJA 回填所有版本，新上传直接写入，目前后端校验版本为 tja-upload-v4。
 
 迁移 007 为 charts 增加 title_override、subtitle_override（nullable text）、title_translation_overrides、subtitle_translation_overrides（JSONB）及 metadata_updated_at。NULL 默认字段／无覆盖语言键意味着继承文件版本的值。查询使用 COALESCE 与 JSONB 合并得到实际展示数据，成绩表与文件版本不改动。覆盖信息是作品级设置，未来替换版本功能需要明确继承／清除策略。详情见 [多语言与管理说明](LOCALIZATION.md)。
+# 排行榜索引（迁移 009）
+
+排行榜复用 `scores`，不额外保存可漂移的名次。`scores_leaderboard_best` 索引按歌曲、版本、难度、谱面块、用户、总分及提交时间组织记录。读取使用同一 PostgreSQL repeatable-read 快照，保证版本、人数、并列名次和分页结果一致；每位用户的最高分在分页前选出。

@@ -99,6 +99,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/me/charts", s.mine)
 	mux.HandleFunc("POST /api/v1/charts", s.upload)
 	mux.HandleFunc("GET /api/v1/charts/{id}", s.detail)
+	mux.HandleFunc("GET /api/v1/charts/{id}/leaderboard", s.leaderboard)
 	mux.HandleFunc("PATCH /api/v1/charts/{id}", s.editMetadata)
 	mux.HandleFunc("DELETE /api/v1/charts/{id}", s.remove)
 	mux.HandleFunc("GET /api/v1/charts/{id}/versions/{version}/{kind}", s.download)

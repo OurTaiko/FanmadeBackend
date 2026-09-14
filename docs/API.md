@@ -110,3 +110,13 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
 - `POST /api/v1/game/scores`：七项原有字段加**必填** `versionId`，并使用每次游玩固定的 `Idempotency-Key`。字段示例：`{"songId":"<32 hex>","versionId":"<32 hex>","difficulty":"Oni","good":300,"ok":10,"bad":2,"score":900000,"drumroll":50}`。DOUBLE 仍不支持云端成绩。版本变化返回 `409 CHART_VERSION_CHANGED`，不将旧成绩写到新版本。临时失败重试时保持请求体和 key 不变。
 
 原有 `POST /api/v1/scores` 也接受可选 `versionId`，旧七字段请求保持兼容。原生会话在 sessions 表中使用 `SHA256("game:" + token)` 存储，浏览器会话仍使用 `SHA256(token)`，无需数据库迁移。
+# 谱面排行榜
+
+`GET /api/v1/charts/{id}/leaderboard?difficulty=Oni&page=1&versionId=<当前版本>` 公开读取，无需登录。
+
+- 未传难度时按 Oni → Edit → Hard → Normal → Easy 回退，其余难度按谱面块顺序选择。接受难度大小写和 `ura` 别名。
+- 仅统计当前发布版本的单人谱；每位用户取总分最高的一次，同一用户同分时取最早提交记录。良／可／不可／连打均来自该次游玩。
+- 按总分降序，同分并列（如 1、1、3），同分行按提交时间及成绩 ID 稳定排序。每页 20 人，页码为 1–10000；`total` 为上榜人数。
+- 返回 `{songId, versionId, difficulty, supported, items, total, page, pageSize}`；`items` 中包含成绩字段以及 `username`、`rank`，不暴露邮箱或认证信息。
+- DOUBLE 难度返回 `supported: false` 与空列表。不存在的歌曲／难度返回 404，旧版本参数返回 409 `CHART_VERSION_CHANGED`，有歧义的单人难度返回 409。
+- 修改展示标题和副标题不影响成绩；谱面版本更新后新旧成绩分开统计。原始成绩记录保留。
