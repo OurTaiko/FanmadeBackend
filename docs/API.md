@@ -18,7 +18,7 @@
 | PATCH | /charts/{id} | 作者或管理员修改默认英文及 ja/zh/ko 名称／副标题，返回更新后的作品 |
 | DELETE | /charts/{id} | 本人软删除；后续资源访问返回 404 |
 | GET | /charts/{id}/versions/{version}/tja | 原始 TJA 字节，attachment |
-| GET | /charts/{id}/versions/{version}/audio | OGG，支持 Range / ETag |
+| GET | /charts/{id}/versions/{version}/audio | OGG 或 MP3，支持 Range / ETag；Content-Type 分别为 audio/ogg、audio/mpeg |
 | GET | /charts/{id}/versions/{version}/download | ZIP，含原始 TJA 与按 WAVE 原值命名的音频 |
 
 `GET /healthz` 为进程状态，`GET /readyz` 额外检查数据库连接。
@@ -27,7 +27,7 @@
 
 普通错误：`{code,message,requestId,validationVersion}`；TJA 错误额外返回 `errors` 数组，含 code/message/line/expected/actual。常用状态码：400 请求格式，401 未登录，403 权限或来源错误，409 冲突，413 大小限制，422 谱面／音频校验失败，429 频率限制，503 暂时不可用。
 
-数量：1 个 TJA + 1 个 OGG。TJA 最大 2 MiB，OGG 最大 100 MiB，请求最大 105 MiB，说明最大 4000 字节。文本 UTF-8 或显式 Shift-JIS。音频要求单逻辑流 Ogg Vorbis、完整 CRC 与 EOS、可完整解码，时长不超过 20 分钟。最多两个上传同时处理。
+数量：1 个 TJA + 1 个 OGG 或 MP3 音频。TJA 最大 2 MiB，音频最大 100 MiB，请求最大 105 MiB，说明最大 4000 字节。文本 UTF-8 或显式 Shift-JIS。音频接受单音轨 Ogg Vorbis 或 MPEG Layer III（MP3），扩展名必须与真实格式一致。OGG 检查 CRC 与 EOS；MP3 检查帧边界及截断，支持 CBR/VBR、MPEG-1/2/2.5、ID3 和 APE 标签，允许内嵌封面，不接受 free-format MP3。两种格式均需可完整解码，时长不超过 20 分钟。原音频不转码，WAVE 与上传文件名仍须 NFC 后严格匹配（区分大小写）。最多两个上传同时处理。
 
 邮箱验证、修改说明、替换版本、管理员接口仍为规划项，本次未提供对应端点。名称／副标题编辑已提供，详见文末。
 
@@ -49,7 +49,7 @@
 ]
 ```
 
-后端解析 STYLE 值时不区分大小写，支持 Single/0、Double/1 和 ESE 中的 Duet（按 Double）。STYLE 在当前 COURSE 内持续生效直到下一次 STYLE 声明，每次 COURSE 声明恢复默认 Single；P1/P2 块无论 STYLE 如何均按 Double。未知 STYLE 或在谱面块内部声明 STYLE 返回 422 `TJA_STRUCTURE_INVALID`，包含行号。前后端校验标识为 `tja-upload-v5`，都拒绝不支持的难度；STYLE、重复单人难度等规则仍由后端权威校验。
+后端解析 STYLE 值时不区分大小写，支持 Single/0、Double/1 和 ESE 中的 Duet（按 Double）。STYLE 在当前 COURSE 内持续生效直到下一次 STYLE 声明，每次 COURSE 声明恢复默认 Single；P1/P2 块无论 STYLE 如何均按 Double。未知 STYLE 或在谱面块内部声明 STYLE 返回 422 `TJA_STRUCTURE_INVALID`，包含行号。前后端校验标识为 `tja-upload-v6`，都拒绝不支持的难度；STYLE、重复单人难度等规则仍由后端权威校验。
 
 每个 TJA 的同一难度最多一个 Single 块。重复时在上传阶段返回 422 `TJA_DIFFICULTY_DUPLICATE`，`errors[0].line` 指向重复块的 #START，message 指出首次声明行号。难度名与数字别名归一化后比较，修改 LEVEL 不会使重复难度合法；P1/P2 和显式 Double 块不参与这个单人重复检查。
 
@@ -130,3 +130,5 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
 - 修改展示标题和副标题不影响成绩；谱面版本更新后新旧成绩分开统计。原始成绩记录保留。
 
 邮箱验证码的错误码、重发限制及 SMTP 配置详见 [EMAIL_VERIFICATION.md](EMAIL_VERIFICATION.md)。
+
+上传规则接口的 `audioCodecs` 为 `["vorbis", "mp3"]`，`audioExtensions` 为 `[".ogg", ".mp3"]`。multipart 音频字段仍为 `audio`。

@@ -401,5 +401,47 @@
     "code": "",
     "encoding": "utf-8",
     "line": 0
+  },
+  {
+    "name": "MP3 reference",
+    "text": "TITLE:MP3 Test\nBPM:120\nWAVE:music.mp3\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\n",
+    "audio": "music.mp3",
+    "encoding": "utf-8",
+    "code": ""
+  },
+  {
+    "name": "uppercase MP3 extension",
+    "text": "TITLE:MP3 Test\nBPM:120\nWAVE:music.MP3\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\n",
+    "audio": "music.MP3",
+    "encoding": "utf-8",
+    "code": ""
+  },
+  {
+    "name": "MP3 reference case mismatch",
+    "text": "TITLE:MP3 Test\nBPM:120\nWAVE:music.mp3\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\n",
+    "audio": "music.MP3",
+    "encoding": "utf-8",
+    "code": "TJA_AUDIO_MISMATCH"
+  },
+  {
+    "name": "MP3 wrong file",
+    "text": "TITLE:MP3 Test\nBPM:120\nWAVE:music.mp3\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\n",
+    "audio": "other.mp3",
+    "encoding": "utf-8",
+    "code": "TJA_AUDIO_MISMATCH"
+  },
+  {
+    "name": "unsupported WAV audio",
+    "text": "TITLE:MP3 Test\nBPM:120\nWAVE:music.wav\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\n",
+    "audio": "music.wav",
+    "encoding": "utf-8",
+    "code": "TJA_WAVE_PATH_INVALID"
+  },
+  {
+    "name": "MP3 path rejected",
+    "text": "TITLE:MP3 Test\nBPM:120\nWAVE:../music.mp3\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\n",
+    "audio": "music.mp3",
+    "encoding": "utf-8",
+    "code": "TJA_WAVE_PATH_INVALID"
   }
 ]

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"ourtaiko.dev/fanmade/api/internal/audio"
 	"ourtaiko.dev/fanmade/api/internal/tja"
 )
 
@@ -201,7 +202,7 @@ func (s *Server) download(w http.ResponseWriter, r *http.Request) {
 	case "tja":
 		key, name, contentType, etag = c.TJAKey, c.TJAName, "application/octet-stream", c.TJAHash
 	case "audio":
-		key, name, contentType, etag = c.AudioKey, c.Wave, "audio/ogg", c.AudioHash
+		key, name, contentType, etag = c.AudioKey, c.Wave, audio.MediaType(c.AudioName), c.AudioHash
 	default:
 		problem(w, 404, "RESOURCE_NOT_FOUND", "资源不存在")
 		return

@@ -45,7 +45,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 105*1024*1024)
 	mr, e := r.MultipartReader()
 	if e != nil {
-		problem(w, 400, "UPLOAD_FILES_INVALID", "请选择 TJA 和 OGG 文件")
+		problem(w, 400, "UPLOAD_FILES_INVALID", "请选择 TJA 和 OGG 或 MP3 音频文件")
 		return
 	}
 	dir, e := os.MkdirTemp(s.Config.Storage, "staging-")
@@ -72,14 +72,14 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		}
 		field, name := params["name"], params["filename"]
 		if field == "tja" || field == "audio" {
-			ext := ".tja"
+			validExtension := strings.EqualFold(filepath.Ext(name), ".tja")
 			maxBytes := int64(tja.MaxTJA)
 			if field == "audio" {
-				ext = ".ogg"
+				validExtension = audio.MediaType(name) != ""
 				maxBytes = tja.MaxAudio
 			}
-			if files[field] != nil || !tja.SafeFilename(name) || !strings.EqualFold(filepath.Ext(name), ext) {
-				problem(w, 400, "UPLOAD_FILES_INVALID", "必须各上传一个 TJA 和 OGG，文件名不能包含路径")
+			if files[field] != nil || !tja.SafeFilename(name) || !validExtension {
+				problem(w, 400, "UPLOAD_FILES_INVALID", "必须上传一个 TJA 和一个 OGG 或 MP3 音频，文件名不能包含路径")
 				return
 			}
 			f := &stagedFile{name: name, path: filepath.Join(dir, field), id: ID()}
@@ -130,7 +130,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 	}
 	tf, af := files["tja"], files["audio"]
 	if tf == nil || af == nil {
-		problem(w, 400, "UPLOAD_FILES_INVALID", "必须同时选择 TJA 和 OGG")
+		problem(w, 400, "UPLOAD_FILES_INVALID", "必须同时选择 TJA 和一个 OGG 或 MP3 音频")
 		return
 	}
 	encoding := fields["encoding"]
@@ -147,9 +147,9 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		respond(w, 422, map[string]any{"code": issue.Code, "message": issue.Message, "errors": []*tja.Issue{issue}, "requestId": w.Header().Get("X-Request-ID"), "validationVersion": tja.Version})
 		return
 	}
-	duration, e := audio.Validate(r.Context(), af.path)
+	duration, e := audio.Validate(r.Context(), af.path, af.name)
 	if e != nil {
-		problem(w, 422, "AUDIO_INVALID", "音频未通过完整性检查，请使用完整的单音轨 Ogg Vorbis 文件（最长 20 分钟）")
+		problem(w, 422, "AUDIO_INVALID", "音频未通过完整性检查，请使用完整的单音轨 Ogg Vorbis 或 MP3 文件（最长 20 分钟）")
 		return
 	}
 	digestData, _ := json.Marshal([]string{tf.name, tf.sha, af.name, af.sha, encoding, fields["description"]})
@@ -210,7 +210,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 	for field, f := range files {
 		media := "application/octet-stream"
 		if field == "audio" {
-			media = "audio/ogg"
+			media = audio.MediaType(f.name)
 		}
 		if _, e = tx.Exec(r.Context(), `INSERT INTO files(id,storage_key,original_filename,sha256,byte_size,media_type) VALUES($1,$2,$3,$4,$5,$6)`, f.id, f.key, f.name, f.sha, f.size, media); e != nil {
 			internal(w, e)

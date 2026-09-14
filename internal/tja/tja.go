@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"math"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -13,9 +12,10 @@ import (
 
 	"golang.org/x/text/encoding/japanese"
 	"golang.org/x/text/unicode/norm"
+	"ourtaiko.dev/fanmade/api/internal/audio"
 )
 
-const Version = "tja-upload-v5"
+const Version = "tja-upload-v6"
 const MaxTJA = 2 * 1024 * 1024
 const MaxAudio = 100 * 1024 * 1024
 
@@ -201,7 +201,7 @@ func Parse(data []byte, encoding, audioName string) (Metadata, *Issue) {
 		}
 		if upper == "LYRICS" || upper == "BGIMAGE" || upper == "BGMOVIE" {
 			if value != "" {
-				return m, fail("TJA_RESOURCE_UNSUPPORTED", "示范版仅接受 TJA 与单个 OGG", line)
+				return m, fail("TJA_RESOURCE_UNSUPPORTED", "仅接受 TJA 与单个 OGG 或 MP3 音频", line)
 			}
 		}
 		if upper == "COURSE" {
@@ -261,8 +261,8 @@ func Parse(data []byte, encoding, audioName string) (Metadata, *Issue) {
 	if waves == 0 || m.Wave == "" {
 		return m, fail("TJA_WAVE_MISSING", "TJA 缺少非空的 WAVE 音频引用", waveLine)
 	}
-	if !SafeFilename(m.Wave) || !strings.EqualFold(filepath.Ext(m.Wave), ".ogg") {
-		return m, fail("TJA_WAVE_PATH_INVALID", "WAVE 必须为不带路径、引号的 .ogg 文件名", waveLine)
+	if !SafeFilename(m.Wave) || audio.MediaType(m.Wave) == "" {
+		return m, fail("TJA_WAVE_PATH_INVALID", "WAVE 必须为不带路径、引号的 .ogg 或 .mp3 文件名", waveLine)
 	}
 	if !SafeFilename(audioName) {
 		return m, fail("UPLOAD_FILENAME_INVALID", "上传文件名不能包含路径或特殊字符", 0)
