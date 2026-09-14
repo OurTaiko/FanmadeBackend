@@ -8,8 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
-	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"strings"
 	"sync"
@@ -27,6 +27,7 @@ type Config struct {
 	Origin, Storage string
 	CookieSecure    bool
 	Mailer          RegistrationMailer
+	TrustedProxies  []netip.Prefix
 }
 type Server struct {
 	DB         *pgxpool.Pool
@@ -119,7 +120,7 @@ func (s *Server) Handler() http.Handler {
 				problem(w, 403, "ORIGIN_INVALID", "请求来源无效，请从本站页面操作")
 				return
 			}
-			host, _, _ := net.SplitHostPort(r.RemoteAddr)
+			host := s.clientIP(r)
 			s.mu.Lock()
 			now := time.Now()
 			for k, v := range s.limits {

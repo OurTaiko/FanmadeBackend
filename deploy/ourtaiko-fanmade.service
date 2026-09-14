@@ -1,0 +1,26 @@
+[Unit]
+Description=OurTaiko Fanmade API
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=ourtaiko
+Group=ourtaiko
+WorkingDirectory=/var/lib/ourtaiko-fanmade
+EnvironmentFile=/etc/ourtaiko-fanmade/api.env
+ExecStart=/opt/ourtaiko-fanmade/bin/ourtaiko-api
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=25
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/ourtaiko-fanmade/files
+
+[Install]
+WantedBy=multi-user.target

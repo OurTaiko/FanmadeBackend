@@ -52,7 +52,11 @@ func main() {
 	} else {
 		log.Print("SMTP_PASSWORD is not configured; registration email delivery is unavailable")
 	}
-	app := httpapi.New(pool, httpapi.Config{Mailer: sender, Origin: env("APP_ORIGIN", "http://127.0.0.1:5173"), Storage: env("STORAGE_DIR", ".data/files"), CookieSecure: env("COOKIE_SECURE", "false") == "true"})
+	proxies, err := httpapi.ParseTrustedProxies(os.Getenv("TRUSTED_PROXY_CIDRS"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	app := httpapi.New(pool, httpapi.Config{Mailer: sender, TrustedProxies: proxies, Origin: env("APP_ORIGIN", "http://127.0.0.1:5173"), Storage: env("STORAGE_DIR", ".data/files"), CookieSecure: env("COOKIE_SECURE", "false") == "true"})
 	if err = app.EnsureStorage(); err != nil {
 		log.Fatal(err)
 	}

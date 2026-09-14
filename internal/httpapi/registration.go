@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"math/big"
-	"net"
 	"net/http"
 	"net/mail"
 	"regexp"
@@ -84,7 +83,7 @@ func (s *Server) sendEmailCode(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
 	// Persist the IP budget independently so SMTP failures and process restarts do not reset it.
-	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+	host := s.clientIP(r)
 	var count int
 	var windowStart time.Time
 	err := s.DB.QueryRow(ctx, `INSERT INTO email_send_limits(ip_hash,window_started_at,send_count) VALUES($1,now(),1)

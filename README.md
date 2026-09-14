@@ -74,6 +74,7 @@ python3 scripts/metadata_smoke.py
 - [多语言名称与编辑](docs/LOCALIZATION.md)
 - [ESE 兼容性](docs/ESE_COMPATIBILITY.md)
 - [验收记录](docs/VERIFICATION.md)
+- [服务器部署与更新](docs/DEPLOYMENT.md)
 
 新注册已要求绑定并验证邮箱：先获取 6 位数字验证码，验证成功后创建账号、写入 email/email_verified_at 并登录。验证码 10 分钟有效、单次使用、最多错误 5 次；重发间隔 60 秒，每邮箱每小时最多 5 次、每连接 IP 每小时最多 10 次。现有演示账号保留原登录能力，不会被自动标记为已验证；找回密码、已有账号补绑与换绑另行实现。[邮件配置与接口](docs/EMAIL_VERIFICATION.md)。
 
