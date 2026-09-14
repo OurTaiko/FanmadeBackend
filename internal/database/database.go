@@ -36,6 +36,9 @@ var adminSchema string
 //go:embed 009_leaderboard.sql
 var leaderboardSchema string
 
+//go:embed 010_max_combo.sql
+var maxComboSchema string
+
 func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	pool, err := pgxpool.New(ctx, url)
 	if err != nil {
@@ -167,6 +170,17 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, storage string) error {
 			return fmt.Errorf("migration 009: %w", err)
 		}
 		if _, err = tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES(9)`); err != nil {
+			return err
+		}
+	}
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=10)`).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		if _, err = tx.Exec(ctx, maxComboSchema); err != nil {
+			return fmt.Errorf("migration 010: %w", err)
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES(10)`); err != nil {
 			return err
 		}
 	}

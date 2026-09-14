@@ -14,7 +14,7 @@ def main():
     try:
         payload = {
             'songId': chart['id'], 'difficulty': 'Oni',
-            'good': 470, 'ok': 10, 'bad': 8, 'score': 900000, 'drumroll': 50,
+            'good': 470, 'ok': 10, 'bad': 8, 'score': 900000, 'drumroll': 50, 'max_combo': 350,
         }
         headers = {'Idempotency-Key': str(uuid.uuid4())}
         status, score, _ = client.call('POST', '/scores', payload, headers)

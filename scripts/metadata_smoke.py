@@ -29,7 +29,7 @@ def main():
                 assert chart['titleTranslations'][locale] == fields['TITLE' + suffix]
             if 'SUBTITLE' + suffix in fields:
                 assert chart['subtitleTranslations'][locale] == fields['SUBTITLE' + suffix]
-        payload = dict(songId=chart['id'], difficulty='Oni', good=300, ok=20, bad=11, score=900000, drumroll=50)
+        payload = dict(songId=chart['id'], difficulty='Oni', good=300, ok=20, bad=11, score=900000, drumroll=50, max_combo=250)
         key = {'Idempotency-Key': str(uuid.uuid4())}
         status, score, _ = owner.call('POST', '/scores', payload, key)
         assert status == 201, (status, score)

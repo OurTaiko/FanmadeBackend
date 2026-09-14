@@ -45,8 +45,8 @@ func TestLeaderboard(t *testing.T) {
 	}
 	add := func(id, user, chart, version string, points, good int64, date string) {
 		t.Helper()
-		_, err := pool.Exec(ctx, `INSERT INTO scores(id,user_id,song_id,version_id,block_index,difficulty,good,ok,bad,score,drumroll,payload_digest,submitted_at)
-		 VALUES($1,$2,$3,$4,0,'Oni',$5,2,1,$6,55,repeat('a',64),$7::timestamptz)`, id, user, chart, version, good, points, date)
+		_, err := pool.Exec(ctx, `INSERT INTO scores(id,user_id,song_id,version_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest,submitted_at)
+		 VALUES($1,$2,$3,$4,0,'Oni',$5,2,1,$6,55,$5,repeat('a',64),$7::timestamptz)`, id, user, chart, version, good, points, date)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -86,7 +86,7 @@ func TestLeaderboard(t *testing.T) {
 	if v.Difficulty != "Oni" || v.VersionID != current || !v.Supported || v.Total != 23 || len(v.Items) != 20 {
 		t.Fatalf("unexpected summary: %+v", v)
 	}
-	if v.Items[0].ID != "score00" || v.Items[0].Good != 300 || v.Items[0].Score.Score != 900000 || v.Items[0].Username != "player0" || v.Items[0].Rank != 1 || v.Items[1].Rank != 1 || v.Items[2].Rank != 3 {
+	if v.Items[0].ID != "score00" || v.Items[0].Good != 300 || v.Items[0].MaxCombo != 300 || v.Items[0].Score.Score != 900000 || v.Items[0].Username != "player0" || v.Items[0].Rank != 1 || v.Items[1].Rank != 1 || v.Items[2].Rank != 3 {
 		t.Fatalf("best score/ties incorrect: %+v", v.Items[:3])
 	}
 	second := get(path+"?difficulty=oni&page=2", 200, "")

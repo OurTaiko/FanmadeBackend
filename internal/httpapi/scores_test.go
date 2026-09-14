@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -108,17 +109,20 @@ func TestSubmitScore(t *testing.T) {
 		handler.ServeHTTP(w, r)
 		return w
 	}
-	gameBody := `{"songId":"` + song + `","versionId":"` + version + `","difficulty":"Oni","good":5,"ok":1,"bad":0,"score":6000,"drumroll":2}`
+	gameBody := `{"songId":"` + song + `","versionId":"` + version + `","difficulty":"Oni","good":5,"ok":1,"bad":0,"score":6000,"drumroll":2,"max_combo":6}`
 	if w := native("POST", "/api/v1/game/scores", strings.Replace(gameBody, version, strings.Repeat("d", 32), 1)); w.Code != 409 || !strings.Contains(w.Body.String(), "CHART_VERSION_CHANGED") {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	if w := native("POST", "/api/v1/game/scores", gameBody); w.Code != 201 {
+	if w := native("POST", "/api/v1/game/scores", gameBody); w.Code != 201 || !strings.Contains(w.Body.String(), `"max_combo":6`) {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	if w := native("POST", "/api/v1/game/scores", gameBody); w.Code != 200 {
+	if w := native("POST", "/api/v1/game/scores", gameBody); w.Code != 200 || !strings.Contains(w.Body.String(), `"max_combo":6`) {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	if w := native("GET", "/api/v1/game/bootstrap", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"good":5`) {
+	if w := native("GET", "/api/v1/game/bootstrap", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"good":5`) || !strings.Contains(w.Body.String(), `"max_combo":6`) {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if w := native("POST", "/api/v1/game/scores", strings.Replace(gameBody, `"max_combo":6`, `"max_combo":5`, 1)); w.Code != 409 || !strings.Contains(w.Body.String(), "IDEMPOTENCY_CONFLICT") {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	// Leave the existing count assertions isolated from this native submission.
@@ -126,9 +130,13 @@ func TestSubmitScore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	body := `{"songId":"` + song + `","difficulty":"Oni","good":300,"ok":10,"bad":2,"score":900000,"drumroll":50}`
+	body := `{"songId":"` + song + `","difficulty":"Oni","good":300,"ok":10,"bad":2,"score":900000,"drumroll":50,"max_combo":250}`
+	var requestCount atomic.Uint32
 	call := func(body, key, token string, headers map[string]string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("POST", "/api/v1/scores", strings.NewReader(body))
+		// This validation suite exceeds the per-IP minute budget. Model separate
+		// clients while keeping the real limiter enabled in the handler.
+		r.RemoteAddr = fmt.Sprintf("192.0.2.%d:1234", requestCount.Add(1))
 		r.Header.Set("Origin", origin)
 		r.Header.Set("Content-Type", "application/json")
 		r.Header.Set("X-CSRF-Token", csrf)
@@ -172,6 +180,12 @@ func TestSubmitScore(t *testing.T) {
 		{"null", strings.Replace(body, `"ok":10`, `"ok":null`, 1), "", cookie, nil, 422, "SCORE_INVALID"},
 		{"fraction", strings.Replace(body, `"bad":2`, `"bad":2.5`, 1), "", cookie, nil, 400, "REQUEST_INVALID"},
 		{"count range", strings.Replace(body, `"drumroll":50`, `"drumroll":2147483648`, 1), "", cookie, nil, 422, "SCORE_INVALID"},
+		{"combo missing", strings.Replace(body, `,"max_combo":250`, "", 1), "", cookie, nil, 422, "SCORE_INVALID"},
+		{"combo null", strings.Replace(body, `"max_combo":250`, `"max_combo":null`, 1), "", cookie, nil, 422, "SCORE_INVALID"},
+		{"combo negative", strings.Replace(body, `"max_combo":250`, `"max_combo":-1`, 1), "", cookie, nil, 422, "SCORE_INVALID"},
+		{"combo range", strings.Replace(body, `"max_combo":250`, `"max_combo":2147483648`, 1), "", cookie, nil, 422, "SCORE_INVALID"},
+		{"combo fraction", strings.Replace(body, `"max_combo":250`, `"max_combo":1.5`, 1), "", cookie, nil, 400, "REQUEST_INVALID"},
+		{"combo string", strings.Replace(body, `"max_combo":250`, `"max_combo":"250"`, 1), "", cookie, nil, 400, "REQUEST_INVALID"},
 		{"score range", strings.Replace(body, `"score":900000`, `"score":9007199254740992`, 1), "", cookie, nil, 422, "SCORE_INVALID"},
 		{"overflow", strings.Replace(body, `"good":300`, `"good":999999999999999999999`, 1), "", cookie, nil, 400, "REQUEST_INVALID"},
 		{"spoof user", strings.TrimSuffix(body, "}") + `,"userId":"u2"}`, "", cookie, nil, 400, "REQUEST_INVALID"},
@@ -197,7 +211,7 @@ func TestSubmitScore(t *testing.T) {
 	if err = json.Unmarshal(w.Body.Bytes(), &first); err != nil {
 		t.Fatal(err)
 	}
-	if first.UserID != "u" || first.VersionID != version || first.BlockIndex != 0 || first.Good != 300 || first.OK != 10 || first.Bad != 2 || first.Score != 900000 || first.Drumroll != 50 || first.SubmittedAt.IsZero() {
+	if first.UserID != "u" || first.VersionID != version || first.BlockIndex != 0 || first.Good != 300 || first.OK != 10 || first.Bad != 2 || first.Score != 900000 || first.Drumroll != 50 || first.MaxCombo != 250 || first.SubmittedAt.IsZero() {
 		t.Fatalf("bad receipt: %+v", first)
 	}
 	stored, err := readScore(pool.QueryRow(ctx, `SELECT `+scoreColumns+` FROM scores WHERE id=$1`, first.ID))
@@ -208,19 +222,20 @@ func TestSubmitScore(t *testing.T) {
 	assertStatus(w, 200, "")
 	var replay Score
 	json.Unmarshal(w.Body.Bytes(), &replay)
-	if replay.ID != first.ID {
+	if replay.ID != first.ID || replay.MaxCombo != 250 {
 		t.Fatal("retry inserted a new score")
 	}
 	assertStatus(call(strings.Replace(body, "900000", "900001", 1), key, cookie, nil), 409, "IDEMPOTENCY_CONFLICT")
+	assertStatus(call(strings.Replace(body, `"max_combo":250`, `"max_combo":249`, 1), key, cookie, nil), 409, "IDEMPOTENCY_CONFLICT")
 	assertStatus(call(body, key, cookie2, nil), 201, "")
 	assertStatus(call(body, "", cookie, nil), 201, "")
 	assertStatus(call(body, "", cookie, nil), 201, "")
-	zero := strings.NewReplacer("Oni", "ura", "300", "0", "10", "0", "2,", "0,", "900000", "0", "50", "0").Replace(body)
+	zero := strings.NewReplacer(`"max_combo":250`, `"max_combo":0`, "Oni", "ura", "300", "0", "10", "0", "2,", "0,", "900000", "0", "50", "0").Replace(body)
 	w = call(zero, "", cookie, nil)
 	assertStatus(w, 201, "")
 	var edit Score
 	json.Unmarshal(w.Body.Bytes(), &edit)
-	if edit.Difficulty != "Edit" || edit.Score != 0 || edit.Good != 0 {
+	if edit.Difficulty != "Edit" || edit.Score != 0 || edit.Good != 0 || edit.MaxCombo != 0 {
 		t.Fatalf("zero/alias: %+v", edit)
 	}
 	// Concurrent retries must produce one persistent record and one receipt ID.
@@ -258,6 +273,9 @@ func TestSubmitScore(t *testing.T) {
 	assertStatus(call(body, key, cookie, nil), 200, "")
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM scores`).Scan(&count); err != nil || count != 6 {
 		t.Fatalf("unexpected persisted plays: %d %v", count, err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE scores SET max_combo=-1 WHERE id=$1`, first.ID); err == nil {
+		t.Fatal("database accepted negative maximum combo")
 	}
 	// Even SQL writes cannot attach a score to a Double or different difficulty.
 	if _, err = pool.Exec(ctx, `UPDATE scores SET block_index=1 WHERE id=$1`, first.ID); err == nil {

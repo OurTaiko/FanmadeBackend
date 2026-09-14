@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -117,6 +118,27 @@ func TestCloudScoreMigration(t *testing.T) {
 	}
 	if _, err = pool.Exec(ctx, `UPDATE difficulties SET style='Single' WHERE player='P2'`); err == nil {
 		t.Fatal("P2 must not become Single")
+	}
+	// Simulate the v9 score schema and an existing historical play.
+	if _, err = pool.Exec(ctx, `ALTER TABLE scores DROP COLUMN max_combo;
+	 DELETE FROM schema_migrations WHERE version=10;
+	 INSERT INTO scores(id,user_id,song_id,version_id,block_index,difficulty,good,ok,bad,score,drumroll,payload_digest)
+	 VALUES('old-score','u','c','v',0,'Oni',10,2,1,9000,5,repeat('c',64));`); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err = Migrate(ctx, pool, storage); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var points, combo int64
+	var digest string
+	if err = pool.QueryRow(ctx, `SELECT score,max_combo,payload_digest FROM scores WHERE id='old-score'`).Scan(&points, &combo, &digest); err != nil || points != 9000 || combo != 0 || digest != strings.Repeat("c", 64) {
+		t.Fatalf("010 did not preserve historical score: %d %d %s %v", points, combo, digest, err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO scores(id,user_id,song_id,version_id,block_index,difficulty,good,ok,bad,score,drumroll,payload_digest)
+	 VALUES('missing-combo','u','c','v',0,'Oni',10,2,1,9000,5,repeat('d',64))`); err == nil {
+		t.Fatal("database accepted a score without an explicit maximum combo")
 	}
 	// Reproduce a database already migrated by the initial COURSE-leaking parser.
 	if _, err = pool.Exec(ctx, `UPDATE difficulties SET style='Double' WHERE block_index=3;

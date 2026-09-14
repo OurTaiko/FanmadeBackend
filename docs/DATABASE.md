@@ -1,6 +1,6 @@
 # PostgreSQL 数据结构（示范版实际实现）
 
-数据库：`ourtaiko_fanmade`。迁移源文件为 `internal/database/schema.sql`、`002_ese.sql`、`003_cloud_score_policy.sql`、`005_scores.sql`；由 Go embed 编入程序并通过 `schema_migrations` 记录。迁移使用事务与 advisory lock，重复启动不会重建表。
+数据库：`ourtaiko_fanmade`。迁移源文件为 `internal/database/schema.sql`、`002_ese.sql`、`003_cloud_score_policy.sql`、`005_scores.sql` 等，新增最大连击迁移为 `010_max_combo.sql`；由 Go embed 编入程序并通过 `schema_migrations` 记录。迁移使用事务与 advisory lock，重复启动不会重建表。
 
 | 表 | 关键字段 | 关系与约束 |
 | --- | --- | --- |
@@ -11,8 +11,8 @@
 | chart_versions | id、chart_id、version_number、title、subtitle、maker、bpm、offset_seconds、demo_start、duration、encoding、wave_filename、tja_file_id、audio_file_id、validation_version | 作品内版本号唯一；分别关联两份资源；时长 0–1200 秒，正数有限 BPM |
 | difficulties | version_id、block_index(integer)、course、level(integer)、player、style、cloud_score_eligible | 版本+块序号复合主键；支持 Easy/Normal/Hard/Oni/Edit/Tower/Dan；level 1–10；player 空/P1/P2；style 为 Single/Double；资格为数据库生成列 |
 | upload_requests | user_id、idempotency_key、payload_digest、chart_id、created_at | 用户+请求键复合主键；服务端计算载荷摘要，幂等冲突返回 409 |
-| scores | id、user_id、song_id、version_id、block_index、difficulty、cloud_score_eligible、good、ok、bad、score、drumroll、submitted_at、idempotency_key、payload_digest | 关联用户、作品版本及有资格的难度块；计数非负；同用户请求键唯一 |
-| schema_migrations | version(integer PK)、applied_at | 已应用版本为 1、2、3、4、5、6、7、8 |
+| scores | id、user_id、song_id、version_id、block_index、difficulty、cloud_score_eligible、good、ok、bad、score、drumroll、max_combo、submitted_at、idempotency_key、payload_digest | 关联用户、作品版本及有资格的难度块；计数非负；同用户请求键唯一 |
+| schema_migrations | version(integer PK)、applied_at | 已应用版本为 1、2、3、4、5、6、7、8、9、10 |
 
 业务 ID 由服务端密码学随机数生成，为 32 位十六进制文本。时间戳使用 timestamptz。文本编码、BPM 和难度均从服务端实际读取的 TJA 中提取，不信任客户端元数据。
 
@@ -51,3 +51,7 @@ erDiagram
 # 排行榜索引（迁移 009）
 
 排行榜复用 `scores`，不额外保存可漂移的名次。`scores_leaderboard_best` 索引按歌曲、版本、难度、谱面块、用户、总分及提交时间组织记录。读取使用同一 PostgreSQL repeatable-read 快照，保证版本、人数、并列名次和分页结果一致；每位用户的最高分在分页前选出。
+
+## 最大连击（迁移 010）
+
+`scores.max_combo` 为非空 PostgreSQL integer，无默认值，CHECK 要求非负。迁移仅为已有开发数据填 0，保留原 ID、版本、分数和幂等摘要；迁移完成后插入必须显式提供最大连击。新提交独立保存每次游玩的最大连击，成绩回执、游戏启动快照和排行榜都读取同一字段。

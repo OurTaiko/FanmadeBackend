@@ -62,15 +62,16 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
   "ok": 10,
   "bad": 8,
   "score": 900000,
-  "drumroll": 50
+  "drumroll": 50,
+  "max_combo": 350
 }
 ```
 
-示例 songId 需替换为作品 API 返回的 `id`，不是文件哈希或 versionId。七个字段全部必填：good 为良、ok 为可、bad 为不可、score 为总分、drumroll 为连打数。五个数字不接受 null、字符串或小数；计数为 0–2147483647，总分为 0–9007199254740991（JSON/JavaScript 安全整数范围）。这些是存储边界，不是玩法理论上限。难度接受 Easy、Normal、Hard、Oni、Edit、Tower、Dan，不区分大小写、忽略首尾空白；Ura 归一为 Edit。
+示例 songId 需替换为作品 API 返回的 `id`，不是文件哈希或 versionId。八个字段全部必填，`max_combo` 为最大连击：good 为良、ok 为可、bad 为不可、score 为总分、drumroll 为连打数。六个数字不接受 null、字符串或小数；计数为 0–2147483647，总分为 0–9007199254740991（JSON/JavaScript 安全整数范围）。`max_combo` 为必填的 0–2147483647 整数；省略或 null 返回 422，非整数返回 400，负数或越界值返回 422。这些是存储边界，不是玩法理论上限。难度接受 Easy、Normal、Hard、Oni、Edit、Tower、Dan，不区分大小写、忽略首尾空白；Ura 归一为 Edit。
 
-后端锁定当前已发布版本，按难度寻找唯一有资格的单人块。同一难度含一个 Single 和若干 Double 时只选 Single；只有 Double 时拒绝。重复 Single 已在新上传时拦截，成绩接口仍对历史异常数据返回歧义错误。当前只传歌曲 ID 和难度，因此按提交时的当前版本归属；还不能证明客户端实际游玩了哪个本地文件，后续替换版本／游戏清单接入时需要扩展版本凭据。
+后端锁定当前已发布版本，按难度寻找唯一有资格的单人块。同一难度含一个 Single 和若干 Double 时只选 Single；只有 Double 时拒绝。重复 Single 已在新上传时拦截，成绩接口仍对历史异常数据返回歧义错误。浏览器请求省略 versionId 时按提交时的当前版本归属；原生游戏接口要求 versionId 并校验版本一致。服务端保存客户端上报值，未根据游玩过程重算成绩。
 
-成功返回 201，响应包含原七个字段（difficulty 已归一化），以及服务端生成的 `id`、`userId`、`versionId`、`blockIndex` 和 `submittedAt`（UTC RFC3339）。每次新提交保留一条游玩记录，不覆盖最高分，也不自动计算排行榜。歌曲更名或软删除不删除已保存成绩；下架后拒绝新成绩。
+成功返回 201，响应包含上述八个成绩字段（difficulty 已归一化），以及服务端生成的 `id`、`userId`、`versionId`、`blockIndex` 和 `submittedAt`（UTC RFC3339）。每次新提交保留一条游玩记录，不覆盖最高分；排行榜读取时选出每人的最高分记录。歌曲更名或软删除不删除已保存成绩；下架后拒绝新成绩。
 
 可选请求头 `Idempotency-Key` 为 16–80 位字母、数字或短横线，推荐每局生成 UUID 并在网络重试时复用。相同用户、相同 key、相同归一化载荷返回原成绩及 200；同 key 不同载荷返回 409。不同用户的 key 互不影响；省略 key 时每次请求都是新游玩。已成功提交的幂等重试即使歌曲后来下架也返回原回执，不重新选择版本或写入成绩。
 
@@ -107,15 +108,15 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
 - `POST /api/v1/game/login`：JSON `{ "username": "...", "password": "..." }`，返回 `user`、`accessToken`、`expiresIn`（604800 秒）。无 Set-Cookie。后续原生请求使用 `Authorization: Bearer <accessToken>`。
 - `GET /api/v1/game/bootstrap`：返回 `{ "user": {...}, "charts": [...], "scores": [...] }`，在同一个 PostgreSQL repeatable-read 快照中读取全部已发布歌曲（完整详情字段、翻译、难度、文件 SHA-256）以及**当前登录用户**的全部历史成绩。历史版本成绩保留；当前难度展示最佳成绩时按 songId/versionId/difficulty 筛选。当前示范版为一次性完整快照，超大曲库后续改用快照分页/增量同步。
 - 原始文件继续使用 `GET /api/v1/charts/{id}/versions/{version}/{tja|audio}`。加载前重新获取 `GET /api/v1/charts/{id}` 核对 versionId 与哈希，文件下载后必须核对 SHA-256。
-- `POST /api/v1/game/scores`：七项原有字段加**必填** `versionId`，并使用每次游玩固定的 `Idempotency-Key`。字段示例：`{"songId":"<32 hex>","versionId":"<32 hex>","difficulty":"Oni","good":300,"ok":10,"bad":2,"score":900000,"drumroll":50}`。DOUBLE 仍不支持云端成绩。版本变化返回 `409 CHART_VERSION_CHANGED`，不将旧成绩写到新版本。临时失败重试时保持请求体和 key 不变。
+- `POST /api/v1/game/scores`：八项成绩字段（含必填 `max_combo`）加**必填** `versionId`，并使用每次游玩固定的 `Idempotency-Key`。字段示例：`{"songId":"<32 hex>","versionId":"<32 hex>","difficulty":"Oni","good":300,"ok":10,"bad":2,"score":900000,"drumroll":50,"max_combo":250}`。DOUBLE 仍不支持云端成绩。版本变化返回 `409 CHART_VERSION_CHANGED`，不将旧成绩写到新版本。临时失败重试时保持请求体和 key 不变。
 
-原有 `POST /api/v1/scores` 也接受可选 `versionId`，旧七字段请求保持兼容。原生会话在 sessions 表中使用 `SHA256("game:" + token)` 存储，浏览器会话仍使用 `SHA256(token)`，无需数据库迁移。
+`POST /api/v1/scores` 接受可选 `versionId`，但同样要求 `max_combo`。提交回执、`game/bootstrap` 中的成绩以及排行榜记录都必须包含 `max_combo`。原生会话在 sessions 表中使用 `SHA256("game:" + token)` 存储，浏览器会话仍使用 `SHA256(token)`，无需数据库迁移。
 # 谱面排行榜
 
 `GET /api/v1/charts/{id}/leaderboard?difficulty=Oni&page=1&versionId=<当前版本>` 公开读取，无需登录。
 
 - 未传难度时按 Oni → Edit → Hard → Normal → Easy 回退，其余难度按谱面块顺序选择。接受难度大小写和 `ura` 别名。
-- 仅统计当前发布版本的单人谱；每位用户取总分最高的一次，同一用户同分时取最早提交记录。良／可／不可／连打均来自该次游玩。
+- 仅统计当前发布版本的单人谱；每位用户取总分最高的一次，同一用户同分时取最早提交记录。良／可／不可／连打／最大连击均来自该次游玩，不单独拼接历史最大连击。
 - 按总分降序，同分并列（如 1、1、3），同分行按提交时间及成绩 ID 稳定排序。每页 20 人，页码为 1–10000；`total` 为上榜人数。
 - 返回 `{songId, versionId, difficulty, supported, items, total, page, pageSize}`；`items` 中包含成绩字段以及 `username`、`rank`，不暴露邮箱或认证信息。
 - DOUBLE 难度返回 `supported: false` 与空列表。不存在的歌曲／难度返回 404，旧版本参数返回 409 `CHART_VERSION_CHANGED`，有歧义的单人难度返回 409。
