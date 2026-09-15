@@ -108,7 +108,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 			f.sha = hex.EncodeToString(h.Sum(nil))
 			files[field] = f
 		} else {
-			if (field != "encoding" && field != "description") || name != "" {
+			if (field != "encoding" && field != "description" && field != "categoryIds") || name != "" {
 				problem(w, 400, "UPLOAD_FILES_INVALID", "包含不支持的上传字段")
 				return
 			}
@@ -128,6 +128,20 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 			fields[field] = string(data)
 		}
 		part.Close()
+	}
+	categoryIDs, categoryErr := categorySelection(json.RawMessage(fields["categoryIds"]))
+	if categoryErr != nil {
+		problem(w, 422, "CATEGORIES_INVALID", "分类必须为分类 ID 数组")
+		return
+	}
+	valid, categoryErr := validCategories(r.Context(), s.DB, categoryIDs)
+	if categoryErr != nil {
+		internal(w, categoryErr)
+		return
+	}
+	if !valid {
+		problem(w, 422, "CATEGORIES_INVALID", "包含不存在的分类，请刷新后重试")
+		return
 	}
 	tf, af := files["tja"], files["audio"]
 	if tf == nil || af == nil {
@@ -169,6 +183,10 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	digestData, _ := json.Marshal([]string{tf.name, tf.sha, af.name, af.sha, encoding, fields["description"]})
+	if len(categoryIDs) != 1 || categoryIDs[0] != "variety" {
+		encoded, _ := json.Marshal(categoryIDs)
+		digestData = append(digestData, encoded...)
+	}
 	digest := hash(string(digestData))
 	tx, e := s.DB.Begin(r.Context())
 	if e != nil {
@@ -234,6 +252,10 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if _, e = tx.Exec(r.Context(), `INSERT INTO charts(id,owner_id,description,current_version_id) VALUES($1,$2,$3,$4)`, chartID, u.User.ID, fields["description"], versionID); e != nil {
+		internal(w, e)
+		return
+	}
+	if e = setCategories(r.Context(), tx, chartID, categoryIDs); e != nil {
 		internal(w, e)
 		return
 	}

@@ -84,6 +84,10 @@ func TestCloudScoreMigration(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	var category string
+	if err = pool.QueryRow(ctx, `SELECT category_id FROM chart_categories WHERE chart_id='c'`).Scan(&category); err != nil || category != "variety" {
+		t.Fatalf("013 did not backfill existing chart: %s %v", category, err)
+	}
 	var title, subtitle string
 	if err = pool.QueryRow(ctx, `SELECT title_translations->>'ja',subtitle_translations->>'zh' FROM chart_versions WHERE id='v'`).Scan(&title, &subtitle); err != nil || title != "日本語" || subtitle != "副标题" {
 		t.Fatalf("localized backfill: %s %s %v", title, subtitle, err)
@@ -139,6 +143,29 @@ func TestCloudScoreMigration(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO scores(id,user_id,song_id,version_id,block_index,difficulty,good,ok,bad,score,drumroll,payload_digest)
 	 VALUES('missing-combo','u','c','v',0,'Oni',10,2,1,9000,5,repeat('d',64))`); err == nil {
 		t.Fatal("database accepted a score without an explicit maximum combo")
+	}
+	// Re-run 013 with an existing score and compare complete business rows.
+	before := map[string]string{}
+	for _, table := range []string{"users", "files", "charts", "chart_versions", "difficulties", "scores", "upload_requests"} {
+		var rows string
+		if err = pool.QueryRow(ctx, `SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb)::text FROM `+table+` t`).Scan(&rows); err != nil {
+			t.Fatal(err)
+		}
+		before[table] = rows
+	}
+	if _, err = pool.Exec(ctx, `DROP TABLE chart_categories,categories; DELETE FROM schema_migrations WHERE version=13`); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err = Migrate(ctx, pool, storage); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for table, want := range before {
+		var rows string
+		if err = pool.QueryRow(ctx, `SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb)::text FROM `+table+` t`).Scan(&rows); err != nil || rows != want {
+			t.Fatalf("013 changed %s: %v", table, err)
+		}
 	}
 	// Reproduce a database already migrated by the initial COURSE-leaking parser.
 	if _, err = pool.Exec(ctx, `UPDATE difficulties SET style='Double' WHERE block_index=3;

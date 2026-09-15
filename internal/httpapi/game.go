@@ -24,28 +24,12 @@ func (s *Server) gameBootstrap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	rows, err := tx.Query(r.Context(), chartSelect+` WHERE `+publishedChart+` ORDER BY c.id`)
+	categories, err := readCategories(r.Context(), tx)
 	if err != nil {
 		internal(w, err)
 		return
 	}
-	charts := []Chart{}
-	for rows.Next() {
-		c, e := readChart(rows)
-		if e != nil {
-			rows.Close()
-			internal(w, e)
-			return
-		}
-		charts = append(charts, c)
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		internal(w, err)
-		return
-	}
-	rows, err = tx.Query(r.Context(), `SELECT `+scoreColumns+` FROM scores WHERE user_id=$1 AND difficulty IN `+supportedCoursesSQL+` AND NOT EXISTS (SELECT 1 FROM difficulties excluded WHERE excluded.version_id=scores.version_id AND excluded.course NOT IN `+supportedCoursesSQL+`) ORDER BY submitted_at,id`, u.User.ID)
+	rows, err := tx.Query(r.Context(), `SELECT `+scoreColumns+` FROM scores WHERE user_id=$1 AND difficulty IN `+supportedCoursesSQL+` AND NOT EXISTS (SELECT 1 FROM difficulties excluded WHERE excluded.version_id=scores.version_id AND excluded.course NOT IN `+supportedCoursesSQL+`) ORDER BY submitted_at,id`, u.User.ID)
 	if err != nil {
 		internal(w, err)
 		return
@@ -70,5 +54,5 @@ func (s *Server) gameBootstrap(w http.ResponseWriter, r *http.Request) {
 		internal(w, err)
 		return
 	}
-	respond(w, 200, map[string]any{"user": u.User, "charts": charts, "scores": scores})
+	respond(w, 200, map[string]any{"user": u.User, "categories": categories, "scores": scores})
 }

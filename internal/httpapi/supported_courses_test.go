@@ -165,9 +165,17 @@ func TestSupportedCoursesMigrationAndAPI(t *testing.T) {
 		Scores []Score
 	}
 	w := call("GET", "/api/v1/game/bootstrap", "", 200)
-	if err = json.Unmarshal(w.Body.Bytes(), &snapshot); err != nil || len(snapshot.Charts) != 1 || len(snapshot.Scores) != 1 || snapshot.Scores[0].Difficulty != "Oni" {
+	if err = json.Unmarshal(w.Body.Bytes(), &snapshot); err != nil || len(snapshot.Charts) != 0 || len(snapshot.Scores) != 1 || snapshot.Scores[0].Difficulty != "Oni" {
 		t.Fatal("unsupported game data leaked", w.Body.String(), err)
 	}
+	if _, err = pool.Exec(ctx, `INSERT INTO chart_categories(category_id,chart_id) SELECT 'variety',id FROM charts ON CONFLICT DO NOTHING`); err != nil {
+		t.Fatal(err)
+	}
+	w = call("GET", "/api/v1/game/categories/variety/charts", "", 200)
+	if err = json.Unmarshal(w.Body.Bytes(), &snapshot); err != nil || len(snapshot.Charts) != 1 || snapshot.Charts[0].ID != ids[0] {
+		t.Fatal("unsupported chart leaked through category", w.Body.String(), err)
+	}
+
 }
 
 func TestUploadRejectsUnsupportedCourses(t *testing.T) {

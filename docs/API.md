@@ -113,7 +113,7 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
 原生客户端使用独立 Bearer 会话，不发送浏览器的 Origin、Cookie 或 CSRF token。浏览器接口保留原有 Origin/CSRF 校验；两类 token 不能互换。所有非 GET 请求仍有每 IP 每分钟 40 次限制。公网部署使用 HTTPS。
 
 - `POST /api/v1/game/login`：JSON `{ "username": "...", "password": "..." }`，返回 `user`、`accessToken`、`expiresIn`（604800 秒）。无 Set-Cookie。后续原生请求使用 `Authorization: Bearer <accessToken>`。
-- `GET /api/v1/game/bootstrap`：返回 `{ "user": {...}, "charts": [...], "scores": [...] }`，在同一个 PostgreSQL repeatable-read 快照中读取全部已发布歌曲（完整详情字段、翻译、难度、文件 SHA-256）以及**当前登录用户**的全部历史成绩。历史版本成绩保留；当前难度展示最佳成绩时按 songId/versionId/difficulty 筛选。当前示范版为一次性完整快照，超大曲库后续改用快照分页/增量同步。
+- `GET /api/v1/game/bootstrap`：返回 `{ "user": {...}, "categories": [...], "scores": [...] }`，在同一个 PostgreSQL repeatable-read 快照中读取分类和当前用户的历史成绩，不再查询或返回全部谱面。`GET /api/v1/game/categories/{categoryId}/charts` 按需返回分类内谱面；详情见 [分类协议](CATEGORIES.md)。历史版本成绩保留；当前难度展示最佳成绩时按 songId/versionId/difficulty 筛选。
 - 原始文件继续使用 `GET /api/v1/charts/{id}/versions/{version}/{tja|audio}`。加载前重新获取 `GET /api/v1/charts/{id}` 核对 versionId 与哈希，文件下载后必须核对 SHA-256。
 - `POST /api/v1/game/scores`：八项成绩字段（含必填 `max_combo`）加**必填** `versionId`，并使用每次游玩固定的 `Idempotency-Key`。字段示例：`{"songId":"<32 hex>","versionId":"<32 hex>","difficulty":"Oni","good":300,"ok":10,"bad":2,"score":900000,"drumroll":50,"max_combo":250}`。DOUBLE 仍不支持云端成绩。版本变化返回 `409 CHART_VERSION_CHANGED`，不将旧成绩写到新版本。临时失败重试时保持请求体和 key 不变。
 
@@ -132,3 +132,7 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
 邮箱验证码的错误码、重发限制及 SMTP 配置详见 [EMAIL_VERIFICATION.md](EMAIL_VERIFICATION.md)。
 
 上传规则接口的 `audioCodecs` 为 `["vorbis", "mp3"]`，`audioExtensions` 为 `[".ogg", ".mp3"]`。multipart 音频字段仍为 `audio`。
+
+## 分类曲库协议更新
+
+`Chart` 新增 `categoryIds`；上传和 PATCH 支持多选分类。游戏 bootstrap 的 `charts` 已替换为 `categories`，谱面改从 `GET /api/v1/game/categories/{categoryId}/charts` 按分类取得。公开分类列表为 `GET /api/v1/categories`。完整请求格式、默认值、迁移及客户端配套要求见 [分类说明](CATEGORIES.md)。

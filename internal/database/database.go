@@ -45,6 +45,9 @@ var emailVerificationSchema string
 //go:embed 012_supported_courses.sql
 var supportedCoursesSchema string
 
+//go:embed 013_categories.sql
+var categoriesSchema string
+
 func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	pool, err := pgxpool.New(ctx, url)
 	if err != nil {
@@ -209,6 +212,17 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, storage string) error {
 			return fmt.Errorf("migration 012: %w", err)
 		}
 		if _, err = tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES(12)`); err != nil {
+			return err
+		}
+	}
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=13)`).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		if _, err = tx.Exec(ctx, categoriesSchema); err != nil {
+			return fmt.Errorf("migration 013: %w", err)
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES(13)`); err != nil {
 			return err
 		}
 	}

@@ -14,6 +14,7 @@ import (
 )
 
 type metadataPatch struct {
+	CategoryIDs          json.RawMessage `json:"categoryIds"`
 	Title                json.RawMessage `json:"title"`
 	Subtitle             json.RawMessage `json:"subtitle"`
 	TitleTranslations    json.RawMessage `json:"titleTranslations"`
@@ -88,7 +89,7 @@ func patchTranslations(raw json.RawMessage, dst *map[string]string, title bool) 
 }
 
 func (p metadataPatch) apply(o *metadataOverrides) bool {
-	if len(p.Title)+len(p.Subtitle)+len(p.TitleTranslations)+len(p.SubtitleTranslations) == 0 {
+	if len(p.Title)+len(p.Subtitle)+len(p.TitleTranslations)+len(p.SubtitleTranslations)+len(p.CategoryIDs) == 0 {
 		return false
 	}
 	return patchText(p.Title, &o.Title, true) && patchText(p.Subtitle, &o.Subtitle, false) && patchTranslations(p.TitleTranslations, &o.Titles, true) && patchTranslations(p.SubtitleTranslations, &o.Subtitles, false)
@@ -137,10 +138,32 @@ func (s *Server) editMetadata(w http.ResponseWriter, r *http.Request) {
 		problem(w, 422, "METADATA_INVALID", "需要有效的名称／副标题；每项最多 500 字节，名称不能为空，多语言仅支持 ja、zh、ko，null 恢复原值")
 		return
 	}
-	_, err = tx.Exec(r.Context(), `UPDATE charts SET title_override=$2,subtitle_override=$3,title_translation_overrides=$4,subtitle_translation_overrides=$5,metadata_updated_at=now() WHERE id=$1`, r.PathValue("id"), overrides.Title, overrides.Subtitle, overrides.Titles, overrides.Subtitles)
-	if err != nil {
-		internal(w, err)
-		return
+	if len(patch.CategoryIDs) > 0 {
+		ids, e := categorySelection(patch.CategoryIDs)
+		if e != nil {
+			problem(w, 422, "CATEGORIES_INVALID", "分类必须为分类 ID 数组")
+			return
+		}
+		valid, e := validCategories(r.Context(), tx, ids)
+		if e != nil {
+			internal(w, e)
+			return
+		}
+		if !valid {
+			problem(w, 422, "CATEGORIES_INVALID", "包含不存在的分类，请刷新后重试")
+			return
+		}
+		if e = setCategories(r.Context(), tx, r.PathValue("id"), ids); e != nil {
+			internal(w, e)
+			return
+		}
+	}
+	if len(patch.Title)+len(patch.Subtitle)+len(patch.TitleTranslations)+len(patch.SubtitleTranslations) > 0 {
+		_, err = tx.Exec(r.Context(), `UPDATE charts SET title_override=$2,subtitle_override=$3,title_translation_overrides=$4,subtitle_translation_overrides=$5,metadata_updated_at=now() WHERE id=$1`, r.PathValue("id"), overrides.Title, overrides.Subtitle, overrides.Titles, overrides.Subtitles)
+		if err != nil {
+			internal(w, err)
+			return
+		}
 	}
 	chart, err := readChart(tx.QueryRow(r.Context(), chartSelect+` WHERE c.id=$1`, r.PathValue("id")))
 	if err != nil {
