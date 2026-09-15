@@ -31,6 +31,23 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	var existing *Chart
+	if id := r.PathValue("id"); id != "" {
+		c, err := s.chart(r.Context(), id)
+		if errors.Is(err, pgx.ErrNoRows) {
+			problem(w, 404, "CHART_NOT_FOUND", "歌曲不存在或已下架")
+			return
+		}
+		if err != nil {
+			internal(w, err)
+			return
+		}
+		if c.OwnerID != u.User.ID && !u.User.IsAdmin {
+			problem(w, 403, "FORBIDDEN", "只有上传者或管理员可以替换歌曲")
+			return
+		}
+		existing = &c
+	}
 	key := r.Header.Get("Idempotency-Key")
 	if !keyPattern.MatchString(key) {
 		problem(w, 400, "IDEMPOTENCY_KEY_INVALID", "需要有效的上传请求标识")
@@ -108,7 +125,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 			f.sha = hex.EncodeToString(h.Sum(nil))
 			files[field] = f
 		} else {
-			if (field != "encoding" && field != "description" && field != "categoryIds" && field != "difficultyMakers") || name != "" {
+			if (field != "encoding" && field != "description" && field != "categoryIds" && field != "difficultyMakers" && !(existing != nil && (field == "expectedVersionId" || field == "confirmReset"))) || name != "" {
 				problem(w, 400, "UPLOAD_FILES_INVALID", "包含不支持的上传字段")
 				return
 			}
@@ -152,8 +169,12 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tf, af := files["tja"], files["audio"]
-	if tf == nil || af == nil {
-		problem(w, 400, "UPLOAD_FILES_INVALID", "必须同时选择 TJA 和一个 OGG 或 MP3 音频")
+	if tf == nil || (af == nil && existing == nil) {
+		message := "必须同时选择 TJA 和一个 OGG 或 MP3 音频"
+		if existing != nil {
+			message = "必须选择新的 TJA，音频可沿用当前文件"
+		}
+		problem(w, 400, "UPLOAD_FILES_INVALID", message)
 		return
 	}
 	encoding := fields["encoding"]
@@ -180,6 +201,52 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 	tf.size = int64(len(normalized))
 	tjaHash := sha256.Sum256(normalized)
 	tf.sha = hex.EncodeToString(tjaHash[:])
+	var tx pgx.Tx
+	var replacementDigest string
+	if existing != nil {
+		if fields["confirmReset"] != "true" || fields["expectedVersionId"] == "" {
+			problem(w, 400, "REPLACEMENT_CONFIRMATION_REQUIRED", "替换需要当前版本标识，并确认删除全部旧文件和旧成绩")
+			return
+		}
+		// Hash only submitted data: a retry must work after the old audio was deleted.
+		parts := []string{existing.ID, tf.name, tf.sha}
+		if af != nil {
+			parts = append(parts, af.name, af.sha)
+		}
+		encoded, _ := json.Marshal(struct {
+			Parts  []string
+			Fields map[string]string
+		}{parts, fields})
+		replacementDigest = hash("replace:" + string(encoded))
+		var proceed bool
+		tx, proceed = s.beginUpload(w, r, u.User.ID, key, replacementDigest)
+		if !proceed {
+			return
+		}
+		defer tx.Rollback(r.Context())
+		var current string
+		e = tx.QueryRow(r.Context(), `SELECT current_version_id FROM charts c WHERE c.id=$1 AND `+publishedChart+` FOR UPDATE`, existing.ID).Scan(&current)
+		if errors.Is(e, pgx.ErrNoRows) {
+			problem(w, 404, "CHART_NOT_FOUND", "歌曲不存在或已下架")
+			return
+		}
+		if e != nil {
+			internal(w, e)
+			return
+		}
+		if current != fields["expectedVersionId"] || current != existing.VersionID {
+			problem(w, 409, "CHART_VERSION_CHANGED", "歌曲已被更新，请重新打开更新页面后选择文件")
+			return
+		}
+		if af == nil {
+			af, e = s.copyAudio(existing, dir)
+			if e != nil {
+				internal(w, e)
+				return
+			}
+			files["audio"] = af
+		}
+	}
 	meta, issue := tja.Parse(normalized, encoding, af.name)
 	if issue != nil {
 		respond(w, 422, map[string]any{"code": issue.Code, "message": issue.Message, "errors": []*tja.Issue{issue}, "requestId": w.Header().Get("X-Request-ID"), "validationVersion": tja.Version})
@@ -207,41 +274,21 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	digest := hash(string(digestData))
-	tx, e := s.DB.Begin(r.Context())
-	if e != nil {
-		internal(w, e)
-		return
+	if existing != nil {
+		digest = replacementDigest
 	}
-	defer tx.Rollback(r.Context())
-	if _, e = tx.Exec(r.Context(), `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, u.User.ID+":"+key); e != nil {
-		internal(w, e)
-		return
-	}
-	var previousID, previousDigest string
-	e = tx.QueryRow(r.Context(), `SELECT chart_id,payload_digest FROM upload_requests WHERE user_id=$1 AND idempotency_key=$2`, u.User.ID, key).Scan(&previousID, &previousDigest)
-	if e == nil {
-		if previousDigest != digest {
-			problem(w, 409, "IDEMPOTENCY_CONFLICT", "此请求标识已用于不同的文件，请重新选择后提交")
+	if tx == nil {
+		var proceed bool
+		tx, proceed = s.beginUpload(w, r, u.User.ID, key, digest)
+		if !proceed {
 			return
 		}
-		tx.Rollback(r.Context())
-		c, e := s.chart(r.Context(), previousID)
-		if errors.Is(e, pgx.ErrNoRows) {
-			problem(w, 409, "CHART_REMOVED", "该次上传的作品已删除，请重新选择文件")
-			return
-		}
-		if e != nil {
-			internal(w, e)
-			return
-		}
-		respond(w, 200, c)
-		return
-	}
-	if !errors.Is(e, pgx.ErrNoRows) {
-		internal(w, e)
-		return
+		defer tx.Rollback(r.Context())
 	}
 	chartID, versionID := ID(), ID()
+	if existing != nil {
+		chartID = existing.ID
+	}
 	committed := false
 	defer func() {
 		if !committed {
@@ -270,7 +317,12 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if _, e = tx.Exec(r.Context(), `INSERT INTO charts(id,owner_id,description,current_version_id) VALUES($1,$2,$3,$4)`, chartID, u.User.ID, fields["description"], versionID); e != nil {
+	if existing == nil {
+		_, e = tx.Exec(r.Context(), `INSERT INTO charts(id,owner_id,description,current_version_id) VALUES($1,$2,$3,$4)`, chartID, u.User.ID, fields["description"], versionID)
+	} else {
+		e = retireChart(r.Context(), tx, chartID, versionID, fields["description"])
+	}
+	if e != nil {
 		internal(w, e)
 		return
 	}
@@ -292,7 +344,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if _, e = tx.Exec(r.Context(), `INSERT INTO upload_requests(user_id,idempotency_key,payload_digest,chart_id) VALUES($1,$2,$3,$4)`, u.User.ID, key, digest, chartID); e != nil {
+	if _, e = tx.Exec(r.Context(), `INSERT INTO upload_requests(user_id,idempotency_key,payload_digest,chart_id,version_id) VALUES($1,$2,$3,$4,$5)`, u.User.ID, key, digest, chartID, versionID); e != nil {
 		internal(w, e)
 		return
 	}
@@ -308,7 +360,12 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		internal(w, e)
 		return
 	}
-	respond(w, 201, c)
+	if existing != nil {
+		s.cleanupReplacedFiles()
+		respond(w, 200, c)
+	} else {
+		respond(w, 201, c)
+	}
 }
 func uploadReadError(w http.ResponseWriter, e error) {
 	var max *http.MaxBytesError
