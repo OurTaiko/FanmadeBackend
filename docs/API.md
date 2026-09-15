@@ -27,7 +27,7 @@
 
 普通错误：`{code,message,requestId,validationVersion}`；TJA 错误额外返回 `errors` 数组，含 code/message/line/expected/actual。常用状态码：400 请求格式，401 未登录，403 权限或来源错误，409 冲突，413 大小限制，422 谱面／音频校验失败，429 频率限制，503 暂时不可用。
 
-数量：1 个 TJA + 1 个 OGG 或 MP3 音频。TJA 最大 2 MiB，音频最大 100 MiB，请求最大 105 MiB，说明最大 4000 字节。文本 UTF-8 或显式 Shift-JIS。音频接受单音轨 Ogg Vorbis 或 MPEG Layer III（MP3），扩展名必须与真实格式一致。OGG 检查 CRC 与 EOS；MP3 检查帧边界及截断，支持 CBR/VBR、MPEG-1/2/2.5、ID3 和 APE 标签，允许内嵌封面，不接受 free-format MP3。两种格式均需可完整解码，时长不超过 20 分钟。原音频不转码，WAVE 与上传文件名仍须 NFC 后严格匹配（区分大小写）。最多两个上传同时处理。
+数量：1 个 TJA + 1 个 OGG 或 MP3 音频。TJA 最大 2 MiB，音频最大 100 MiB，请求最大 105 MiB，说明最大 4000 字节。文本输入接受 UTF-8（默认）或显式 Shift-JIS；后端独立严格解码并统一保存为无 BOM 的 UTF-8。原输入和转换后均限制 2 MiB。网站自动识别常见编码，在上传前转换为 UTF-8。TJA 的哈希、字节数及下载内容均对应实际保存的 UTF-8 字节；已有作品不自动改写。音频接受单音轨 Ogg Vorbis 或 MPEG Layer III（MP3），扩展名必须与真实格式一致。OGG 检查 CRC 与 EOS；MP3 检查帧边界及截断，支持 CBR/VBR、MPEG-1/2/2.5、ID3 和 APE 标签，允许内嵌封面，不接受 free-format MP3。两种格式均需可完整解码，时长不超过 20 分钟。原音频不转码，WAVE 与上传文件名仍须 NFC 后严格匹配（区分大小写）。最多两个上传同时处理。
 
 邮箱验证、修改说明、替换版本、管理员接口仍为规划项，本次未提供对应端点。名称／副标题编辑已提供，详见文末。
 

@@ -87,3 +87,9 @@ DOUBLE 谱面不记录云端成绩，但仍可上传与下载。后端按块解�
 所有变更使用 Conventional Commits。远端仓库：[OurTaiko/Fanmade_Backend](https://github.com/OurTaiko/Fanmade_Backend)，使用 `ourtaiko` 远端管理。
 
 后端已解析 TITLE/SUBTITLE 的 JA、ZH、KO 字段并回填旧谱面；默认字段按英文保存。作者或管理员可用 `PATCH /api/v1/charts/{id}` 修改默认及多语言名称、副标题，支持 null 恢复原值。修改只影响网站元数据和搜索，原始 TJA、文件版本与成绩不变；前端详情页已提供编辑弹窗。[管理员配置说明](docs/ADMIN.md)。
+
+## TJA 编码与保存
+
+新上传的 TJA 统一保存为无 BOM 的 UTF-8。前端自动检测常见源编码并转换，API 仍独立验证声明的 `utf-8` 或 `shift-jis`，拒绝损坏文本；原输入和 UTF-8 输出都受 2 MiB 上限约束。文件 SHA-256、字节数、下载和 ZIP 均以实际保存的 UTF-8 内容为准，音频保持原字节。已有文件不迁移，也无需变更数据库结构。
+
+`internal/tja/encoding_test.go` 覆盖严格解码与转换边界；`internal/httpapi/encoding_upload_test.go` 使用隔离 PostgreSQL schema 验证保存编码、文件哈希、大小、下载及转换前后相同内容的幂等重试。

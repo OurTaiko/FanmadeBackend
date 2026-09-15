@@ -1,16 +1,13 @@
 package tja
 
 import (
-	"bytes"
 	"fmt"
 	"math"
 	"regexp"
 	"strconv"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
-	"golang.org/x/text/encoding/japanese"
 	"golang.org/x/text/unicode/norm"
 	"ourtaiko.dev/fanmade/api/internal/audio"
 )
@@ -75,27 +72,11 @@ func numeric(s string) (float64, bool) {
 
 func Parse(data []byte, encoding, audioName string) (Metadata, *Issue) {
 	m := Metadata{Difficulties: []Difficulty{}, TitleTranslations: map[string]string{}, SubtitleTranslations: map[string]string{}}
-	if len(data) == 0 || len(data) > MaxTJA {
-		return m, fail("FILE_SIZE_INVALID", "TJA 不能为空且不能超过 2 MiB", 0)
+	data, issue := NormalizeUTF8(data, encoding)
+	if issue != nil {
+		return m, issue
 	}
-	var err error
-	switch encoding {
-	case "utf-8":
-		if !utf8.Valid(data) {
-			return m, fail("TJA_ENCODING_INVALID", "无法按 UTF-8 解码，请选择 Shift-JIS 或转存为 UTF-8", 0)
-		}
-	case "shift-jis":
-		data, err = japanese.ShiftJIS.NewDecoder().Bytes(data)
-	default:
-		return m, fail("TJA_ENCODING_INVALID", "不支持此文本编码", 0)
-	}
-	if err != nil || bytes.Contains(data, []byte("\uFFFD")) {
-		return m, fail("TJA_ENCODING_INVALID", "文本包含无法识别的字符", 0)
-	}
-	text := strings.TrimPrefix(string(data), "\uFEFF")
-	if strings.ContainsRune(text, 0) {
-		return m, fail("TJA_ENCODING_INVALID", "TJA 包含非法空字符", 0)
-	}
+	text := string(data)
 	waveLine, waves := 0, 0
 	started, inBlock, hasNotes := false, false, false
 	course, level := "Oni", 0

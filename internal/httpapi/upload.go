@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -142,7 +143,22 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		internal(w, e)
 		return
 	}
-	meta, issue := tja.Parse(data, encoding, af.name)
+	normalized, issue := tja.NormalizeUTF8(data, encoding)
+	if issue != nil {
+		respond(w, 422, map[string]any{"code": issue.Code, "message": issue.Message, "errors": []*tja.Issue{issue}, "requestId": w.Header().Get("X-Request-ID"), "validationVersion": tja.Version})
+		return
+	}
+	if !bytes.Equal(data, normalized) {
+		if e = os.WriteFile(tf.path, normalized, 0600); e != nil {
+			internal(w, e)
+			return
+		}
+	}
+	encoding = "utf-8"
+	tf.size = int64(len(normalized))
+	tjaHash := sha256.Sum256(normalized)
+	tf.sha = hex.EncodeToString(tjaHash[:])
+	meta, issue := tja.Parse(normalized, encoding, af.name)
 	if issue != nil {
 		respond(w, 422, map[string]any{"code": issue.Code, "message": issue.Message, "errors": []*tja.Issue{issue}, "requestId": w.Header().Get("X-Request-ID"), "validationVersion": tja.Version})
 		return
