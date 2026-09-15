@@ -108,7 +108,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 			f.sha = hex.EncodeToString(h.Sum(nil))
 			files[field] = f
 		} else {
-			if (field != "encoding" && field != "description" && field != "categoryIds") || name != "" {
+			if (field != "encoding" && field != "description" && field != "categoryIds" && field != "difficultyMakers") || name != "" {
 				problem(w, 400, "UPLOAD_FILES_INVALID", "包含不支持的上传字段")
 				return
 			}
@@ -116,13 +116,21 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 				problem(w, 400, "UPLOAD_FILES_INVALID", "上传字段重复")
 				return
 			}
-			data, e := io.ReadAll(io.LimitReader(part, 4001))
+			limit := int64(4000)
+			if field == "difficultyMakers" {
+				limit = 64 * 1024
+			}
+			data, e := io.ReadAll(io.LimitReader(part, limit+1))
 			if e != nil {
 				uploadReadError(w, e)
 				return
 			}
-			if len(data) > 4000 {
-				problem(w, 400, "DESCRIPTION_TOO_LONG", "说明不能超过 4000 字节")
+			if int64(len(data)) > limit {
+				if field == "difficultyMakers" {
+					problem(w, 400, "UPLOAD_FIELD_TOO_LONG", "制作者表格不能超过 64 KiB")
+				} else {
+					problem(w, 400, "DESCRIPTION_TOO_LONG", "说明不能超过 4000 字节")
+				}
 				return
 			}
 			fields[field] = string(data)
@@ -177,6 +185,10 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		respond(w, 422, map[string]any{"code": issue.Code, "message": issue.Message, "errors": []*tja.Issue{issue}, "requestId": w.Header().Get("X-Request-ID"), "validationVersion": tja.Version})
 		return
 	}
+	if e = applyDifficultyMakers(fields["difficultyMakers"], meta.Difficulties); e != nil {
+		problem(w, 422, "DIFFICULTY_MAKERS_INVALID", e.Error())
+		return
+	}
 	duration, e := audio.Validate(r.Context(), af.path, af.name)
 	if e != nil {
 		problem(w, 422, "AUDIO_INVALID", "音频未通过完整性检查，请使用完整的单音轨 Ogg Vorbis 或 MP3 文件（最长 20 分钟）")
@@ -186,6 +198,13 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 	if len(categoryIDs) != 1 || categoryIDs[0] != "variety" {
 		encoded, _ := json.Marshal(categoryIDs)
 		digestData = append(digestData, encoded...)
+	}
+	for _, d := range meta.Difficulties {
+		if d.Maker != meta.Maker {
+			encoded, _ := json.Marshal(meta.Difficulties)
+			digestData = append(digestData, encoded...)
+			break
+		}
 	}
 	digest := hash(string(digestData))
 	tx, e := s.DB.Begin(r.Context())
@@ -259,7 +278,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		internal(w, e)
 		return
 	}
-	if _, e = tx.Exec(r.Context(), `INSERT INTO chart_versions(id,chart_id,version_number,title,subtitle,maker,bpm,offset_seconds,demo_start,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version) VALUES($1,$2,1,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, versionID, chartID, meta.Title, meta.Subtitle, meta.Maker, meta.BPM, meta.Offset, meta.DemoStart, duration, encoding, meta.Wave, tf.id, af.id, tja.Version); e != nil {
+	if _, e = tx.Exec(r.Context(), `INSERT INTO chart_versions(id,chart_id,version_number,title,subtitle,bpm,offset_seconds,demo_start,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version) VALUES($1,$2,1,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, versionID, chartID, meta.Title, meta.Subtitle, meta.BPM, meta.Offset, meta.DemoStart, duration, encoding, meta.Wave, tf.id, af.id, tja.Version); e != nil {
 		internal(w, e)
 		return
 	}
@@ -268,7 +287,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, d := range meta.Difficulties {
-		if _, e = tx.Exec(r.Context(), `INSERT INTO difficulties(version_id,block_index,course,level,player,style) VALUES($1,$2,$3,$4,$5,$6)`, versionID, d.BlockIndex, d.Course, d.Level, d.Player, d.Style); e != nil {
+		if _, e = tx.Exec(r.Context(), `INSERT INTO difficulties(version_id,block_index,course,level,player,style,maker) VALUES($1,$2,$3,$4,$5,$6,$7)`, versionID, d.BlockIndex, d.Course, d.Level, d.Player, d.Style, d.Maker); e != nil {
 			internal(w, e)
 			return
 		}

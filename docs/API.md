@@ -13,7 +13,7 @@
 | GET | /upload-rules | 校验版本、大小上限、编码与音频支持信息 |
 | GET | /charts?q=&course=&page=1 | 返回 `{items,total,page,pageSize}`；每页 12 |
 | GET | /me/charts | 本人作品列表，查询参数与公开列表一致 |
-| POST | /charts | multipart：tja、audio、encoding（默认 utf-8）、description（可空）；首次创建 201，同请求重试 200 |
+| POST | /charts | multipart：tja、audio、encoding（默认 utf-8）、description（可空）、categoryIds、difficultyMakers（可选 JSON）；首次创建 201，同请求重试 200 |
 | GET | /charts/{id} | 当前已发布版本详情 |
 | PATCH | /charts/{id} | 作者或管理员修改默认英文及 ja/zh/ko 名称／副标题，返回更新后的作品 |
 | DELETE | /charts/{id} | 本人软删除；后续资源访问返回 404 |
@@ -136,3 +136,15 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
 ## 分类曲库协议更新
 
 `Chart` 新增 `categoryIds`；上传和 PATCH 支持多选分类。游戏 bootstrap 的 `charts` 已替换为 `categories`，谱面改从 `GET /api/v1/game/categories/{categoryId}/charts` 按分类取得。公开分类列表为 `GET /api/v1/categories`。完整请求格式、默认值、迁移及客户端配套要求见 [分类说明](CATEGORIES.md)。
+
+## 各难度制作者
+
+上传表单可传 `difficultyMakers`，其值为 JSON 数组，例如：
+
+```json
+[{"blockIndex":0,"maker":"A"},{"blockIndex":1,"maker":"B"},{"blockIndex":2,"maker":"A"}]
+```
+
+传入时必须覆盖后端解析出的每个谱面块，blockIndex 不能重复或越界，maker 必须是字符串；空字符串表示不署名。署名去掉两端空白，最长 500 UTF-8 字节，不接受控制字符；整个字段最长 64 KiB。校验失败返回 422 `DIFFICULTY_MAKERS_INVALID`。省略该字段时，每块均采用原 TJA 的 MAKER（没有则为空），兼容已有上传客户端。署名变更参与幂等校验。
+
+作品详情、列表、本人列表和游戏分类曲库均返回 `difficulties[].maker`；歌曲级 `maker` 为所有难度署名按块顺序去重的汇总，如上述示例返回 `A | B`。空署名不参与汇总，不以上传者代替署名。搜索谱师匹配任一难度的 maker。下载的原 TJA 保持原始内容；游戏使用 API 汇总 maker 覆盖运行缓存的 MAKER。

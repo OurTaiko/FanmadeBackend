@@ -48,6 +48,9 @@ var supportedCoursesSchema string
 //go:embed 013_categories.sql
 var categoriesSchema string
 
+//go:embed 014_difficulty_makers.sql
+var difficultyMakersSchema string
+
 func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	pool, err := pgxpool.New(ctx, url)
 	if err != nil {
@@ -223,6 +226,17 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, storage string) error {
 			return fmt.Errorf("migration 013: %w", err)
 		}
 		if _, err = tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES(13)`); err != nil {
+			return err
+		}
+	}
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=14)`).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		if _, err = tx.Exec(ctx, difficultyMakersSchema); err != nil {
+			return fmt.Errorf("migration 014: %w", err)
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES(14)`); err != nil {
 			return err
 		}
 	}

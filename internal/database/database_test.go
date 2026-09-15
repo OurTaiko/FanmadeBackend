@@ -56,6 +56,7 @@ func TestCloudScoreMigration(t *testing.T) {
 	_, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id,current_version_id) VALUES('c','u','v');
  INSERT INTO chart_versions(id,chart_id,version_number,title,bpm,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version)
  VALUES('v','c',1,'Test',120,10,'utf-8','music.ogg','t','a','tja-upload-v1');
+ UPDATE chart_versions SET maker='Legacy Maker' WHERE id='v';
  INSERT INTO difficulties(version_id,block_index,course,level,player)
  VALUES('v',0,'Oni',5,''),('v',1,'Oni',5,''),('v',2,'Oni',5,'P2'),('v',3,'Easy',3,'');`)
 	if err != nil {
@@ -83,6 +84,14 @@ func TestCloudScoreMigration(t *testing.T) {
 		if err = Migrate(ctx, pool, storage); err != nil {
 			t.Fatal(err)
 		}
+	}
+	var makerCount int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM difficulties WHERE maker='Legacy Maker'`).Scan(&makerCount); err != nil || makerCount != 4 {
+		t.Fatalf("014 must preserve every block credit: %d %v", makerCount, err)
+	}
+	var oldMakerColumn bool
+	if err = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='chart_versions' AND column_name='maker')`).Scan(&oldMakerColumn); err != nil || oldMakerColumn {
+		t.Fatalf("014 must remove version maker: %v", err)
 	}
 	var category string
 	if err = pool.QueryRow(ctx, `SELECT category_id FROM chart_categories WHERE chart_id='c'`).Scan(&category); err != nil || category != "variety" {

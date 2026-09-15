@@ -30,6 +30,7 @@ func fail(code, message string, line int) *Issue {
 }
 
 type Difficulty struct {
+	Maker              string `json:"maker"`
 	Course             string `json:"course"`
 	Level              int    `json:"level"`
 	BlockIndex         int    `json:"blockIndex"`
@@ -114,7 +115,7 @@ func Parse(data []byte, encoding, audioName string) (Metadata, *Issue) {
 				singleCourses[course] = line
 			}
 			m.Difficulties = append(m.Difficulties, Difficulty{
-				Course: course, Level: level, BlockIndex: len(m.Difficulties), Player: player,
+				Course: course, Level: level, BlockIndex: len(m.Difficulties), Player: player, Maker: m.Maker,
 				Style: blockStyle, CloudScoreEligible: blockStyle == "Single" && player == "",
 			})
 			continue

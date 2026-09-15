@@ -8,11 +8,11 @@
 | sessions | token_hash(text PK)、user_id、csrf_token、expires_at | 外键关联用户；Cookie 令牌仅存 SHA-256；独立 CSRF 令牌；到期不可使用 |
 | files | id、storage_key、original_filename、sha256、byte_size(bigint)、media_type | storage_key 唯一；正数大小；SHA-256 为 64 位十六进制字符串 |
 | charts | id、owner_id、description、status、current_version_id、created_at | 状态 published/deleted/hidden；作品与当前版本复合外键，延迟到事务提交校验 |
-| chart_versions | id、chart_id、version_number、title、subtitle、maker、bpm、offset_seconds、demo_start、duration、encoding、wave_filename、tja_file_id、audio_file_id、validation_version | 作品内版本号唯一；分别关联两份资源；时长 0–1200 秒，正数有限 BPM |
-| difficulties | version_id、block_index(integer)、course、level(integer)、player、style、cloud_score_eligible | 版本+块序号复合主键；新写入仅支持 Easy/Normal/Hard/Oni/Edit；历史不支持记录保留但不公开；level 1–10；player 空/P1/P2；style 为 Single/Double；资格为数据库生成列 |
+| chart_versions | id、chart_id、version_number、title、subtitle、bpm、offset_seconds、demo_start、duration、encoding、wave_filename、tja_file_id、audio_file_id、validation_version | 作品内版本号唯一；分别关联两份资源；时长 0–1200 秒，正数有限 BPM |
+| difficulties | version_id、block_index(integer)、course、level(integer)、player、style、cloud_score_eligible、maker | 版本+块序号复合主键；新写入仅支持 Easy/Normal/Hard/Oni/Edit；历史不支持记录保留但不公开；level 1–10；player 空/P1/P2；style 为 Single/Double；资格为数据库生成列 |
 | upload_requests | user_id、idempotency_key、payload_digest、chart_id、created_at | 用户+请求键复合主键；服务端计算载荷摘要，幂等冲突返回 409 |
 | scores | id、user_id、song_id、version_id、block_index、difficulty、cloud_score_eligible、good、ok、bad、score、drumroll、max_combo、submitted_at、idempotency_key、payload_digest | 关联用户、作品版本及有资格的难度块；计数非负；同用户请求键唯一 |
-| schema_migrations | version(integer PK)、applied_at | 程序包含迁移版本 1–12，启动时补齐未执行的版本 |
+| schema_migrations | version(integer PK)、applied_at | 程序包含迁移版本 1–14，启动时补齐未执行的版本 |
 
 业务 ID 由服务端密码学随机数生成，为 32 位十六进制文本。时间戳使用 timestamptz。文本编码、BPM 和难度均从服务端实际读取的 TJA 中提取，不信任客户端元数据。
 
@@ -69,3 +69,9 @@ erDiagram
 `difficulties.course` 与 `scores.difficulty` 增加五种难度的 CHECK，使用 NOT VALID 保留已有归档行，但约束所有后续插入及更新。列表、详情、文件下载、编辑、排行榜与成绩写入独立检查当前版本；即使手工改回 published，不支持的版本也不能公开。游戏快照不返回不支持版本的任何成绩，包括混合版本的普通难度成绩。
 
 迁移在下一次启动后端时自动执行，也可用 `go run ./cmd/server -migrate` 单独执行。本次验证使用隔离的 PostgreSQL 临时集群，没有启动或修改已停止的本地应用数据库。
+
+## 难度制作者（迁移 014）
+
+`014_difficulty_makers.sql` 在 `difficulties` 增加非空 `maker`（默认空串），将所有历史版本的 `chart_versions.maker` 回填至各谱面块，再删除旧列。整个操作在迁移事务中完成，重复运行不覆盖新署名；版本、原文件、文件哈希及成绩不变。
+
+上传时各难度默认采用 TJA 的 MAKER，可通过 `difficultyMakers` 按 blockIndex 覆盖。API 的歌曲级 `maker` 不再存储，而是读取难度后按 blockIndex 顺序去重、忽略空白，并以 ` | ` 连接；各 `difficulties[].maker` 同时返回。署名比较区分大小写。
