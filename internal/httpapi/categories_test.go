@@ -114,6 +114,22 @@ func TestCategoriesFlow(t *testing.T) {
 	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &bootstrap) != nil || bootstrap["charts"] != nil || bootstrap["categories"] == nil {
 		t.Fatal("bootstrap must not enumerate charts", w.Body.String())
 	}
+	var summary struct {
+		ChartCount int
+		Categories []struct {
+			ID         string
+			ChartCount int
+		}
+	}
+	if err = json.Unmarshal(w.Body.Bytes(), &summary); err != nil || summary.ChartCount != 4 || len(summary.Categories) != 5 {
+		t.Fatal("server total must count unique charts", w.Body.String(), err)
+	}
+	wantCounts := map[string]int{"game": 1, "pop": 1, "variety": 3, "classic": 0, "virtual-singer": 0}
+	for _, category := range summary.Categories {
+		if category.ChartCount != wantCounts[category.ID] {
+			t.Fatal("category count", category)
+		}
+	}
 	categoryCharts := func(id string) []Chart {
 		t.Helper()
 		w := call("GET", "/api/v1/game/categories/"+id+"/charts", "", gameToken)
@@ -181,6 +197,15 @@ func TestCategoriesFlow(t *testing.T) {
 	for _, chart := range categoryCharts("variety") {
 		if chart.ID == c.ID {
 			t.Fatal("deleted chart leaked")
+		}
+	}
+	w = call("GET", "/api/v1/game/bootstrap", "", gameToken)
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &summary) != nil || summary.ChartCount != 3 {
+		t.Fatal("deleted chart counted", w.Body.String())
+	}
+	for _, category := range summary.Categories {
+		if category.ChartCount != len(categoryCharts(category.ID)) {
+			t.Fatal("count differs from refreshed list", category)
 		}
 	}
 }
