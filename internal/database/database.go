@@ -54,6 +54,9 @@ var difficultyMakersSchema string
 //go:embed 015_chart_replacement.sql
 var chartReplacementSchema string
 
+//go:embed 016_user_nicknames.sql
+var userNicknamesSchema string
+
 func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	pool, err := pgxpool.New(ctx, url)
 	if err != nil {
@@ -251,6 +254,17 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, storage string) error {
 			return fmt.Errorf("migration 015: %w", err)
 		}
 		if _, err = tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES(15)`); err != nil {
+			return err
+		}
+	}
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=16)`).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		if _, err = tx.Exec(ctx, userNicknamesSchema); err != nil {
+			return fmt.Errorf("migration 016: %w", err)
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES(16)`); err != nil {
 			return err
 		}
 	}

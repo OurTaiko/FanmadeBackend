@@ -187,7 +187,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !usernamePattern.MatchString(input.Username) || len(input.Password) < 8 || len(input.Password) > 72 {
-		problem(w, 422, "CREDENTIALS_INVALID", "用户名需为 3–24 位字母、数字或下划线，密码需为 8–72 字节")
+		problem(w, 422, "CREDENTIALS_INVALID", "用户名需为 3–24 位英文字母或数字，密码需为 8–72 字节")
 		return
 	}
 	email, ok := normalizeEmail(input.Email)
@@ -252,8 +252,8 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		internal(w, err)
 		return
 	}
-	user := User{ID: ID(), Username: input.Username, EmailVerified: true}
-	_, err = tx.Exec(ctx, `INSERT INTO users(id,username,password_hash,email,email_verified_at) VALUES($1,$2,$3,$4,now())`, user.ID, user.Username, string(passwordHash), email)
+	user := User{ID: ID(), Username: input.Username, Nickname: input.Username, EmailVerified: true}
+	_, err = tx.Exec(ctx, `INSERT INTO users(id,username,nickname,password_hash,email,email_verified_at) VALUES($1,$2,$3,$4,$5,now())`, user.ID, user.Username, user.Nickname, string(passwordHash), email)
 	if err != nil {
 		var pe *pgconn.PgError
 		if errors.As(err, &pe) && pe.Code == "23505" {

@@ -4,7 +4,7 @@
 
 | 表 | 关键字段 | 关系与约束 |
 | --- | --- | --- |
-| users | id(text)、username(text)、password_hash(text)、email(text nullable)、email_verified_at(timestamptz nullable)、created_at | 用户名唯一、3–24 位字母数字下划线；非空邮箱 lower(email) 唯一；验证时间非空要求邮箱非空 |
+| users | id(text)、username(text)、nickname(text)、password_hash(text)、email(text nullable)、email_verified_at(timestamptz nullable)、created_at | 用户名唯一，新建／改名仅 3–24 位英文字母数字，旧下划线账号保留；昵称必填且允许重名；非空邮箱 lower(email) 唯一；验证时间非空要求邮箱非空 |
 | sessions | token_hash(text PK)、user_id、csrf_token、expires_at | 外键关联用户；Cookie 令牌仅存 SHA-256；独立 CSRF 令牌；到期不可使用 |
 | files | id、storage_key、original_filename、sha256、byte_size(bigint)、media_type | storage_key 唯一；正数大小；SHA-256 为 64 位十六进制字符串 |
 | charts | id、owner_id、description、status、current_version_id、created_at | 状态 published/deleted/hidden；作品与当前版本复合外键，延迟到事务提交校验 |
@@ -75,3 +75,8 @@ erDiagram
 `014_difficulty_makers.sql` 在 `difficulties` 增加非空 `maker`（默认空串），将所有历史版本的 `chart_versions.maker` 回填至各谱面块，再删除旧列。整个操作在迁移事务中完成，重复运行不覆盖新署名；版本、原文件、文件哈希及成绩不变。
 
 上传时各难度默认采用 TJA 的 MAKER，可通过 `difficultyMakers` 按 blockIndex 覆盖。API 的歌曲级 `maker` 不再存储，而是读取难度后按 blockIndex 顺序去重、忽略空白，并以 ` | ` 连接；各 `difficulties[].maker` 同时返回。署名比较区分大小写。
+
+
+### 016 用户昵称
+
+`users.nickname` 回填为 username，限制 1–40 个字符／160 字节，非空且不含控制字符。`users_prepare_profile` 在插入用户时将未指定的昵称初始化为用户名，并对新增／改变的用户名应用 `^[A-Za-z0-9]{3,24}$`；旧用户名无需修改，可正常更新昵称。公开展示通过查询 users.nickname 取得最新值，不复制到作品或成绩记录中。

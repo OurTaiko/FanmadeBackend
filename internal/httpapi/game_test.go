@@ -13,7 +13,7 @@ import (
 func TestGameSessionIsolation(t *testing.T) {
 	pool := scoreTestDB(t)
 	h, _ := bcrypt.GenerateFromPassword([]byte("test-password"), bcrypt.MinCost)
-	_, err := pool.Exec(context.Background(), `INSERT INTO users(id,username,password_hash) VALUES('game-user','game_user',$1)`, string(h))
+	_, err := pool.Exec(context.Background(), `INSERT INTO users(id,username,password_hash) VALUES('game-user','gameuser',$1)`, string(h))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestGameSessionIsolation(t *testing.T) {
 		handler.ServeHTTP(w, r)
 		return w
 	}
-	credentials := `{"username":"game_user","password":"test-password"}`
+	credentials := `{"username":"gameuser","password":"test-password"}`
 	login := call("POST", "/api/v1/game/login", credentials, "", "", "")
 	if login.Code != 200 {
 		t.Fatal(login.Code, login.Body.String())

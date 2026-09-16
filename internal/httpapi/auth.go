@@ -14,6 +14,7 @@ import (
 type User struct {
 	ID            string `json:"id"`
 	Username      string `json:"username"`
+	Nickname      string `json:"nickname"`
 	EmailVerified bool   `json:"emailVerified"`
 	IsAdmin       bool   `json:"isAdmin"`
 }
@@ -22,7 +23,7 @@ type session struct {
 	CSRF string
 }
 
-var usernamePattern = regexp.MustCompile(`^[a-zA-Z0-9_]{3,24}$`)
+var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9]{3,24}$`)
 
 type credentials struct {
 	Username string `json:"username"`
@@ -45,7 +46,7 @@ func (s *Server) current(r *http.Request) (session, error) {
 		}
 		digest = hash(c.Value)
 	}
-	e := s.DB.QueryRow(r.Context(), `SELECT u.id,u.username,u.email_verified_at IS NOT NULL,u.is_admin,s.csrf_token FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now()`, digest).Scan(&v.User.ID, &v.User.Username, &v.User.EmailVerified, &v.User.IsAdmin, &v.CSRF)
+	e := s.DB.QueryRow(r.Context(), `SELECT u.id,u.username,u.nickname,u.email_verified_at IS NOT NULL,u.is_admin,s.csrf_token FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now()`, digest).Scan(&v.User.ID, &v.User.Username, &v.User.Nickname, &v.User.EmailVerified, &v.User.IsAdmin, &v.CSRF)
 	return v, e
 }
 func (s *Server) required(w http.ResponseWriter, r *http.Request, csrf bool) (session, bool) {
@@ -107,7 +108,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	var u User
 	var h string
-	e := s.DB.QueryRow(r.Context(), `SELECT id,username,password_hash,email_verified_at IS NOT NULL,is_admin FROM users WHERE username=$1`, c.Username).Scan(&u.ID, &u.Username, &h, &u.EmailVerified, &u.IsAdmin)
+	e := s.DB.QueryRow(r.Context(), `SELECT id,username,nickname,password_hash,email_verified_at IS NOT NULL,is_admin FROM users WHERE username=$1`, c.Username).Scan(&u.ID, &u.Username, &u.Nickname, &h, &u.EmailVerified, &u.IsAdmin)
 	if e != nil && !errors.Is(e, pgx.ErrNoRows) {
 		internal(w, e)
 		return

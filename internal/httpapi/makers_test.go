@@ -16,7 +16,7 @@ func TestDifficultyMakersFlow(t *testing.T) {
 	pool := scoreTestDB(t)
 	ctx := context.Background()
 	token := strings.Repeat("d", 64)
-	if _, err := pool.Exec(ctx, `INSERT INTO users(id,username,password_hash) VALUES('maker-user','maker_test','unused')`); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO users(id,username,password_hash) VALUES('maker-user','makertest','unused')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at) VALUES($1,'maker-user','csrf',now()+interval '1 day'),($2,'maker-user','csrf',now()+interval '1 day')`, hash(token), hash("game:"+token)); err != nil {

@@ -104,6 +104,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/auth/login", s.login)
 	mux.HandleFunc("POST /api/v1/auth/logout", s.logout)
 	mux.HandleFunc("GET /api/v1/me", s.me)
+	mux.HandleFunc("PATCH /api/v1/me", s.editProfile)
 	mux.HandleFunc("POST /api/v1/scores", s.submitScore)
 	mux.HandleFunc("GET /api/v1/charts", s.list)
 	mux.HandleFunc("GET /api/v1/me/charts", s.mine)

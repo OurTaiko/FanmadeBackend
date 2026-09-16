@@ -8,7 +8,8 @@
 | POST | /auth/register | JSON username/password/email/verificationId/code；验证成功后创建账号、绑定邮箱并建立会话 |
 | POST | /auth/login | JSON username/password；返回 user / csrfToken 并设置 HttpOnly Cookie |
 | POST | /auth/logout | 撤销 Session，清 Cookie |
-| GET | /me | `{user, csrfToken}`；未登录返回 200，user 为 null |
+| GET | /me | `{user, csrfToken}`；user 含自己的 username 和 nickname；未登录返回 200，user 为 null |
+| PATCH | /me | JSON `{nickname}`；修改当前账号昵称，返回更新后的 `{user, csrfToken}` |
 | POST | /scores | JSON 提交单人谱成绩；首次保存 201，幂等重试 200 |
 | GET | /upload-rules | 校验版本、大小上限、编码与音频支持信息 |
 | GET | /charts?q=&course=&page=1 | 返回 `{items,total,page,pageSize}`；每页 12 |
@@ -126,7 +127,7 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
 - 未传难度时按 Oni → Edit → Hard → Normal → Easy 回退，其余难度按谱面块顺序选择。接受难度大小写和 `ura` 别名。
 - 仅统计当前发布版本的单人谱；每位用户取总分最高的一次，同一用户同分时取最早提交记录。良／可／不可／连打／最大连击均来自该次游玩，不单独拼接历史最大连击。
 - 按总分降序，同分并列（如 1、1、3），同分行按提交时间及成绩 ID 稳定排序。每页 20 人，页码为 1–10000；`total` 为上榜人数。
-- 返回 `{songId, versionId, difficulty, supported, items, total, page, pageSize}`；`items` 中包含成绩字段以及 `username`、`rank`，不暴露邮箱或认证信息。
+- 返回 `{songId, versionId, difficulty, supported, items, total, page, pageSize}`；`items` 中包含成绩字段以及 `nickname`、`rank`，不暴露邮箱或认证信息。
 - DOUBLE 难度返回 `supported: false` 与空列表。不存在的歌曲／难度返回 404，旧版本参数返回 409 `CHART_VERSION_CHANGED`，有歧义的单人难度返回 409。
 - 修改展示标题和副标题不影响成绩；谱面版本更新后新旧成绩分开统计。原始成绩记录保留。
 
@@ -170,3 +171,12 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
 请求收据保留歌曲、结果版本和载荷摘要，以支持网络失败后的安全重试，不保留旧谱面或旧成绩。相同键和载荷重试返回首次保存的当前版本，**不会再次清空新成绩**；载荷不同或该结果已被后续更新替换时返回 409。并发更新只有一个可以基于同一个 `expectedVersionId` 成功。
 
 游戏端无需额外删除逻辑：刷新曲库得到新 `versionId` 后，旧版本的成绩缓存不再匹配；重新获取 `/game/bootstrap` 不会返回已删除成绩。旧版本的在途成绩提交返回 409，不会计入新版本。
+
+
+## 用户名、昵称与个人资料
+
+迁移 016 为用户增加 `nickname`，将已有昵称初始化为各自的用户名。新注册用户名必须匹配 `^[A-Za-z0-9]{3,24}$`，只允许英文字母和数字，保留原有的长度与唯一性要求；注册成功时昵称默认等于用户名。现有带下划线的用户名保留并可继续登录、修改昵称，不自动改名。数据库触发器对新建／改名操作执行新规则，并为未传昵称的导入设置默认昵称。
+
+`PATCH /api/v1/me` 仅接受 `{ "nickname": "新的昵称" }`，要求当前会话、正确 Origin 和 CSRF，只修改当前登录账号。昵称去除首尾空白，要求 1–40 个 Unicode 字符（最多 160 UTF-8 字节），不能包含换行或控制字符，允许中文、表情和重名。空值返回 422 `NICKNAME_INVALID`；尝试提交用户名、邮箱、密码、用户 ID 等其他字段返回 400。返回值与 GET /me 相同，前端更新当前会话显示。
+
+用户名作为登录标识，只有登录／注册响应和 GET/PATCH /me 等当前用户自己的会话信息返回它。公开谱面中的 `uploader` 读取上传者昵称，公开排行榜用 `nickname` 替代原 `username` 字段，上传者搜索也只查询昵称。修改昵称实时影响后续查询，无需修改作品、成绩或重新登录。游戏登录仍使用用户名与密码；歌曲 maker 仍是各难度的谱师署名，不是用户昵称。

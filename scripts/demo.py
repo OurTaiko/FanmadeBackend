@@ -76,7 +76,7 @@ def seed():
  credentials = local / 'demo-credentials.json'
  if credentials.exists(): account = json.loads(credentials.read_text())
  else:
-  account = {'username': 'ese_demo', 'password': secrets.token_urlsafe(24)}
+  account = {'username': 'eseDemo', 'password': secrets.token_urlsafe(24)}
   credentials.write_text(json.dumps(account)); credentials.chmod(0o600)
  client = Client(); client.auth(**account)
  imported = []
@@ -90,8 +90,8 @@ def seed():
  print('Demo ready. Credentials are saved locally in .data/demo-credentials.json (not tracked).')
 
 def smoke():
- client = Client(); user = client.auth('smoke_'+uuid.uuid4().hex[:10], secrets.token_urlsafe(24))
- other = Client(); other.auth('smoke_'+uuid.uuid4().hex[:10], secrets.token_urlsafe(24))
+ client = Client(); user = client.auth('smoke'+uuid.uuid4().hex[:10], secrets.token_urlsafe(24))
+ other = Client(); other.auth('smoke'+uuid.uuid4().hex[:10], secrets.token_urlsafe(24))
  rel = SAMPLES[0]
  for duplicate_chart in ['02 Anime/Gekkouka/Gekkouka.tja', '02 Anime/Oto Melody/Oto Melody.tja']:
   status, result, _ = client.upload(duplicate_chart)

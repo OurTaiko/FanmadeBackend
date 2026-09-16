@@ -114,6 +114,9 @@ func TestRegistrationEmail(t *testing.T) {
 	p.Email = "PERSON@example.com"
 	w = call("register", p)
 	assert(w, 200, `"emailVerified":true`)
+	if !strings.Contains(w.Body.String(), `"nickname":"newuser"`) {
+		t.Fatal("registration nickname did not default to username", w.Body.String())
+	}
 	if len(w.Result().Cookies()) != 1 {
 		t.Fatal("registration did not issue a session")
 	}

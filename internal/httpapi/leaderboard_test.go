@@ -86,7 +86,7 @@ func TestLeaderboard(t *testing.T) {
 	if v.Difficulty != "Oni" || v.VersionID != current || !v.Supported || v.Total != 23 || len(v.Items) != 20 {
 		t.Fatalf("unexpected summary: %+v", v)
 	}
-	if v.Items[0].ID != "score00" || v.Items[0].Good != 300 || v.Items[0].MaxCombo != 300 || v.Items[0].Score.Score != 900000 || v.Items[0].Username != "player0" || v.Items[0].Rank != 1 || v.Items[1].Rank != 1 || v.Items[2].Rank != 3 {
+	if v.Items[0].ID != "score00" || v.Items[0].Good != 300 || v.Items[0].MaxCombo != 300 || v.Items[0].Score.Score != 900000 || v.Items[0].Nickname != "player0" || v.Items[0].Rank != 1 || v.Items[1].Rank != 1 || v.Items[2].Rank != 3 {
 		t.Fatalf("best score/ties incorrect: %+v", v.Items[:3])
 	}
 	second := get(path+"?difficulty=oni&page=2", 200, "")

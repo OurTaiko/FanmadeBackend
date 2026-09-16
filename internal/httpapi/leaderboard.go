@@ -11,7 +11,7 @@ import (
 
 type leaderboardEntry struct {
 	Score
-	Username string `json:"username"`
+	Nickname string `json:"nickname"`
 	Rank     int64  `json:"rank"`
 }
 
@@ -106,7 +106,7 @@ func (s *Server) leaderboard(w http.ResponseWriter, r *http.Request) {
 		), ranked AS (
 		 SELECT best.*,rank() OVER (ORDER BY score DESC) AS place FROM best
 		)
-		SELECT r.id,r.user_id,r.song_id,r.version_id,r.block_index,r.difficulty,r.good,r.ok,r.bad,r.score,r.drumroll,r.max_combo,r.submitted_at,u.username,r.place
+		SELECT r.id,r.user_id,r.song_id,r.version_id,r.block_index,r.difficulty,r.good,r.ok,r.bad,r.score,r.drumroll,r.max_combo,r.submitted_at,u.nickname,r.place
 		FROM ranked r JOIN users u ON u.id=r.user_id
 		ORDER BY r.score DESC,r.submitted_at,r.id LIMIT $5 OFFSET $6`, result.SongID, result.VersionID, course, block, result.PageSize, (page-1)*result.PageSize)
 		if err != nil {
@@ -115,7 +115,7 @@ func (s *Server) leaderboard(w http.ResponseWriter, r *http.Request) {
 		}
 		for rows.Next() {
 			var v leaderboardEntry
-			if err = rows.Scan(&v.ID, &v.UserID, &v.SongID, &v.VersionID, &v.BlockIndex, &v.Difficulty, &v.Good, &v.OK, &v.Bad, &v.Score.Score, &v.Drumroll, &v.MaxCombo, &v.SubmittedAt, &v.Username, &v.Rank); err != nil {
+			if err = rows.Scan(&v.ID, &v.UserID, &v.SongID, &v.VersionID, &v.BlockIndex, &v.Difficulty, &v.Good, &v.OK, &v.Bad, &v.Score.Score, &v.Drumroll, &v.MaxCombo, &v.SubmittedAt, &v.Nickname, &v.Rank); err != nil {
 				rows.Close()
 				internal(w, err)
 				return
