@@ -11,6 +11,9 @@
 | pop | Pop | J-POP |
 | classic | Classic | CLASSICAL |
 | variety | Variety | VARIETY |
+| anime | Anime | ANIME |
+
+迁移 `017_anime_category.sql` 在现有分类末尾加入 Anime，既有数据库与新安装都会应用；不改变其他分类的顺序、歌曲归属或默认 Variety。网页从分类 API 自动显示 Anime，无需维护前端固定列表。游戏沿用 `genre` → `box.def` → `GenreIndex::ANIME` 的映射，支持 `ANIME` 及 `Anime`，使用现有 Anime 皮肤样式。
 
 分类是作品层级的信息，不属于某个文件版本。改变分类不会更新谱面 ID、版本 ID、下载文件、哈希或成绩归属。物理删除作品时关联级联删除；软删除保留关联。
 
@@ -53,7 +56,7 @@ Authorization: Bearer ...
 
 ## 验证
 
-`categories_test.go` 覆盖五类目录、默认值、多选去重、非法 ID、幂等、原生认证、分类过滤、作者权限、事务回滚、版本／文件哈希／成绩不变和软删除。`database_test.go` 比较迁移 013 前后完整业务行，验证旧谱面归入 Variety 以及重复迁移。`supported_courses_test.go` 确认分类接口继续排除不支持的难度。
+`categories_test.go` 覆盖六类目录、Anime 上传／编辑及游戏分类响应、默认值、多选去重、非法 ID、幂等、原生认证、分类过滤、作者权限、事务回滚、版本／文件哈希／成绩不变和软删除。`database_test.go` 比较迁移 013 前后完整业务行，并验证从 016 升级到 017 后保留原分类、归属和业务数据以及重复迁移。`supported_courses_test.go` 确认分类接口继续排除不支持的难度。
 
 前端 `e2e/categories.spec.ts` 使用真实 API 验证分类重试、多选上传、默认值、作者编辑、刷新回显和 390px 手机弹窗；可使用现有邮箱夹具或独立测试账号运行：
 
@@ -61,4 +64,4 @@ Authorization: Bearer ...
 PLAYWRIGHT_BASE_URL=http://127.0.0.1:15173 FANMADE_CATEGORY_TEST_USER=TEST_USER FANMADE_CATEGORY_TEST_PASSWORD=TEST_PASSWORD pnpm exec playwright test categories.spec.ts
 ```
 
-游戏协议检查位于 YataiDON 的 `tests/fanmade/`，包含模式过场不预载谱面、服务器加载全部分类、重复进入刷新、空分类归零、部分失败保留完整旧快照、去重计数、多分类共享文件及成绩，以及原有代理、下载完整性与成绩重试回归。
+游戏协议检查位于 YataiDON 的 `tests/fanmade/`，包含 Anime API 元数据到游戏样式的映射、模式过场不预载谱面、服务器加载全部分类、重复进入刷新、空分类归零、部分失败保留完整旧快照、去重计数、多分类共享文件及成绩，以及原有代理、下载完整性与成绩重试回归。

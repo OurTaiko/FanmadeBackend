@@ -96,7 +96,7 @@ DOUBLE 谱面不记录云端成绩，但仍可上传与下载。后端按块解�
 
 ## 谱面分类
 
-已新增 Game / Virtual Singer / Pop / Classic / Variety 多选分类。迁移 013 使用独立分类关联表，旧作品归入 Variety；游戏在模式选择到选曲的过场中取得分类与数量，进入服务器文件夹时刷新所有分类的谱面列表，网页上传与作者信息编辑支持多选。游戏与后端须配套更新，详见 [分类接口、迁移和验证](docs/CATEGORIES.md)。
+支持 Game / Virtual Singer / Pop / Classic / Variety / Anime 多选分类。迁移 013 使用独立分类关联表，旧作品归入 Variety；迁移 017 增加 Anime（`anime` / `ANIME`），保留已有歌曲归属。游戏在模式选择到选曲的过场中取得分类与数量，进入服务器文件夹时刷新所有分类的谱面列表，网页上传与作者信息编辑支持多选。游戏与后端须配套更新，详见 [分类接口、迁移和验证](docs/CATEGORIES.md)。
 
 ## 难度制作者
 

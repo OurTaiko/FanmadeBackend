@@ -57,6 +57,9 @@ var chartReplacementSchema string
 //go:embed 016_user_nicknames.sql
 var userNicknamesSchema string
 
+//go:embed 017_anime_category.sql
+var animeCategorySchema string
+
 func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	pool, err := pgxpool.New(ctx, url)
 	if err != nil {
@@ -265,6 +268,17 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, storage string) error {
 			return fmt.Errorf("migration 016: %w", err)
 		}
 		if _, err = tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES(16)`); err != nil {
+			return err
+		}
+	}
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=17)`).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		if _, err = tx.Exec(ctx, animeCategorySchema); err != nil {
+			return fmt.Errorf("migration 017: %w", err)
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES(17)`); err != nil {
 			return err
 		}
 	}

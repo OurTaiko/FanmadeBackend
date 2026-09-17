@@ -162,7 +162,7 @@ func TestCloudScoreMigration(t *testing.T) {
 		}
 		before[table] = rows
 	}
-	if _, err = pool.Exec(ctx, `DROP TABLE chart_categories,categories; DELETE FROM schema_migrations WHERE version=13`); err != nil {
+	if _, err = pool.Exec(ctx, `DROP TABLE chart_categories,categories; DELETE FROM schema_migrations WHERE version IN (13,17)`); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {
@@ -174,6 +174,37 @@ func TestCloudScoreMigration(t *testing.T) {
 		var rows string
 		if err = pool.QueryRow(ctx, `SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb)::text FROM `+table+` t`).Scan(&rows); err != nil || rows != want {
 			t.Fatalf("013 changed %s: %v", table, err)
+		}
+	}
+	// Simulate upgrading an existing v16 catalog, including its memberships and scores.
+	if _, err = pool.Exec(ctx, `DELETE FROM categories WHERE id='anime'; DELETE FROM schema_migrations WHERE version=17`); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"chart_categories", "categories"} {
+		var rows string
+		if err = pool.QueryRow(ctx, `SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb)::text FROM `+table+` t`).Scan(&rows); err != nil {
+			t.Fatal(err)
+		}
+		before[table] = rows
+	}
+	for i := 0; i < 2; i++ {
+		if err = Migrate(ctx, pool, storage); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var animeTitle, animeGenre string
+	var animeOrder int
+	if err = pool.QueryRow(ctx, `SELECT title,genre,sort_order FROM categories WHERE id='anime'`).Scan(&animeTitle, &animeGenre, &animeOrder); err != nil || animeTitle != "Anime" || animeGenre != "ANIME" || animeOrder != 6 {
+		t.Fatalf("017 Anime metadata: %s %s %d %v", animeTitle, animeGenre, animeOrder, err)
+	}
+	for table, want := range before {
+		query := `SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb)::text FROM ` + table + ` t`
+		if table == "categories" {
+			query += ` WHERE id <> 'anime'`
+		}
+		var rows string
+		if err = pool.QueryRow(ctx, query).Scan(&rows); err != nil || rows != want {
+			t.Fatalf("017 changed existing %s: %v", table, err)
 		}
 	}
 	// Reproduce a database already migrated by the initial COURSE-leaking parser.
