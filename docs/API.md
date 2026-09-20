@@ -120,6 +120,8 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
 - `POST /api/v1/game/scores`：八项成绩字段（含必填 `max_combo`）加**必填** `versionId`，并使用每次游玩固定的 `Idempotency-Key`。字段示例：`{"songId":"<32 hex>","versionId":"<32 hex>","difficulty":"Oni","good":300,"ok":10,"bad":2,"score":900000,"drumroll":50,"max_combo":250}`。DOUBLE 仍不支持云端成绩。版本变化返回 `409 CHART_VERSION_CHANGED`，不将旧成绩写到新版本。临时失败重试时保持请求体和 key 不变。
 
 `POST /api/v1/scores` 接受可选 `versionId`，但同样要求 `max_combo`。提交回执、`game/bootstrap` 中的成绩以及排行榜记录都必须包含 `max_combo`。原生会话在 sessions 表中使用 `SHA256("game:" + token)` 存储，浏览器会话仍使用 `SHA256(token)`，无需数据库迁移。
+
+游客无需登录即可使用 `game/bootstrap`、`game/categories/{categoryId}/charts`、谱面详情和文件下载。bootstrap 无 Authorization 时返回相同的公开分类与数量，但 `user: null`、`scores: []`，不查询个人成绩，浏览器 Cookie 不会改变游客身份。携带 Bearer token 时仍严格校验原生会话；无效或过期 token 返回 401，客户端可重新登录。`POST /api/v1/game/scores` 仍必须携带有效原生 Bearer token，游客返回 401。游戏端需同步升级，才能移除旧版的账号必填限制；无需新增数据库迁移。
 # 谱面排行榜
 
 `GET /api/v1/charts/{id}/leaderboard?difficulty=Oni&page=1&versionId=<当前版本>` 公开读取，无需登录。

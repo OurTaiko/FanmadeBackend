@@ -51,7 +51,7 @@ func TestGameSessionIsolation(t *testing.T) {
 		method, path, body, token, origin, cookie string
 		status                                    int
 	}{
-		{"GET", "/api/v1/game/bootstrap", "", "", "", result.AccessToken, 401},
+		{"GET", "/api/v1/game/bootstrap", "", "", "", result.AccessToken, 200},
 		{"GET", "/api/v1/game/bootstrap", "", "invalid", "", "", 401},
 		{"GET", "/api/v1/me/charts", "", result.AccessToken, "", "", 401},
 		{"GET", "/api/v1/me/charts", "", "", "", result.AccessToken, 401},
@@ -68,7 +68,27 @@ func TestGameSessionIsolation(t *testing.T) {
 		t.Fatal(web.Body.String())
 	}
 	webToken := web.Result().Cookies()[0].Value
+	for _, cookie := range []string{"", result.AccessToken, webToken} {
+		w := call("GET", "/api/v1/game/bootstrap", "", "", "", cookie)
+		var guest struct {
+			User       *User
+			Scores     []Score
+			Categories []Category
+		}
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &guest) != nil || guest.User != nil || guest.Scores == nil || len(guest.Scores) != 0 || len(guest.Categories) == 0 {
+			t.Fatal("guest bootstrap must expose catalog without identity or scores", w.Code, w.Body.String())
+		}
+		if w = call("POST", "/api/v1/game/scores", "{}", "", "", cookie); w.Code != 401 {
+			t.Fatal("guest score submission accepted", w.Code, w.Body.String())
+		}
+	}
 	if w := call("GET", "/api/v1/game/bootstrap", "", webToken, "", ""); w.Code != 401 {
 		t.Fatal("browser token accepted as native token")
+	}
+	if _, err = pool.Exec(context.Background(), `UPDATE sessions SET expires_at=now()-interval '1 second' WHERE token_hash=$1`, hash("game:"+result.AccessToken)); err != nil {
+		t.Fatal(err)
+	}
+	if w := call("GET", "/api/v1/game/bootstrap", "", result.AccessToken, "", ""); w.Code != 401 {
+		t.Fatal("expired token must request reauthentication", w.Code, w.Body.String())
 	}
 }

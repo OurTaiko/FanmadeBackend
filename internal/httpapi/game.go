@@ -14,9 +14,15 @@ func isGameRequest(r *http.Request) bool {
 }
 
 func (s *Server) gameBootstrap(w http.ResponseWriter, r *http.Request) {
-	u, ok := s.required(w, r, false)
-	if !ok {
-		return
+	// Catalog access is public. Only a native bearer session can opt into
+	// personal scores; browser cookies never turn a guest into a game user.
+	var user *User
+	if r.Header.Get("Authorization") != "" {
+		u, ok := s.required(w, r, false)
+		if !ok {
+			return
+		}
+		user = &u.User
 	}
 	tx, err := s.DB.BeginTx(r.Context(), pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
@@ -49,30 +55,32 @@ func (s *Server) gameBootstrap(w http.ResponseWriter, r *http.Request) {
 		internal(w, err)
 		return
 	}
-	rows, err := tx.Query(r.Context(), `SELECT `+scoreColumns+` FROM scores WHERE user_id=$1 AND difficulty IN `+supportedCoursesSQL+` AND NOT EXISTS (SELECT 1 FROM difficulties excluded WHERE excluded.version_id=scores.version_id AND excluded.course NOT IN `+supportedCoursesSQL+`) ORDER BY submitted_at,id`, u.User.ID)
-	if err != nil {
-		internal(w, err)
-		return
-	}
 	scores := []Score{}
-	for rows.Next() {
-		v, e := readScore(rows)
-		if e != nil {
-			rows.Close()
-			internal(w, e)
+	if user != nil {
+		rows, err := tx.Query(r.Context(), `SELECT `+scoreColumns+` FROM scores WHERE user_id=$1 AND difficulty IN `+supportedCoursesSQL+` AND NOT EXISTS (SELECT 1 FROM difficulties excluded WHERE excluded.version_id=scores.version_id AND excluded.course NOT IN `+supportedCoursesSQL+`) ORDER BY submitted_at,id`, user.ID)
+		if err != nil {
+			internal(w, err)
 			return
 		}
-		scores = append(scores, v)
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		internal(w, err)
-		return
+		for rows.Next() {
+			v, e := readScore(rows)
+			if e != nil {
+				rows.Close()
+				internal(w, e)
+				return
+			}
+			scores = append(scores, v)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			internal(w, err)
+			return
+		}
 	}
 	if err = tx.Commit(r.Context()); err != nil {
 		internal(w, err)
 		return
 	}
-	respond(w, 200, map[string]any{"user": u.User, "categories": counts, "chartCount": chartCount, "scores": scores})
+	respond(w, 200, map[string]any{"user": user, "categories": counts, "chartCount": chartCount, "scores": scores})
 }

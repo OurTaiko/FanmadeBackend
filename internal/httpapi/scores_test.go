@@ -122,6 +122,19 @@ func TestSubmitScore(t *testing.T) {
 	if w := native("GET", "/api/v1/game/bootstrap", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"good":5`) || !strings.Contains(w.Body.String(), `"max_combo":6`) {
 		t.Fatal(w.Code, w.Body.String())
 	}
+	// Existing personal scores must never leak through anonymous bootstrap,
+	// including when a browser session cookie accompanies the request.
+	for _, browserCookie := range []string{"", cookie, cookie2} {
+		r := httptest.NewRequest("GET", "/api/v1/game/bootstrap", nil)
+		if browserCookie != "" {
+			r.AddCookie(&http.Cookie{Name: "ourtaiko_session", Value: browserCookie})
+		}
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		if w.Code != 200 || !strings.Contains(w.Body.String(), `"user":null`) || !strings.Contains(w.Body.String(), `"scores":[]`) {
+			t.Fatal("guest received personal data", w.Code, w.Body.String())
+		}
+	}
 	if w := native("POST", "/api/v1/game/scores", strings.Replace(gameBody, `"max_combo":6`, `"max_combo":5`, 1)); w.Code != 409 || !strings.Contains(w.Body.String(), "IDEMPOTENCY_CONFLICT") {
 		t.Fatal(w.Code, w.Body.String())
 	}

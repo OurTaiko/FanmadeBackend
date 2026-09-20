@@ -157,8 +157,27 @@ func TestCategoriesFlow(t *testing.T) {
 	if len(categoryCharts("classic")) != 0 {
 		t.Fatal("empty category")
 	}
-	if w = call("GET", "/api/v1/game/categories/game/charts", "", ""); w.Code != 401 {
-		t.Fatal("anonymous game categories")
+	for _, route := range []string{"/api/v1/game/bootstrap", "/api/v1/game/categories/game/charts"} {
+		guest := call("GET", route, "", "")
+		authed := call("GET", route, "", gameToken)
+		var guestData, authData map[string]json.RawMessage
+		if guest.Code != 200 || authed.Code != 200 || json.Unmarshal(guest.Body.Bytes(), &guestData) != nil || json.Unmarshal(authed.Body.Bytes(), &authData) != nil {
+			t.Fatal("guest catalog", route, guest.Code, guest.Body.String())
+		}
+		delete(guestData, "user")
+		delete(authData, "user")
+		if !reflect.DeepEqual(guestData, authData) {
+			t.Fatal("guest must receive the same public catalog", route, guest.Body.String(), authed.Body.String())
+		}
+	}
+	if guest := decodeChart(call("GET", "/api/v1/charts/"+c.ID, "", ""), 200); guest.ID != c.ID {
+		t.Fatal("guest chart detail", guest)
+	}
+	for _, kind := range []string{"tja", "audio"} {
+		w := call("GET", "/api/v1/charts/"+c.ID+"/versions/"+c.VersionID+"/"+kind, "", "")
+		if w.Code != 200 || w.Body.Len() == 0 {
+			t.Fatal("guest download", kind, w.Code, w.Body.String())
+		}
 	}
 	if w = call("GET", "/api/v1/game/categories/missing/charts", "", gameToken); w.Code != 404 {
 		t.Fatal("unknown category")

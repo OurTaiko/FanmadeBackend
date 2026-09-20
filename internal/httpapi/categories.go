@@ -93,9 +93,6 @@ func setCategories(ctx context.Context, tx pgx.Tx, chart string, ids []string) e
 }
 
 func (s *Server) gameCategory(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.required(w, r, false); !ok {
-		return
-	}
 	id := r.PathValue("category")
 	var exists bool
 	if err := s.DB.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM categories WHERE id=$1)`, id).Scan(&exists); err != nil {
