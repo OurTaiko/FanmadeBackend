@@ -122,5 +122,6 @@ func (s *Server) gameCategory(w http.ResponseWriter, r *http.Request) {
 		internal(w, err)
 		return
 	}
+	s.chartNames(r.Context(), charts)
 	respond(w, 200, map[string]any{"categoryId": id, "charts": charts})
 }

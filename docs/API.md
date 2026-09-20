@@ -4,12 +4,14 @@
 
 | 方法 | 路径 | 行为 |
 | --- | --- | --- |
-| POST | /auth/email-code | JSON email；发送验证码，成功 200 返回 verificationId/expiresIn/retryAfter |
-| POST | /auth/register | JSON username/password/email/verificationId/code；验证成功后创建账号、绑定邮箱并建立会话 |
-| POST | /auth/login | JSON username/password；返回 user / csrfToken 并设置 HttpOnly Cookie |
+| GET | /auth/sso/login?returnTo=/upload | 开始 OIDC Authorization Code + PKCE 登录 |
+| GET | /auth/sso/callback | 验证 state、浏览器绑定、nonce、签名、issuer、audience 后建立本站会话 |
+| GET | /auth/account/register | 跳转 SSO 注册页 |
+| GET | /auth/account/profile | 跳转 SSO 账号中心 |
+| POST | /auth/email-code、/auth/register、/auth/login | 已迁移，返回 410 SSO_REQUIRED |
 | POST | /auth/logout | 撤销 Session，清 Cookie |
 | GET | /me | `{user, csrfToken}`；user 含自己的 username 和 nickname；未登录返回 200，user 为 null |
-| PATCH | /me | JSON `{nickname}`；修改当前账号昵称，返回更新后的 `{user, csrfToken}` |
+| PATCH | /me | 已迁移，返回 410 SSO_REQUIRED；在 SSO 管理昵称 |
 | POST | /scores | JSON 提交单人谱成绩；首次保存 201，幂等重试 200 |
 | GET | /upload-rules | 校验版本、大小上限、编码与音频支持信息 |
 | GET | /charts?q=&course=&page=1 | 返回 `{items,total,page,pageSize}`；每页 12 |
@@ -57,11 +59,11 @@
 
 Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:false` 不是上传错误。同一 TJA 的每个块独立判定，不能因含 Double 而禁用整个作品的 Single 块。资格从数据库返回，上传请求不接受客户端指定 style 或资格。
 
-成绩提交接口已实现，目标必须是服务端查到的 Single 块。排行榜和游戏客户端专用鉴权尚未实现。
+成绩提交接口已实现，目标必须是服务端查到的 Single 块。排行榜及游戏客户端专用鉴权均已实现。
 
 ## 提交成绩
 
-`POST /api/v1/scores`，`Content-Type: application/json`。先用现有 `/auth/login` 登录，保留 `ourtaiko_session` Cookie；请求携带配置的 `Origin`（本地为 `http://127.0.0.1:5173`）和登录返回的 `X-CSRF-Token`。用户 ID 取自会话，不接受客户端指定。
+`POST /api/v1/scores`，`Content-Type: application/json`。先通过 `/auth/sso/login` 完成浏览器登录，再调用 `/me` 取得 CSRF，保留 `ourtaiko_session` Cookie；请求携带配置的 `Origin`（本地为 `http://127.0.0.1:5173`）和登录返回的 `X-CSRF-Token`。用户 ID 取自会话，不接受客户端指定。
 
 ```json
 {
@@ -119,7 +121,7 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
 - 原始文件继续使用 `GET /api/v1/charts/{id}/versions/{version}/{tja|audio}`。加载前重新获取 `GET /api/v1/charts/{id}` 核对 versionId 与哈希，文件下载后必须核对 SHA-256。
 - `POST /api/v1/game/scores`：八项成绩字段（含必填 `max_combo`）加**必填** `versionId`，并使用每次游玩固定的 `Idempotency-Key`。字段示例：`{"songId":"<32 hex>","versionId":"<32 hex>","difficulty":"Oni","good":300,"ok":10,"bad":2,"score":900000,"drumroll":50,"max_combo":250}`。DOUBLE 仍不支持云端成绩。版本变化返回 `409 CHART_VERSION_CHANGED`，不将旧成绩写到新版本。临时失败重试时保持请求体和 key 不变。
 
-`POST /api/v1/scores` 接受可选 `versionId`，但同样要求 `max_combo`。提交回执、`game/bootstrap` 中的成绩以及排行榜记录都必须包含 `max_combo`。原生会话在 sessions 表中使用 `SHA256("game:" + token)` 存储，浏览器会话仍使用 `SHA256(token)`，无需数据库迁移。
+`POST /api/v1/scores` 接受可选 `versionId`，但同样要求 `max_combo`。提交回执、`game/bootstrap` 中的成绩以及排行榜记录都必须包含 `max_combo`。原生会话由 SSO GameSession 持有，按业务客户端隔离；Fanmade 只保存浏览器会话，迁移版本为 018。
 
 游客无需登录即可使用 `game/bootstrap`、`game/categories/{categoryId}/charts`、谱面详情和文件下载。bootstrap 无 Authorization 时返回相同的公开分类与数量，但 `user: null`、`scores: []`，不查询个人成绩，浏览器 Cookie 不会改变游客身份。携带 Bearer token 时仍严格校验原生会话；无效或过期 token 返回 401，客户端可重新登录。`POST /api/v1/game/scores` 仍必须携带有效原生 Bearer token，游客返回 401。游戏端需同步升级，才能移除旧版的账号必填限制；无需新增数据库迁移。
 # 谱面排行榜
@@ -133,7 +135,7 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
 - DOUBLE 难度返回 `supported: false` 与空列表。不存在的歌曲／难度返回 404，旧版本参数返回 409 `CHART_VERSION_CHANGED`，有歧义的单人难度返回 409。
 - 修改展示标题和副标题不影响成绩；谱面版本更新后新旧成绩分开统计。原始成绩记录保留。
 
-邮箱验证码的错误码、重发限制及 SMTP 配置详见 [EMAIL_VERIFICATION.md](EMAIL_VERIFICATION.md)。
+邮箱验证和邮件配置统一由 OurTaikoSSO 管理，见 [SSO 接入](SSO.md)。
 
 上传规则接口的 `audioCodecs` 为 `["vorbis", "mp3"]`，`audioExtensions` 为 `[".ogg", ".mp3"]`。multipart 音频字段仍为 `audio`。
 
@@ -177,8 +179,8 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
 
 ## 用户名、昵称与个人资料
 
-迁移 016 为用户增加 `nickname`，将已有昵称初始化为各自的用户名。新注册用户名必须匹配 `^[A-Za-z0-9]{3,24}$`，只允许英文字母和数字，保留原有的长度与唯一性要求；注册成功时昵称默认等于用户名。现有带下划线的用户名保留并可继续登录、修改昵称，不自动改名。数据库触发器对新建／改名操作执行新规则，并为未传昵称的导入设置默认昵称。
+Fanmade `users` 只保存 SSO 用户 ID。昵称、登录名、邮箱状态、本站管理员角色来自受服务凭证保护的 SSO 接口；每次鉴权都实时确认会话。公开谱面和排行榜批量读取昵称，不返回登录名。SSO 不可用时公开数据继续返回，昵称显示“未知用户”；涉及身份或搜索昵称的请求返回 503，不使用旧身份绕过鉴权。
 
-`PATCH /api/v1/me` 仅接受 `{ "nickname": "新的昵称" }`，要求当前会话、正确 Origin 和 CSRF，只修改当前登录账号。昵称去除首尾空白，要求 1–40 个 Unicode 字符（最多 160 UTF-8 字节），不能包含换行或控制字符，允许中文、表情和重名。空值返回 422 `NICKNAME_INVALID`；尝试提交用户名、邮箱、密码、用户 ID 等其他字段返回 400。返回值与 GET /me 相同，前端更新当前会话显示。
+网站用 OIDC，YataiDON 仍用原 `/game/login`、`/game/bootstrap`、`/game/scores`，请求与响应字段不变。原生登录由 Fanmade 转接 SSO，游戏令牌由 SSO 签发、按应用隔离；Fanmade 不存密码或游戏令牌。旧会话在迁移时失效，需要重新登录。网站会话最长一小时，过期后重新通过 SSO 登录；本版不使用刷新令牌。
 
-用户名作为登录标识，只有登录／注册响应和 GET/PATCH /me 等当前用户自己的会话信息返回它。公开谱面中的 `uploader` 读取上传者昵称，公开排行榜用 `nickname` 替代原 `username` 字段，上传者搜索也只查询昵称。修改昵称实时影响后续查询，无需修改作品、成绩或重新登录。游戏登录仍使用用户名与密码；歌曲 maker 仍是各难度的谱师署名，不是用户昵称。
+详见 [SSO 接入与迁移](SSO.md)。

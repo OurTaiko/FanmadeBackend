@@ -63,11 +63,11 @@ func TestSubmitScore(t *testing.T) {
 	const csrf = "test-csrf"
 	const cookie = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const cookie2 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	_, err := pool.Exec(ctx, `INSERT INTO users(id,username,password_hash) VALUES('u','tester','unused'),('u2','tester2','unused');`)
+	_, err := pool.Exec(ctx, `INSERT INTO users(id,username,password_hash) VALUES('89b6ef3a5cb57b6e04f74711d15a8a5f','tester','unused'),('d1ee9badde8bb6f733b2315472711632','tester2','unused');`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = pool.Exec(ctx, `INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at) VALUES($1,'u',$3,now()+interval '1 day'),($2,'u2',$3,now()+interval '1 day')`, hash(cookie), hash(cookie2), csrf)
+	_, err = pool.Exec(ctx, `INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at) VALUES($1,'89b6ef3a5cb57b6e04f74711d15a8a5f',$3,now()+interval '1 day'),($2,'d1ee9badde8bb6f733b2315472711632',$3,now()+interval '1 day')`, hash(cookie), hash(cookie2), csrf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestSubmitScore(t *testing.T) {
 	defer tx.Rollback(ctx)
 	_, err = tx.Exec(ctx, `INSERT INTO files(id,storage_key,original_filename,sha256,byte_size,media_type) VALUES
  ('t','tja','test.tja',repeat('a',64),1,'application/octet-stream'),('a','ogg','test.ogg',repeat('b',64),1,'audio/ogg');
- INSERT INTO charts(id,owner_id,current_version_id) VALUES('11111111111111111111111111111111','u','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+ INSERT INTO charts(id,owner_id,current_version_id) VALUES('11111111111111111111111111111111','89b6ef3a5cb57b6e04f74711d15a8a5f','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
  INSERT INTO chart_versions(id,chart_id,version_number,title,bpm,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version)
  VALUES('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','11111111111111111111111111111111',1,'Test',120,10,'utf-8','test.ogg','t','a','tja-upload-v2');
  INSERT INTO difficulties(version_id,block_index,course,level,player,style) VALUES
@@ -95,9 +95,9 @@ func TestSubmitScore(t *testing.T) {
 	if err = tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	handler := New(pool, Config{Origin: origin}).Handler()
+	handler := testServer(t, pool, Config{Origin: origin}).Handler()
 	nativeToken := strings.Repeat("c", 64)
-	if _, err = pool.Exec(ctx, `INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at) VALUES($1,'u','',now()+interval '1 day')`, hash("game:"+nativeToken)); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at) VALUES($1,'89b6ef3a5cb57b6e04f74711d15a8a5f','',now()+interval '1 day')`, hash("game:"+nativeToken)); err != nil {
 		t.Fatal(err)
 	}
 	native := func(method, path, body string) *httptest.ResponseRecorder {
@@ -201,7 +201,7 @@ func TestSubmitScore(t *testing.T) {
 		{"combo string", strings.Replace(body, `"max_combo":250`, `"max_combo":"250"`, 1), "", cookie, nil, 400, "REQUEST_INVALID"},
 		{"score range", strings.Replace(body, `"score":900000`, `"score":9007199254740992`, 1), "", cookie, nil, 422, "SCORE_INVALID"},
 		{"overflow", strings.Replace(body, `"good":300`, `"good":999999999999999999999`, 1), "", cookie, nil, 400, "REQUEST_INVALID"},
-		{"spoof user", strings.TrimSuffix(body, "}") + `,"userId":"u2"}`, "", cookie, nil, 400, "REQUEST_INVALID"},
+		{"spoof user", strings.TrimSuffix(body, "}") + `,"userId":"d1ee9badde8bb6f733b2315472711632"}`, "", cookie, nil, 400, "REQUEST_INVALID"},
 		{"trailing", body + " {}", "", cookie, nil, 400, "REQUEST_INVALID"},
 		{"null body", "null", "", cookie, nil, 422, "SCORE_INVALID"},
 		{"unknown course", strings.Replace(body, "Oni", "Invalid", 1), "", cookie, nil, 422, "SCORE_INVALID"},
@@ -224,7 +224,7 @@ func TestSubmitScore(t *testing.T) {
 	if err = json.Unmarshal(w.Body.Bytes(), &first); err != nil {
 		t.Fatal(err)
 	}
-	if first.UserID != "u" || first.VersionID != version || first.BlockIndex != 0 || first.Good != 300 || first.OK != 10 || first.Bad != 2 || first.Score != 900000 || first.Drumroll != 50 || first.MaxCombo != 250 || first.SubmittedAt.IsZero() {
+	if first.UserID != "89b6ef3a5cb57b6e04f74711d15a8a5f" || first.VersionID != version || first.BlockIndex != 0 || first.Good != 300 || first.OK != 10 || first.Bad != 2 || first.Score != 900000 || first.Drumroll != 50 || first.MaxCombo != 250 || first.SubmittedAt.IsZero() {
 		t.Fatalf("bad receipt: %+v", first)
 	}
 	stored, err := readScore(pool.QueryRow(ctx, `SELECT `+scoreColumns+` FROM scores WHERE id=$1`, first.ID))

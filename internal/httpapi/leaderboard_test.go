@@ -16,7 +16,7 @@ func TestLeaderboard(t *testing.T) {
 	const current = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	const old = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	for i := 0; i < 23; i++ {
-		if _, err := pool.Exec(ctx, `INSERT INTO users(id,username,password_hash) VALUES($1,$2,'unused')`, fmt.Sprintf("u%d", i), fmt.Sprintf("player%d", i)); err != nil {
+		if _, err := pool.Exec(ctx, `INSERT INTO users(id,username,password_hash) VALUES($1,$2,'unused')`, fmt.Sprintf("%032x", i+1000), fmt.Sprintf("player%d", i)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -24,8 +24,8 @@ func TestLeaderboard(t *testing.T) {
 	 INSERT INTO files(id,storage_key,original_filename,sha256,byte_size,media_type) VALUES
 	 ('t','t','a.tja',repeat('a',64),1,'application/octet-stream'),('a','a','a.ogg',repeat('b',64),1,'audio/ogg');
 	 INSERT INTO charts(id,owner_id,current_version_id) VALUES
-	 ('11111111111111111111111111111111','u0','bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'),
-	 ('22222222222222222222222222222222','u0','cccccccccccccccccccccccccccccccc');
+	 ('11111111111111111111111111111111','000000000000000000000000000003e8','bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'),
+	 ('22222222222222222222222222222222','000000000000000000000000000003e8','cccccccccccccccccccccccccccccccc');
 	 INSERT INTO chart_versions(id,chart_id,version_number,title,bpm,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version) VALUES
 	 ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','11111111111111111111111111111111',1,'Old',120,10,'utf-8','a.ogg','t','a','test'),
 	 ('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','11111111111111111111111111111111',2,'Current',120,10,'utf-8','a.ogg','t','a','test'),
@@ -56,13 +56,13 @@ func TestLeaderboard(t *testing.T) {
 		if i < 2 {
 			points = 900000
 		}
-		add(fmt.Sprintf("score%02d", i), fmt.Sprintf("u%d", i), song, current, points, 300, "2026-01-01T00:00:00Z")
+		add(fmt.Sprintf("score%02d", i), fmt.Sprintf("%032x", i+1000), song, current, points, 300, "2026-01-01T00:00:00Z")
 	}
-	add("lower", "u0", song, current, 840000, 100, "2025-12-01T00:00:00Z")
-	add("later", "u0", song, current, 900000, 999, "2026-02-01T00:00:00Z")
-	add("old", "u0", song, old, 1200000, 500, "2025-12-01T00:00:00Z")
-	add("other", "u0", "22222222222222222222222222222222", "cccccccccccccccccccccccccccccccc", 1300000, 600, "2025-12-01T00:00:00Z")
-	handler := New(pool, Config{}).Handler()
+	add("lower", "000000000000000000000000000003e8", song, current, 840000, 100, "2025-12-01T00:00:00Z")
+	add("later", "000000000000000000000000000003e8", song, current, 900000, 999, "2026-02-01T00:00:00Z")
+	add("old", "000000000000000000000000000003e8", song, old, 1200000, 500, "2025-12-01T00:00:00Z")
+	add("9b893bc6d9422c93536ff0df503b81e9", "000000000000000000000000000003e8", "22222222222222222222222222222222", "cccccccccccccccccccccccccccccccc", 1300000, 600, "2025-12-01T00:00:00Z")
+	handler := testServer(t, pool, Config{}).Handler()
 	get := func(path string, status int, code string) leaderboardResponse {
 		t.Helper()
 		w := httptest.NewRecorder()

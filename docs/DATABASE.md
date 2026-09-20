@@ -4,8 +4,9 @@
 
 | 表 | 关键字段 | 关系与约束 |
 | --- | --- | --- |
-| users | id(text)、username(text)、nickname(text)、password_hash(text)、email(text nullable)、email_verified_at(timestamptz nullable)、created_at | 用户名唯一，新建／改名仅 3–24 位英文字母数字，旧下划线账号保留；昵称必填且允许重名；非空邮箱 lower(email) 唯一；验证时间非空要求邮箱非空 |
-| sessions | token_hash(text PK)、user_id、csrf_token、expires_at | 外键关联用户；Cookie 令牌仅存 SHA-256；独立 CSRF 令牌；到期不可使用 |
+| users | id(text PK) | SSO 稳定用户标识；保留原谱面与成绩外键 |
+| sessions | token_hash、user_id、csrf_token、expires_at、upstream_token | Cookie 哈希；上游 OAuth 令牌用 AES-256-GCM 加密并绑定会话哈希 |
+| oidc_flows | state_hash、binding_hash、nonce、verifier、return_path、expires_at | 五分钟单次使用的 OIDC 登录事务 |
 | files | id、storage_key、original_filename、sha256、byte_size(bigint)、media_type | storage_key 唯一；正数大小；SHA-256 为 64 位十六进制字符串 |
 | charts | id、owner_id、description、status、current_version_id、created_at | 状态 published/deleted/hidden；作品与当前版本复合外键，延迟到事务提交校验 |
 | chart_versions | id、chart_id、version_number、title、subtitle、bpm、offset_seconds、demo_start、duration、encoding、wave_filename、tja_file_id、audio_file_id、validation_version | 作品内版本号唯一；分别关联两份资源；时长 0–1200 秒，正数有限 BPM |
@@ -80,3 +81,8 @@ erDiagram
 ### 016 用户昵称
 
 `users.nickname` 回填为 username，限制 1–40 个字符／160 字节，非空且不含控制字符。`users_prepare_profile` 在插入用户时将未指定的昵称初始化为用户名，并对新增／改变的用户名应用 `^[A-Za-z0-9]{3,24}$`；旧用户名无需修改，可正常更新昵称。公开展示通过查询 users.nickname 取得最新值，不复制到作品或成绩记录中。
+
+
+## 迁移 018：SSO
+
+当前结构以 018 为准，上文 001–017 为历史迁移记录。启动时先保留旧迁移，再在事务与 advisory lock 内验证全部旧用户已存在 SSO，随后删除 users 中的账号资料列、注册验证码表和邮件限流表，清空旧会话，添加加密会话及 OIDC 登录事务表。用户 ID、作品归属与成绩不变。须先备份，见 [SSO 迁移步骤](SSO.md)。

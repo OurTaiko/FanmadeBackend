@@ -1,5 +1,7 @@
 # OurTaiko Fanmade API
 
+当前使用独立 OurTaikoSSO，网站以 OIDC 登录、游戏 API 转接认证。首次启动前请按 [SSO 接入与迁移](docs/SSO.md) 配置。
+
 独立的 Go + PostgreSQL 后端仓库。本地示范版已实现账号会话、TJA + OGG / MP3 上传校验、作品查询、试听资源、原文件 / ZIP 下载和本人作品删除、登录用户成绩提交。前端位于相邻的 `../frontend` 仓库，由 pnpm 管理。
 
 ## 本地启动
@@ -15,7 +17,7 @@ createdb ourtaiko_fanmade
 
 # 在本仓库目录执行：
 go mod download
-# 如果还没有 .env，复制模板并填写 SMTP_PASSWORD：
+# 如果还没有 .env，复制模板并按 docs/SSO.md 填写 SSO 客户端配置：
 cp -n .env.example .env
 go run ./cmd/server
 ```
@@ -47,7 +49,7 @@ LISTEN_ADDR=0.0.0.0:8080 go run ./cmd/server
 python3 scripts/demo.py seed
 ```
 
-默认读取 `~/Documents/GitHub/ESE`，可以设置 `ESE_ROOT`。脚本优先登录已有账号；新账号会提示输入邮箱与收到的验证码，再通过正常注册和上传 API 导入。它实际执行后端校验，不修改源文件；幂等键保证重复运行不会重复导入。演示账号随机密码保存在 `.data/demo-credentials.json`，不会进入 Git。
+默认读取 `~/Documents/GitHub/ESE`，可以设置 `ESE_ROOT`。先在浏览器完成 SSO 登录，将短期会话 Cookie 设置为 FANMADE_SESSION_COOKIE，再运行导入脚本。它实际执行后端校验，不修改源文件；幂等键保证重复运行不会重复导入。脚本不再创建或保存用户密码。
 
 当前选用 Happy Synthesizer、Destr0yer、Natsumatsuri New Audio Chart、God-ish、Aiai、Silent Night。源文件与上传的资源均不提交 Git；资源存储于忽略的 `.data/files`。数据库只保存元数据、资源键和哈希。
 
@@ -76,7 +78,7 @@ python3 scripts/metadata_smoke.py
 - [验收记录](docs/VERIFICATION.md)
 - [服务器部署与更新](docs/DEPLOYMENT.md)
 
-新注册已要求绑定并验证邮箱：先获取 6 位数字验证码，验证成功后创建账号、写入 email/email_verified_at 并登录。验证码 10 分钟有效、单次使用、最多错误 5 次；重发间隔 60 秒，每邮箱每小时最多 5 次、每连接 IP 每小时最多 10 次。现有演示账号保留原登录能力，不会被自动标记为已验证；找回密码、已有账号补绑与换绑另行实现。[邮件配置与接口](docs/EMAIL_VERIFICATION.md)。
+账号注册、昵称、密码和验证邮件现由 OurTaikoSSO 管理，详见 [SSO 接入](docs/SSO.md)。
 
 本示范版支持一个 TJA + 一个 Vorbis OGG 或 MP3 音频，TJA 中可有 Easy / Normal / Hard / Oni / Edit 多个难度及 P1 / P2。Tower（塔）和 Dan（段位），包括数字 5 / 6，双端整份拒绝；混合普通难度也不能上传。迁移 012 会下架当前版本含不支持难度的已有作品，保留文件和成绩，所有公开展示及游戏曲库接口排除这些作品。`#NEXTSONG` 多音频谱暂不支持；不承诺完整游戏命令语义。试听在负数 DEMOSTART 时从 0 开始，不改写 TJA。
 
@@ -110,4 +112,4 @@ DOUBLE 谱面不记录云端成绩，但仍可上传与下载。后端按块解�
 
 ## 用户昵称
 
-迁移 016 添加用户昵称，旧账号和新注册账号默认使用用户名作为昵称。新注册用户名只允许 3–24 位英文字母／数字；旧账号登录不受影响。`PATCH /api/v1/me` 支持当前用户修改昵称（中文／表情、1–40 字符、允许重名），不提供用户名、密码或邮箱修改。公开上传者、排行榜和上传者搜索使用昵称；自己的会话信息保留用户名供个人资料展示和登录。
+账号注册、昵称、密码和验证邮件现由 OurTaikoSSO 管理，详见 [SSO 接入](docs/SSO.md)。

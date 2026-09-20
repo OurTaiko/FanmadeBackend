@@ -19,23 +19,18 @@ import (
 	"ourtaiko.dev/fanmade/api/internal/tja"
 )
 
-type RegistrationMailer interface {
-	SendRegistration(context.Context, string, string) error
-}
-
 type Config struct {
 	Origin, Storage string
 	CookieSecure    bool
-	Mailer          RegistrationMailer
+	SSO             *SSOClient
 	TrustedProxies  []netip.Prefix
 }
 type Server struct {
-	DB         *pgxpool.Pool
-	Config     Config
-	uploads    chan struct{}
-	emailSends chan struct{}
-	mu         sync.Mutex
-	limits     map[string]window
+	DB      *pgxpool.Pool
+	Config  Config
+	uploads chan struct{}
+	mu      sync.Mutex
+	limits  map[string]window
 }
 type window struct {
 	since time.Time
@@ -43,7 +38,7 @@ type window struct {
 }
 
 func New(pool *pgxpool.Pool, cfg Config) *Server {
-	return &Server{DB: pool, Config: cfg, uploads: make(chan struct{}, 2), emailSends: make(chan struct{}, 2), limits: map[string]window{}}
+	return &Server{DB: pool, Config: cfg, uploads: make(chan struct{}, 2), limits: map[string]window{}}
 }
 func ID() string {
 	b := make([]byte, 16)
@@ -99,12 +94,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/game/categories/{category}/charts", s.gameCategory)
 	mux.HandleFunc("GET /api/v1/categories", s.categories)
 	mux.HandleFunc("POST /api/v1/game/scores", s.submitScore)
-	mux.HandleFunc("POST /api/v1/auth/email-code", s.sendEmailCode)
-	mux.HandleFunc("POST /api/v1/auth/register", s.register)
-	mux.HandleFunc("POST /api/v1/auth/login", s.login)
+	mux.HandleFunc("POST /api/v1/auth/email-code", s.retiredAccountAPI)
+	mux.HandleFunc("POST /api/v1/auth/register", s.retiredAccountAPI)
+	mux.HandleFunc("POST /api/v1/auth/login", s.retiredAccountAPI)
+	mux.HandleFunc("GET /api/v1/auth/sso/login", s.ssoLogin)
+	mux.HandleFunc("GET /api/v1/auth/sso/callback", s.ssoCallback)
+	mux.HandleFunc("GET /api/v1/auth/account/{page}", s.accountRedirect)
 	mux.HandleFunc("POST /api/v1/auth/logout", s.logout)
 	mux.HandleFunc("GET /api/v1/me", s.me)
-	mux.HandleFunc("PATCH /api/v1/me", s.editProfile)
+	mux.HandleFunc("PATCH /api/v1/me", s.retiredAccountAPI)
 	mux.HandleFunc("POST /api/v1/scores", s.submitScore)
 	mux.HandleFunc("GET /api/v1/charts", s.list)
 	mux.HandleFunc("GET /api/v1/me/charts", s.mine)
@@ -119,11 +117,14 @@ func (s *Server) Handler() http.Handler {
 		w.Header().Set("X-Request-ID", ID())
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Referrer-Policy", "no-referrer")
 		if r.Method != "GET" && r.Method != "HEAD" {
 			if (isGameRequest(r) && r.Header.Get("Origin") != "") || (!isGameRequest(r) && r.Header.Get("Origin") != s.Config.Origin) {
 				problem(w, 403, "ORIGIN_INVALID", "请求来源无效，请从本站页面操作")
 				return
 			}
+		}
+		if (r.Method != "GET" && r.Method != "HEAD") || r.URL.Path == "/api/v1/auth/sso/login" {
 			host := s.clientIP(r)
 			s.mu.Lock()
 			now := time.Now()

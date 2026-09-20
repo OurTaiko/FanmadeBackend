@@ -24,13 +24,13 @@ func TestChartReplacement(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	mustExec(`INSERT INTO users(id,username,password_hash,is_admin) VALUES('owner','owner','unused',false),('other','other','unused',false),('admin','admin','unused',true)`)
-	tokens := map[string]string{"owner": strings.Repeat("a", 64), "other": strings.Repeat("b", 64), "admin": strings.Repeat("c", 64)}
+	mustExec(`INSERT INTO users(id,username,password_hash,is_admin) VALUES('d46774d30dd13b92d9e536808da468a4','testd46774d30dd1','unused',false),('9b893bc6d9422c93536ff0df503b81e9','test9b893bc6d942','unused',false),('5f63f79d876d201a13f8710453636837','test5f63f79d876d','unused',true)`)
+	tokens := map[string]string{"d46774d30dd13b92d9e536808da468a4": strings.Repeat("a", 64), "9b893bc6d9422c93536ff0df503b81e9": strings.Repeat("b", 64), "5f63f79d876d201a13f8710453636837": strings.Repeat("c", 64)}
 	for user, token := range tokens {
 		mustExec(`INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at) VALUES($1,$3,'csrf',now()+interval '1 day'),($2,$3,'csrf',now()+interval '1 day')`, hash(token), hash("game:"+token), user)
 	}
 	storage := t.TempDir()
-	app := New(pool, Config{Origin: "http://localhost", Storage: storage})
+	app := testServer(t, pool, Config{Origin: "http://localhost", Storage: storage})
 	handler := app.Handler()
 	audio, err := os.ReadFile("../audio/testdata/cbr.mp3")
 	if err != nil {
@@ -78,7 +78,7 @@ func TestChartReplacement(t *testing.T) {
 	}
 	get := func(path string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("GET", path, nil)
-		r.Header.Set("Authorization", "Bearer "+tokens["owner"])
+		r.Header.Set("Authorization", "Bearer "+tokens["d46774d30dd13b92d9e536808da468a4"])
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, r)
 		return w
@@ -93,11 +93,11 @@ func TestChartReplacement(t *testing.T) {
 		handler.ServeHTTP(w, r)
 		return w
 	}
-	original := decode(request("owner", "POST", "/api/v1/charts", ID(), source, "cbr.mp3", audio, nil), 201)
-	unrelated := decode(request("other", "POST", "/api/v1/charts", ID(), source, "cbr.mp3", audio, nil), 201)
-	status(score(original, "owner"), 201)
-	status(score(original, "other"), 201)
-	status(score(unrelated, "other"), 201)
+	original := decode(request("d46774d30dd13b92d9e536808da468a4", "POST", "/api/v1/charts", ID(), source, "cbr.mp3", audio, nil), 201)
+	unrelated := decode(request("9b893bc6d9422c93536ff0df503b81e9", "POST", "/api/v1/charts", ID(), source, "cbr.mp3", audio, nil), 201)
+	status(score(original, "d46774d30dd13b92d9e536808da468a4"), 201)
+	status(score(original, "9b893bc6d9422c93536ff0df503b81e9"), 201)
+	status(score(unrelated, "9b893bc6d9422c93536ff0df503b81e9"), 201)
 	original, err = app.chart(ctx, original.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -131,13 +131,13 @@ func TestChartReplacement(t *testing.T) {
 		fields                        map[string]string
 		code                          int
 	}{
-		{"permission", "other", replacement, "", nil, fields, 403},
+		{"permission", "9b893bc6d9422c93536ff0df503b81e9", replacement, "", nil, fields, 403},
 		{"login", "anonymous", replacement, "", nil, fields, 401},
-		{"confirmation", "owner", replacement, "", nil, map[string]string{"expectedVersionId": original.VersionID}, 400},
-		{"stale", "owner", replacement, "", nil, map[string]string{"expectedVersionId": ID(), "confirmReset": "true"}, 409},
-		{"invalid TJA", "owner", "broken", "", nil, fields, 422},
-		{"invalid audio", "owner", replacement, "cbr.mp3", []byte("broken"), fields, 422},
-		{"wrong makers", "owner", source, "", nil, fields, 422},
+		{"confirmation", "d46774d30dd13b92d9e536808da468a4", replacement, "", nil, map[string]string{"expectedVersionId": original.VersionID}, 400},
+		{"stale", "d46774d30dd13b92d9e536808da468a4", replacement, "", nil, map[string]string{"expectedVersionId": ID(), "confirmReset": "true"}, 409},
+		{"invalid TJA", "d46774d30dd13b92d9e536808da468a4", "broken", "", nil, fields, 422},
+		{"invalid audio", "d46774d30dd13b92d9e536808da468a4", replacement, "cbr.mp3", []byte("broken"), fields, 422},
+		{"wrong makers", "d46774d30dd13b92d9e536808da468a4", source, "", nil, fields, 422},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			status(request(test.user, "PUT", path, ID(), test.source, test.audioName, test.audio, test.fields), test.code)
@@ -146,16 +146,16 @@ func TestChartReplacement(t *testing.T) {
 	}
 	// Fail after the transaction has deleted old rows, proving all deletions roll back.
 	mustExec(`CREATE FUNCTION fail_replacement() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.maker='B' THEN RAISE EXCEPTION 'test write failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER fail_replacement BEFORE INSERT ON difficulties FOR EACH ROW EXECUTE FUNCTION fail_replacement()`)
-	status(request("owner", "PUT", path, ID(), replacement, "", nil, fields), 503)
+	status(request("d46774d30dd13b92d9e536808da468a4", "PUT", path, ID(), replacement, "", nil, fields), 503)
 	unchanged()
 	mustExec(`DROP TRIGGER fail_replacement ON difficulties; DROP FUNCTION fail_replacement()`)
 	// Historical versions must be deleted as well, even if old imports shared audio.
 	history := ID()
 	mustExec(`INSERT INTO chart_versions(id,chart_id,version_number,title,subtitle,bpm,offset_seconds,demo_start,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version) SELECT $1,chart_id,2,title,subtitle,bpm,offset_seconds,demo_start,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version FROM chart_versions WHERE id=$2`, history, original.VersionID)
 	mustExec(`INSERT INTO difficulties(version_id,block_index,course,level,player,style,maker) VALUES($1,0,'Hard',5,'','Single','A')`, history)
-	mustExec(`INSERT INTO scores(id,user_id,song_id,version_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest) VALUES($1,'owner',$2,$3,0,'Hard',1,0,0,100,0,1,repeat('a',64))`, ID(), original.ID, history)
+	mustExec(`INSERT INTO scores(id,user_id,song_id,version_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest) VALUES($1,'d46774d30dd13b92d9e536808da468a4',$2,$3,0,'Hard',1,0,0,100,0,1,repeat('a',64))`, ID(), original.ID, history)
 	key := ID()
-	updated := decode(request("owner", "PUT", path, key, replacement, "", nil, fields), 200)
+	updated := decode(request("d46774d30dd13b92d9e536808da468a4", "PUT", path, key, replacement, "", nil, fields), 200)
 	if updated.ID != original.ID || updated.VersionID == original.VersionID || updated.Title != "Updated" || updated.Maker != "A | B" || updated.Description != "new description" || len(updated.Difficulties) != 2 || updated.AudioHash != original.AudioHash {
 		t.Fatalf("bad updated chart: %+v", updated)
 	}
@@ -184,14 +184,14 @@ func TestChartReplacement(t *testing.T) {
 	if !strings.Contains(leaderboard.Body.String(), `"items":[]`) {
 		t.Fatal("leaderboard retained old scores")
 	}
-	status(score(original, "owner"), 409)
-	status(score(updated, "owner"), 201)
-	retry := decode(request("owner", "PUT", path, key, replacement, "", nil, fields), 200)
+	status(score(original, "d46774d30dd13b92d9e536808da468a4"), 409)
+	status(score(updated, "d46774d30dd13b92d9e536808da468a4"), 201)
+	retry := decode(request("d46774d30dd13b92d9e536808da468a4", "PUT", path, key, replacement, "", nil, fields), 200)
 	if retry.VersionID != updated.VersionID || count(`SELECT count(*) FROM scores WHERE song_id=$1`, original.ID) != 1 {
 		t.Fatal("retry deleted the new score")
 	}
-	status(request("owner", "PUT", path, key, source, "", nil, fields), 409)
-	status(request("owner", "PUT", path, ID(), replacement, "", nil, fields), 409)
+	status(request("d46774d30dd13b92d9e536808da468a4", "PUT", path, key, source, "", nil, fields), 409)
+	status(request("d46774d30dd13b92d9e536808da468a4", "PUT", path, ID(), replacement, "", nil, fields), 409)
 	// Two valid updates from the same page: only one may replace the chart.
 	nextFields := map[string]string{"expectedVersionId": updated.VersionID, "confirmReset": "true"}
 	nextSource := strings.Replace(replacement, "cbr.mp3", "next.mp3", 1)
@@ -201,7 +201,7 @@ func TestChartReplacement(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			replies <- request("admin", "PUT", path, ID(), nextSource, "next.mp3", audio, nextFields)
+			replies <- request("5f63f79d876d201a13f8710453636837", "PUT", path, ID(), nextSource, "next.mp3", audio, nextFields)
 		}()
 	}
 	wg.Wait()
@@ -220,10 +220,10 @@ func TestChartReplacement(t *testing.T) {
 		t.Fatal("concurrent replacement", successes, conflicts)
 	}
 	final, err := app.chart(ctx, original.ID)
-	if err != nil || final.AudioName != "next.mp3" || final.OwnerID != "owner" || count(`SELECT count(*) FROM scores WHERE song_id=$1`, original.ID) != 0 {
+	if err != nil || final.AudioName != "next.mp3" || final.OwnerID != "d46774d30dd13b92d9e536808da468a4" || count(`SELECT count(*) FROM scores WHERE song_id=$1`, original.ID) != 0 {
 		t.Fatal("admin replacement", final, err)
 	}
-	status(request("owner", "PUT", path, key, replacement, "", nil, fields), 409)
+	status(request("d46774d30dd13b92d9e536808da468a4", "PUT", path, key, replacement, "", nil, fields), 409)
 	if count(`SELECT count(*) FROM retired_files`) != 0 || count(`SELECT count(*) FROM files`) != 4 {
 		t.Fatal("cleanup incomplete")
 	}
@@ -233,7 +233,7 @@ func TestRetiredFileCleanupRetries(t *testing.T) {
 	pool := scoreTestDB(t)
 	ctx := context.Background()
 	storage := t.TempDir()
-	app := New(pool, Config{Storage: storage})
+	app := testServer(t, pool, Config{Storage: storage})
 	key := "objects/old/audio"
 	// A nonempty directory cannot be removed as a file; keep its durable queue row.
 	if err := os.MkdirAll(filepath.Join(storage, key), 0700); err != nil {

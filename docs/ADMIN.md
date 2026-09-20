@@ -1,19 +1,7 @@
 # 网站管理员与编辑权限
 
-迁移 008 新增 `users.is_admin boolean NOT NULL DEFAULT false`。已有用户和新注册用户都保持普通身份，不自动把第一个账号或演示账号设为管理员。
+角色统一由 SSO 的 `ClientRole(user, client="fanmade", is_admin)` 管理。SSO 站点 staff/superuser 身份不会自动获得 Fanmade 管理员权限。旧用户导入时保留原本站管理员映射。
 
-编辑作品信息的条件为：已登录，且 `currentUser.id == chart.owner_id` 或数据库记录的 `is_admin == true`。这里的作者指拥有作品的上传账号，不是 TJA 内可填写的 MAKER 字符串。管理员也需要正确 Origin 和 CSRF。删除接口仍维持原有作者权限，本次仅扩展编辑信息权限。
+在 SSO 的 Django admin 管理指定用户的 ClientRole，或由有管理权限的人使用 `manage.py shell` 操作该模型。Fanmade 数据库已无 is_admin 列。
 
-登录／注册／GET /me 的 user 对象增加 isAdmin 布尔值，供前端显示编辑入口；每次后端鉴权都重新从数据库读取角色，因此撤权后不必等待 Cookie 过期。注册和编辑请求不接受 isAdmin、role 等额外字段。
-
-需要设置管理员时，先在本机数据库确认目标账号，再由有数据库管理权限的人执行（将占位用户名替换为真实账号）：
-
-```sql
-SELECT id, username, is_admin FROM users WHERE username = '目标用户名';
-UPDATE users SET is_admin = true WHERE username = '目标用户名'
-RETURNING id, username, is_admin;
-```
-
-撤销时将 true 改为 false。用户刷新页面或重新登录后，前端读取最新角色；后端限制从下一次请求立即生效。当前没有公开的角色修改 API，也没有管理员账号管理界面。
-
-验证：临时 PostgreSQL schema 内覆盖作者成功、普通他人 403、管理员成功、管理员缺少 CSRF 403、撤销管理员后旧 Session 403、注册／请求伪造 isAdmin 被拒绝。没有修改任何现有演示账号的角色。
+每次受保护请求实时读取 SSO 返回的本站角色，因此撤权在下一次请求生效。修改谱面允许上传者或本站管理员；删除仍仅允许上传者。浏览器操作仍要求 Origin 和 CSRF，任何客户端传入的角色声明都不被采信。后端 PostgreSQL 回归覆盖作者、普通用户、管理员、撤权及伪造角色。

@@ -1,6 +1,5 @@
 """Exercise score submission against the local API with an original ESE chart."""
 import json
-import secrets
 import uuid
 
 from demo import Client, SAMPLES
@@ -8,7 +7,7 @@ from demo import Client, SAMPLES
 
 def main():
     client = Client()
-    user = client.auth('score_' + uuid.uuid4().hex[:10], secrets.token_urlsafe(24))
+    user = client.auth()
     status, chart, _ = client.upload(SAMPLES[2])
     assert status == 201, (status, chart)
     try:

@@ -106,8 +106,8 @@ func (s *Server) leaderboard(w http.ResponseWriter, r *http.Request) {
 		), ranked AS (
 		 SELECT best.*,rank() OVER (ORDER BY score DESC) AS place FROM best
 		)
-		SELECT r.id,r.user_id,r.song_id,r.version_id,r.block_index,r.difficulty,r.good,r.ok,r.bad,r.score,r.drumroll,r.max_combo,r.submitted_at,u.nickname,r.place
-		FROM ranked r JOIN users u ON u.id=r.user_id
+		SELECT r.id,r.user_id,r.song_id,r.version_id,r.block_index,r.difficulty,r.good,r.ok,r.bad,r.score,r.drumroll,r.max_combo,r.submitted_at,''::text,r.place
+		FROM ranked r
 		ORDER BY r.score DESC,r.submitted_at,r.id LIMIT $5 OFFSET $6`, result.SongID, result.VersionID, course, block, result.PageSize, (page-1)*result.PageSize)
 		if err != nil {
 			internal(w, err)
@@ -132,6 +132,14 @@ func (s *Server) leaderboard(w http.ResponseWriter, r *http.Request) {
 	if err = tx.Commit(r.Context()); err != nil {
 		internal(w, err)
 		return
+	}
+	ids := []string{}
+	for _, entry := range result.Items {
+		ids = append(ids, entry.UserID)
+	}
+	names := s.publicNames(r.Context(), ids)
+	for i := range result.Items {
+		result.Items[i].Nickname = names[result.Items[i].UserID]
 	}
 	respond(w, 200, result)
 }

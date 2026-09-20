@@ -22,7 +22,7 @@ func TestSupportedCoursesMigrationAndAPI(t *testing.T) {
  ALTER TABLE difficulties ADD CONSTRAINT difficulties_course_check CHECK(course IN ('Easy','Normal','Hard','Oni','Edit','Tower','Dan'));
  ALTER TABLE scores DROP CONSTRAINT scores_difficulty_check;
  DELETE FROM schema_migrations WHERE version=12;
- INSERT INTO users(id,username,password_hash) VALUES('u','tester','unused');
+ INSERT INTO users(id,username,password_hash) VALUES('89b6ef3a5cb57b6e04f74711d15a8a5f','tester','unused');
  INSERT INTO files(id,storage_key,original_filename,sha256,byte_size,media_type) VALUES
  ('t','chart.tja','chart.tja',repeat('a',64),1,'application/octet-stream'),('a','music.ogg','music.ogg',repeat('b',64),1,'audio/ogg');`)
 	if err != nil {
@@ -37,7 +37,7 @@ func TestSupportedCoursesMigrationAndAPI(t *testing.T) {
 	}
 	defer tx.Rollback(ctx)
 	for i, id := range ids {
-		_, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id,current_version_id) VALUES($1,'u',$2)`, id, versions[i])
+		_, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id,current_version_id) VALUES($1,'89b6ef3a5cb57b6e04f74711d15a8a5f',$2)`, id, versions[i])
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -51,7 +51,7 @@ func TestSupportedCoursesMigrationAndAPI(t *testing.T) {
 			t.Fatal(err)
 		}
 		_, err = tx.Exec(ctx, `INSERT INTO scores(id,user_id,song_id,version_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest)
-  VALUES($1,'u',$2,$3,0,$4,10,0,0,10000,0,10,repeat('f',64))`, fmt.Sprintf("score%d", i), id, versions[i], courses[i])
+  VALUES($1,'89b6ef3a5cb57b6e04f74711d15a8a5f',$2,$3,0,$4,10,0,0,10000,0,10,repeat('f',64))`, fmt.Sprintf("score%d", i), id, versions[i], courses[i])
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -102,7 +102,7 @@ func TestSupportedCoursesMigrationAndAPI(t *testing.T) {
 		}
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO scores(id,user_id,song_id,version_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest)
- VALUES('new-tower','u',$1,$2,0,'Tower',10,0,0,10000,0,10,repeat('f',64))`, ids[1], versions[1]); err == nil {
+ VALUES('new-tower','89b6ef3a5cb57b6e04f74711d15a8a5f',$1,$2,0,'Tower',10,0,0,10000,0,10,repeat('f',64))`, ids[1], versions[1]); err == nil {
 		t.Fatal("database accepted unsupported score")
 	}
 	// Even if a record is manually republished, API readers must not expose it.
@@ -111,11 +111,11 @@ func TestSupportedCoursesMigrationAndAPI(t *testing.T) {
 	}
 	cookie := strings.Repeat("c", 64)
 	token := strings.Repeat("d", 64)
-	if _, err = pool.Exec(ctx, `INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at) VALUES($1,'u','csrf',now()+interval '1 day'),($2,'u','csrf',now()+interval '1 day')`, hash(cookie), hash("game:"+token)); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at) VALUES($1,'89b6ef3a5cb57b6e04f74711d15a8a5f','csrf',now()+interval '1 day'),($2,'89b6ef3a5cb57b6e04f74711d15a8a5f','csrf',now()+interval '1 day')`, hash(cookie), hash("game:"+token)); err != nil {
 		t.Fatal(err)
 	}
 	const origin = "http://127.0.0.1:5173"
-	handler := New(pool, Config{Origin: origin}).Handler()
+	handler := testServer(t, pool, Config{Origin: origin}).Handler()
 	call := func(method, path, body string, status int) *httptest.ResponseRecorder {
 		t.Helper()
 		r := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -182,14 +182,14 @@ func TestUploadRejectsUnsupportedCourses(t *testing.T) {
 	pool := scoreTestDB(t)
 	ctx := context.Background()
 	cookie := strings.Repeat("a", 64)
-	if _, err := pool.Exec(ctx, `INSERT INTO users(id,username,password_hash) VALUES('u','tester','unused');`); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO users(id,username,password_hash) VALUES('89b6ef3a5cb57b6e04f74711d15a8a5f','tester','unused');`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at) VALUES($1,'u','csrf',now()+interval '1 day')`, hash(cookie)); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at) VALUES($1,'89b6ef3a5cb57b6e04f74711d15a8a5f','csrf',now()+interval '1 day')`, hash(cookie)); err != nil {
 		t.Fatal(err)
 	}
 	storage := t.TempDir()
-	handler := New(pool, Config{Origin: "http://127.0.0.1:5173", Storage: storage}).Handler()
+	handler := testServer(t, pool, Config{Origin: "http://127.0.0.1:5173", Storage: storage}).Handler()
 	for _, course := range []string{"Tower", "Dan", "5", "6", "tOwEr", "dAn"} {
 		t.Run(course, func(t *testing.T) {
 			var body bytes.Buffer

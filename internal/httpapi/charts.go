@@ -44,10 +44,10 @@ const supportedCoursesSQL = "('Easy','Normal','Hard','Oni','Edit')"
 const publishedChart = `c.status='published' AND NOT EXISTS (SELECT 1 FROM difficulties excluded
  WHERE excluded.version_id=c.current_version_id AND excluded.course NOT IN ` + supportedCoursesSQL + `)`
 
-const chartSelect = `SELECT c.id,c.owner_id,u.nickname,v.id,c.description,c.created_at,v.duration,v.encoding,tf.original_filename,af.original_filename,tf.sha256,af.sha256,af.byte_size,tf.storage_key,af.storage_key,COALESCE(c.title_override,v.title),COALESCE(c.subtitle_override,v.subtitle),v.bpm,v.offset_seconds,v.demo_start,v.wave_filename,v.title_translations || c.title_translation_overrides,v.subtitle_translations || c.subtitle_translation_overrides,
+const chartSelect = `SELECT c.id,c.owner_id,''::text,v.id,c.description,c.created_at,v.duration,v.encoding,tf.original_filename,af.original_filename,tf.sha256,af.sha256,af.byte_size,tf.storage_key,af.storage_key,COALESCE(c.title_override,v.title),COALESCE(c.subtitle_override,v.subtitle),v.bpm,v.offset_seconds,v.demo_start,v.wave_filename,v.title_translations || c.title_translation_overrides,v.subtitle_translations || c.subtitle_translation_overrides,
  COALESCE((SELECT jsonb_agg(jsonb_build_object('maker',d.maker,'course',d.course,'level',d.level,'blockIndex',d.block_index,'player',d.player,'style',d.style,'cloudScoreEligible',d.cloud_score_eligible) ORDER BY d.block_index) FROM difficulties d WHERE d.version_id=v.id),'[]'::jsonb),
  ARRAY(SELECT cc.category_id FROM chart_categories cc WHERE cc.chart_id=c.id ORDER BY cc.category_id)
- FROM charts c JOIN users u ON u.id=c.owner_id JOIN chart_versions v ON v.id=c.current_version_id JOIN files tf ON tf.id=v.tja_file_id JOIN files af ON af.id=v.audio_file_id `
+ FROM charts c JOIN chart_versions v ON v.id=c.current_version_id JOIN files tf ON tf.id=v.tja_file_id JOIN files af ON af.id=v.audio_file_id `
 
 func readChart(row pgx.Row) (Chart, error) {
 	var c Chart
@@ -60,7 +60,11 @@ func readChart(row pgx.Row) (Chart, error) {
 	return c, e
 }
 func (s *Server) chart(ctx context.Context, id string) (Chart, error) {
-	return readChart(s.DB.QueryRow(ctx, chartSelect+` WHERE c.id=$1 AND `+publishedChart, id))
+	c, e := readChart(s.DB.QueryRow(ctx, chartSelect+` WHERE c.id=$1 AND `+publishedChart, id))
+	if e == nil {
+		c.Uploader = s.publicNames(ctx, []string{c.OwnerID})[c.OwnerID]
+	}
+	return c, e
 }
 func (s *Server) list(w http.ResponseWriter, r *http.Request) { s.listFor(w, r, "") }
 func (s *Server) mine(w http.ResponseWriter, r *http.Request) {
@@ -89,15 +93,24 @@ func (s *Server) listFor(w http.ResponseWriter, r *http.Request, owner string) {
 		problem(w, 400, "DIFFICULTY_INVALID", "仅支持 Easy / Normal / Hard / Oni / Edit 难度")
 		return
 	}
-	where := ` WHERE ` + publishedChart + ` AND ($1='' OR COALESCE(c.title_override,v.title) ILIKE '%'||$1||'%' OR COALESCE(c.subtitle_override,v.subtitle) ILIKE '%'||$1||'%' OR EXISTS(SELECT 1 FROM difficulties dm WHERE dm.version_id=v.id AND dm.maker ILIKE '%'||$1||'%') OR u.nickname ILIKE '%'||$1||'%'
+	where := ` WHERE ` + publishedChart + ` AND ($1='' OR COALESCE(c.title_override,v.title) ILIKE '%'||$1||'%' OR COALESCE(c.subtitle_override,v.subtitle) ILIKE '%'||$1||'%' OR EXISTS(SELECT 1 FROM difficulties dm WHERE dm.version_id=v.id AND dm.maker ILIKE '%'||$1||'%') OR c.owner_id=ANY($4::text[])
 	 OR EXISTS(SELECT 1 FROM jsonb_each_text(v.title_translations || c.title_translation_overrides) t WHERE t.value ILIKE '%'||$1||'%')
 	 OR EXISTS(SELECT 1 FROM jsonb_each_text(v.subtitle_translations || c.subtitle_translation_overrides) t WHERE t.value ILIKE '%'||$1||'%')) AND ($2='' OR c.owner_id=$2) AND ($3='' OR EXISTS(SELECT 1 FROM difficulties d WHERE d.version_id=v.id AND d.course=$3))`
+	matchingOwners := []string{}
+	if q != "" {
+		var e error
+		matchingOwners, e = s.Config.SSO.search(r.Context(), q)
+		if e != nil {
+			internal(w, e)
+			return
+		}
+	}
 	var total int
-	if e := s.DB.QueryRow(r.Context(), `SELECT count(*) FROM charts c JOIN chart_versions v ON v.id=c.current_version_id JOIN users u ON u.id=c.owner_id`+where, q, owner, course).Scan(&total); e != nil {
+	if e := s.DB.QueryRow(r.Context(), `SELECT count(*) FROM charts c JOIN chart_versions v ON v.id=c.current_version_id JOIN users u ON u.id=c.owner_id`+where, q, owner, course, matchingOwners).Scan(&total); e != nil {
 		internal(w, e)
 		return
 	}
-	rows, e := s.DB.Query(r.Context(), chartSelect+where+` ORDER BY c.created_at DESC,c.id DESC LIMIT 12 OFFSET $4`, q, owner, course, (page-1)*12)
+	rows, e := s.DB.Query(r.Context(), chartSelect+where+` ORDER BY c.created_at DESC,c.id DESC LIMIT 12 OFFSET $5`, q, owner, course, matchingOwners, (page-1)*12)
 	if e != nil {
 		internal(w, e)
 		return
@@ -116,6 +129,7 @@ func (s *Server) listFor(w http.ResponseWriter, r *http.Request, owner string) {
 		internal(w, e)
 		return
 	}
+	s.chartNames(r.Context(), items)
 	respond(w, 200, map[string]any{"items": items, "total": total, "page": page, "pageSize": 12})
 }
 func (s *Server) detail(w http.ResponseWriter, r *http.Request) {

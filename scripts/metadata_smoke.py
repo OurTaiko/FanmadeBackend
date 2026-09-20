@@ -1,6 +1,5 @@
 """Check localization and owner edits using a real ESE upload; originals stay intact."""
 import io
-import secrets
 import uuid
 import zipfile
 from urllib.parse import quote
@@ -10,8 +9,8 @@ from demo import Client, ESE, SAMPLES
 
 def main():
     owner, other = Client(), Client()
-    owner.auth('meta_' + uuid.uuid4().hex[:10], secrets.token_urlsafe(24))
-    other.auth('meta_' + uuid.uuid4().hex[:10], secrets.token_urlsafe(24))
+    owner.auth()
+    other.auth('FANMADE_OTHER_SESSION_COOKIE')
     rel = SAMPLES[0]
     original = ESE / rel
     fields = {}

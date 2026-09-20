@@ -5,8 +5,8 @@ import http.cookiejar
 import io
 import json
 import os
+import re
 from pathlib import Path
-import secrets
 import time
 import urllib.error
 import urllib.request
@@ -29,8 +29,10 @@ class Client:
  def __init__(self):
   self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
   self.csrf = ''
+  self.cookie = ''
  def call(self, method, path, data=None, headers=None):
   h = {'Origin': ORIGIN, 'X-CSRF-Token': self.csrf, **(headers or {})}
+  if self.cookie: h['Cookie'] = 'ourtaiko_session=' + self.cookie
   if isinstance(data, dict):
    data = json.dumps(data).encode(); h['Content-Type'] = 'application/json'
   req = urllib.request.Request(BASE + path, data=data, headers=h, method=method)
@@ -39,19 +41,14 @@ class Client:
   body = response.read()
   result = json.loads(body) if 'application/json' in response.headers.get('Content-Type', '') else body
   return response.status, result, response.headers
- def auth(self, username, password, register=True):
-  status, result, _ = self.call('POST', '/auth/login', {'username': username, 'password': password})
-  if status == 401 and register:
-   # Smoke accounts also use the public email verification flow.
-   email = input(f'Email for new account {username}: ').strip()
-   status, sent, _ = self.call('POST', '/auth/email-code', {'email': email})
-   assert status == 200, (status, sent)
-   code = input('Six-digit code from your email: ').strip()
-   status, result, _ = self.call('POST', '/auth/register', {
-    'username': username, 'password': password, 'email': email,
-    'verificationId': sent['verificationId'], 'code': code,
-   })
-  assert status == 200, (status, result)
+ def auth(self, cookie_env='FANMADE_SESSION_COOKIE'):
+  # Obtain this short-lived HttpOnly session through the normal browser SSO flow.
+  self.cookie = os.environ.get(cookie_env, '')
+  if not re.fullmatch(r'[0-9a-f]{64}', self.cookie):
+   raise RuntimeError(f'Log in through Fanmade SSO, then set {cookie_env} to your local test browser session cookie.')
+  status, result, _ = self.call('GET', '/me')
+  if status != 200 or result.get('user') is None:
+   raise RuntimeError('SSO session is unavailable or expired; log in again.')
   self.csrf = result['csrfToken']; return result['user']
  def upload(self, rel, key=None, name=None, corrupt=False, duplicate=False):
   path = ESE / rel; tja = path.read_bytes()
@@ -73,12 +70,7 @@ class Client:
 
 def seed():
  local = Path('.data'); local.mkdir(exist_ok=True)
- credentials = local / 'demo-credentials.json'
- if credentials.exists(): account = json.loads(credentials.read_text())
- else:
-  account = {'username': 'eseDemo', 'password': secrets.token_urlsafe(24)}
-  credentials.write_text(json.dumps(account)); credentials.chmod(0o600)
- client = Client(); client.auth(**account)
+ client = Client(); client.auth()
  imported = []
  for rel in SAMPLES:
   key = hashlib.sha256(('ese-demo-v1:'+rel).encode()).hexdigest()
@@ -87,11 +79,11 @@ def seed():
   imported.append({'id':result['id'],'title':result['title'],'source':rel})
   print(f"Imported: {result['title']} ({len(result['difficulties'])} blocks)")
  (local/'demo-imports.json').write_text(json.dumps(imported,ensure_ascii=False,indent=2))
- print('Demo ready. Credentials are saved locally in .data/demo-credentials.json (not tracked).')
+ print('Demo ready. Account identity is managed by SSO.')
 
 def smoke():
- client = Client(); user = client.auth('smoke'+uuid.uuid4().hex[:10], secrets.token_urlsafe(24))
- other = Client(); other.auth('smoke'+uuid.uuid4().hex[:10], secrets.token_urlsafe(24))
+ client = Client(); user = client.auth()
+ other = Client(); other.auth('FANMADE_OTHER_SESSION_COOKIE')
  rel = SAMPLES[0]
  for duplicate_chart in ['02 Anime/Gekkouka/Gekkouka.tja', '02 Anime/Oto Melody/Oto Melody.tja']:
   status, result, _ = client.upload(duplicate_chart)

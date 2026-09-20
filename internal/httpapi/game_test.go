@@ -13,11 +13,12 @@ import (
 func TestGameSessionIsolation(t *testing.T) {
 	pool := scoreTestDB(t)
 	h, _ := bcrypt.GenerateFromPassword([]byte("test-password"), bcrypt.MinCost)
-	_, err := pool.Exec(context.Background(), `INSERT INTO users(id,username,password_hash) VALUES('game-user','gameuser',$1)`, string(h))
+	_, err := pool.Exec(context.Background(), `INSERT INTO users(id,username,password_hash) VALUES('abd722b06b5255372acb7511472ff700','gameuser',$1)`, string(h))
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := New(pool, Config{Origin: "http://localhost:5173"}).Handler()
+	app := testServer(t, pool, Config{Origin: "http://localhost:5173"})
+	handler := app.Handler()
 	call := func(method, path, body, token, origin, cookie string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, path, strings.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")
@@ -63,11 +64,7 @@ func TestGameSessionIsolation(t *testing.T) {
 			t.Errorf("%s: want %d got %d %s", c.path, c.status, w.Code, w.Body.String())
 		}
 	}
-	web := call("POST", "/api/v1/auth/login", credentials, "", "http://localhost:5173", "")
-	if web.Code != 200 {
-		t.Fatal(web.Body.String())
-	}
-	webToken := web.Result().Cookies()[0].Value
+	webToken := seedWebSession(t, app, "abd722b06b5255372acb7511472ff700")
 	for _, cookie := range []string{"", result.AccessToken, webToken} {
 		w := call("GET", "/api/v1/game/bootstrap", "", "", "", cookie)
 		var guest struct {

@@ -20,13 +20,13 @@ func TestCategoriesFlow(t *testing.T) {
 	token := strings.Repeat("a", 64)
 	gameToken := strings.Repeat("b", 64)
 	otherToken := strings.Repeat("c", 64)
-	if _, err := pool.Exec(ctx, `INSERT INTO users(id,username,password_hash) VALUES('u','owner','unused'),('other','other','unused');`); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO users(id,username,password_hash) VALUES('89b6ef3a5cb57b6e04f74711d15a8a5f','testd46774d30dd1','unused'),('9b893bc6d9422c93536ff0df503b81e9','test9b893bc6d942','unused');`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at) VALUES($1,'u','csrf',now()+interval '1 day'),($2,'u','csrf',now()+interval '1 day'),($3,'other','csrf',now()+interval '1 day')`, hash(token), hash("game:"+gameToken), hash(otherToken)); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at) VALUES($1,'89b6ef3a5cb57b6e04f74711d15a8a5f','csrf',now()+interval '1 day'),($2,'89b6ef3a5cb57b6e04f74711d15a8a5f','csrf',now()+interval '1 day'),($3,'9b893bc6d9422c93536ff0df503b81e9','csrf',now()+interval '1 day')`, hash(token), hash("game:"+gameToken), hash(otherToken)); err != nil {
 		t.Fatal(err)
 	}
-	handler := New(pool, Config{Origin: origin, Storage: t.TempDir()}).Handler()
+	handler := testServer(t, pool, Config{Origin: origin, Storage: t.TempDir()}).Handler()
 	call := func(method, path, body, actor string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, path, strings.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")
@@ -194,7 +194,7 @@ func TestCategoriesFlow(t *testing.T) {
 		t.Fatal("partial invalid patch")
 	}
 	// An existing score must remain attached to the same chart/version after reclassification.
-	if _, err = pool.Exec(ctx, `INSERT INTO scores(id,user_id,song_id,version_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest) VALUES('score','u',$1,$2,0,'Oni',1,0,0,1000,0,1,repeat('a',64))`, c.ID, c.VersionID); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO scores(id,user_id,song_id,version_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest) VALUES('score','89b6ef3a5cb57b6e04f74711d15a8a5f',$1,$2,0,'Oni',1,0,0,1000,0,1,repeat('a',64))`, c.ID, c.VersionID); err != nil {
 		t.Fatal(err)
 	}
 	after = decodeChart(call("PATCH", path, `{"categoryIds":["classic","virtual-singer"]}`, token), 200)

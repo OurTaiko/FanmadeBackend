@@ -7,8 +7,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Native routes never consume browser cookies. Their bearer tokens use a
-// separate hash domain, so neither session type grants access to the other.
+// Native routes use SSO game sessions; browser routes use OIDC access tokens.
+// Neither session type grants access to the other.
 func isGameRequest(r *http.Request) bool {
 	return strings.HasPrefix(r.URL.Path, "/api/v1/game/")
 }

@@ -21,13 +21,13 @@ func TestAudioUploadAndDownload(t *testing.T) {
 	pool := scoreTestDB(t)
 	ctx := context.Background()
 	cookie := strings.Repeat("a", 64)
-	if _, err := pool.Exec(ctx, `INSERT INTO users(id,username,password_hash) VALUES('u','tester','unused')`); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO users(id,username,password_hash) VALUES('89b6ef3a5cb57b6e04f74711d15a8a5f','tester','unused')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at) VALUES($1,'u','csrf',now()+interval '1 day')`, hash(cookie)); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at) VALUES($1,'89b6ef3a5cb57b6e04f74711d15a8a5f','csrf',now()+interval '1 day')`, hash(cookie)); err != nil {
 		t.Fatal(err)
 	}
-	handler := New(pool, Config{Origin: "http://localhost", Storage: t.TempDir()}).Handler()
+	handler := testServer(t, pool, Config{Origin: "http://localhost", Storage: t.TempDir()}).Handler()
 	for _, name := range []string{"cbr.mp3", "vorbis.ogg"} {
 		t.Run(name, func(t *testing.T) {
 			data, err := os.ReadFile("../audio/testdata/" + name)

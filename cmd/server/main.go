@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -14,7 +15,6 @@ import (
 	"github.com/joho/godotenv"
 	"ourtaiko.dev/fanmade/api/internal/database"
 	"ourtaiko.dev/fanmade/api/internal/httpapi"
-	"ourtaiko.dev/fanmade/api/internal/mailer"
 )
 
 func env(key, fallback string) string {
@@ -29,7 +29,7 @@ func main() {
 	}
 	migrateOnly := flag.Bool("migrate", false, "apply migrations and exit")
 	flag.Parse()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	pool, err := database.Open(ctx, env("DATABASE_URL", "postgres://localhost/ourtaiko_fanmade?host=/tmp&sslmode=disable"))
 	if err != nil {
 		log.Fatal(err)
@@ -38,25 +38,37 @@ func main() {
 	if err = database.Migrate(ctx, pool, env("STORAGE_DIR", ".data/files")); err != nil {
 		log.Fatal(err)
 	}
+	sso, err := httpapi.NewSSO(httpapi.SSOConfig{Issuer: os.Getenv("SSO_ISSUER"), ServiceID: os.Getenv("SSO_SERVICE_ID"), ServiceKey: os.Getenv("SSO_SERVICE_KEY"), ClientID: os.Getenv("SSO_CLIENT_ID"), ClientSecret: os.Getenv("SSO_CLIENT_SECRET"), RedirectURL: os.Getenv("SSO_REDIRECT_URL"), EncryptionKey: os.Getenv("SESSION_ENCRYPTION_KEY")})
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err = database.MigrateSSO(ctx, pool, func(ctx context.Context, ids []string) error {
+		if os.Getenv("SSO_MIGRATION_BACKUP_CONFIRMED") != "true" {
+			return fmt.Errorf("back up the database and import users into SSO before setting SSO_MIGRATION_BACKUP_CONFIRMED=true")
+		}
+		names, e := sso.Profiles(ctx, ids)
+		if e != nil {
+			return e
+		}
+		for _, id := range ids {
+			if _, ok := names[id]; !ok {
+				return fmt.Errorf("SSO is missing legacy user %s; import all users before migration", id)
+			}
+		}
+		return nil
+	}); err != nil {
+		log.Fatal(err)
+	}
 	cancel()
 	if *migrateOnly {
 		log.Print("PostgreSQL migrations completed")
 		return
 	}
-	var sender httpapi.RegistrationMailer
-	if os.Getenv("SMTP_PASSWORD") != "" {
-		sender, err = mailer.New(mailer.Config{Host: env("SMTP_HOST", "smtp.example.com"), Port: env("SMTP_PORT", "25"), Username: env("SMTP_USERNAME", "smtp-user@example.com"), Password: os.Getenv("SMTP_PASSWORD"), FromAddress: env("SMTP_FROM_ADDRESS", "no-reply@mail.ourtaiko.org"), FromName: env("SMTP_FROM_NAME", "OurTaiko")})
-		if err != nil {
-			log.Fatal(err)
-		}
-	} else {
-		log.Print("SMTP_PASSWORD is not configured; registration email delivery is unavailable")
-	}
 	proxies, err := httpapi.ParseTrustedProxies(os.Getenv("TRUSTED_PROXY_CIDRS"))
 	if err != nil {
 		log.Fatal(err)
 	}
-	app := httpapi.New(pool, httpapi.Config{Mailer: sender, TrustedProxies: proxies, Origin: env("APP_ORIGIN", "http://127.0.0.1:5173"), Storage: env("STORAGE_DIR", ".data/files"), CookieSecure: env("COOKIE_SECURE", "false") == "true"})
+	app := httpapi.New(pool, httpapi.Config{SSO: sso, TrustedProxies: proxies, Origin: env("APP_ORIGIN", "http://127.0.0.1:5173"), Storage: env("STORAGE_DIR", ".data/files"), CookieSecure: env("COOKIE_SECURE", "false") == "true"})
 	if err = app.EnsureStorage(); err != nil {
 		log.Fatal(err)
 	}
