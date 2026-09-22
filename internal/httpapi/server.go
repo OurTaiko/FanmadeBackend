@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"ourtaiko.dev/fanmade/api/internal/cover"
 	"ourtaiko.dev/fanmade/api/internal/tja"
 )
 
@@ -87,7 +88,7 @@ func (s *Server) Handler() http.Handler {
 		respond(w, 200, map[string]bool{"ok": true})
 	})
 	mux.HandleFunc("GET /api/v1/upload-rules", func(w http.ResponseWriter, r *http.Request) {
-		respond(w, 200, map[string]any{"validationVersion": tja.Version, "maxTjaBytes": tja.MaxTJA, "maxAudioBytes": tja.MaxAudio, "encodings": []string{"utf-8", "shift-jis"}, "audioCodecs": []string{"vorbis", "mp3"}, "audioExtensions": []string{".ogg", ".mp3"}})
+		respond(w, 200, map[string]any{"validationVersion": tja.Version, "maxTjaBytes": tja.MaxTJA, "maxAudioBytes": tja.MaxAudio, "maxCoverBytes": cover.MaxBytes, "coverExtensions": []string{".jpg", ".png"}, "encodings": []string{"utf-8", "shift-jis"}, "audioCodecs": []string{"vorbis", "mp3"}, "audioExtensions": []string{".ogg", ".mp3"}})
 	})
 	mux.HandleFunc("POST /api/v1/game/login", s.login)
 	mux.HandleFunc("GET /api/v1/game/bootstrap", s.gameBootstrap)
@@ -108,6 +109,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/me/charts", s.mine)
 	mux.HandleFunc("POST /api/v1/charts", s.upload)
 	mux.HandleFunc("GET /api/v1/charts/{id}", s.detail)
+	mux.HandleFunc("GET /api/v1/charts/{id}/cover", s.getCover)
+	mux.HandleFunc("PUT /api/v1/charts/{id}/cover", s.replaceCover)
 	mux.HandleFunc("GET /api/v1/charts/{id}/leaderboard", s.leaderboard)
 	mux.HandleFunc("PATCH /api/v1/charts/{id}", s.editMetadata)
 	mux.HandleFunc("PUT /api/v1/charts/{id}/files", s.upload)

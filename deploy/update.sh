@@ -5,6 +5,8 @@ export PATH="$base/toolchains/go/bin:$PATH"
 cd "$base/src/backend"
 test -z "$(git status --porcelain)" || { echo 'Backend checkout has local changes'; exit 1; }
 git pull --ff-only origin main
+command -v cwebp >/dev/null || { echo 'Install WebP tools first: sudo apt-get install webp'; exit 1; }
+cwebp -version >/dev/null
 GOTOOLCHAIN=local go build -trimpath -o "$base/bin/ourtaiko-api.next" ./cmd/server
 if test -f "$base/bin/ourtaiko-api"; then
   cp -p "$base/bin/ourtaiko-api" "$base/bin/ourtaiko-api.previous"

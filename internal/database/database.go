@@ -60,6 +60,9 @@ var userNicknamesSchema string
 //go:embed 017_anime_category.sql
 var animeCategorySchema string
 
+//go:embed 019_chart_covers.sql
+var chartCoversSchema string
+
 func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	pool, err := pgxpool.New(ctx, url)
 	if err != nil {
@@ -279,6 +282,18 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, storage string) error {
 			return fmt.Errorf("migration 017: %w", err)
 		}
 		if _, err = tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES(17)`); err != nil {
+			return err
+		}
+	}
+	// Cover storage is independent of the separately guarded SSO migration 018.
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=19)`).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		if _, err = tx.Exec(ctx, chartCoversSchema); err != nil {
+			return fmt.Errorf("migration 019: %w", err)
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES(19)`); err != nil {
 			return err
 		}
 	}

@@ -16,6 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"ourtaiko.dev/fanmade/api/internal/audio"
+	"ourtaiko.dev/fanmade/api/internal/cover"
 	"ourtaiko.dev/fanmade/api/internal/tja"
 )
 
@@ -60,7 +61,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		problem(w, 503, "UPLOAD_BUSY", "当前正在处理其他上传，请稍后重试")
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 105*1024*1024)
+	r.Body = http.MaxBytesReader(w, r.Body, 112*1024*1024)
 	mr, e := r.MultipartReader()
 	if e != nil {
 		problem(w, 400, "UPLOAD_FILES_INVALID", "请选择 TJA 和 OGG 或 MP3 音频文件")
@@ -89,15 +90,19 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		field, name := params["name"], params["filename"]
-		if field == "tja" || field == "audio" {
+		if field == "tja" || field == "audio" || (field == "cover" && existing == nil) {
 			validExtension := strings.EqualFold(filepath.Ext(name), ".tja")
 			maxBytes := int64(tja.MaxTJA)
 			if field == "audio" {
 				validExtension = audio.MediaType(name) != ""
 				maxBytes = tja.MaxAudio
 			}
+			if field == "cover" {
+				validExtension = cover.ValidExtension(name)
+				maxBytes = cover.MaxBytes
+			}
 			if files[field] != nil || !tja.SafeFilename(name) || !validExtension {
-				problem(w, 400, "UPLOAD_FILES_INVALID", "必须上传一个 TJA 和一个 OGG 或 MP3 音频，文件名不能包含路径")
+				problem(w, 400, "UPLOAD_FILES_INVALID", "文件类型、数量或文件名无效；封面仅支持 JPG / PNG，文件名不能包含路径")
 				return
 			}
 			f := &stagedFile{name: name, path: filepath.Join(dir, field), id: ID()}
@@ -167,6 +172,21 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 	if !valid {
 		problem(w, 422, "CATEGORIES_INVALID", "包含不存在的分类，请刷新后重试")
 		return
+	}
+	cf := files["cover"]
+	delete(files, "cover") // Cover bytes stay in PostgreSQL, not the version/file store.
+	var coverData []byte
+	if cf != nil {
+		raw, err := os.ReadFile(cf.path)
+		if err != nil {
+			internal(w, err)
+			return
+		}
+		var ok bool
+		coverData, ok = encodeCover(w, r, cf.name, raw)
+		if !ok {
+			return
+		}
 	}
 	tf, af := files["tja"], files["audio"]
 	if tf == nil || (af == nil && existing == nil) {
@@ -273,6 +293,10 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+	if cf != nil {
+		encoded, _ := json.Marshal([]string{"cover", cf.name, cf.sha})
+		digestData = append(digestData, encoded...)
+	}
 	digest := hash(string(digestData))
 	if existing != nil {
 		digest = replacementDigest
@@ -325,6 +349,12 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 	if e != nil {
 		internal(w, e)
 		return
+	}
+	if cf != nil {
+		if e = saveCover(r.Context(), tx, chartID, coverData); e != nil {
+			internal(w, e)
+			return
+		}
 	}
 	if e = setCategories(r.Context(), tx, chartID, categoryIDs); e != nil {
 		internal(w, e)

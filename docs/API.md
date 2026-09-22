@@ -184,3 +184,14 @@ Fanmade `users` 只保存 SSO 用户 ID。昵称、登录名、邮箱状态、�
 网站用 OIDC，YataiDON 仍用原 `/game/login`、`/game/bootstrap`、`/game/scores`，请求与响应字段不变。原生登录由 Fanmade 转接 SSO，游戏令牌由 SSO 签发、按应用隔离；Fanmade 不存密码或游戏令牌。旧会话在迁移时失效，需要重新登录。网站会话最长一小时，过期后重新通过 SSO 登录；本版不使用刷新令牌。
 
 详见 [SSO 接入与迁移](SSO.md)。
+
+## 网站歌曲封面
+
+- `POST /api/v1/charts`：新增可选 multipart 文件字段 `cover`，允许 `.jpg` / `.png`（不区分大小写），最大 8 MiB、1600 万像素，单边最多 8192px。文件内容必须与扩展名匹配。服务端完整解码并移除元数据，转换成 WebP，保持比例、最长边不超过 1600px，不放大小图。封面与歌曲在同一事务发布；幂等摘要包含原封面内容和文件名。
+- 网站曲库列表、详情、上传响应新增可选 `coverHash`（WebP SHA-256）；无封面时省略。游戏 category/bootstrap 响应保持原协议，不新增此字段。
+- `GET /api/v1/charts/{id}/cover`：公开读取已发布且受支持歌曲的封面，返回 `image/webp` 二进制，支持 HEAD、Range、ETag / If-None-Match。未知、已下架歌曲或无封面返回 404。可加 `?v=<coverHash>`；过期 hash 返回 404。`Cache-Control: public, no-cache` 要求每次重新验证，替换后旧 URL 不再返回原图。
+- `PUT /api/v1/charts/{id}/cover`：浏览器网站会话、正确 Origin 与 `X-CSRF-Token` 必需；只有 owner 可写（管理员身份不越过此限制）。multipart 仅允许一个 `cover` 文件；规则与新投稿相同。返回 `{ "coverHash": "..." }`。失败保留原封面；成功在同一事务中 DELETE 旧封面行再 INSERT 新行，不保存历史图片、原 JPG/PNG 或磁盘文件。
+- `PUT /api/v1/charts/{id}/files` 保留封面，不接受 `cover` 字段；独立封面替换不改变歌曲版本、谱面、音频或成绩。删除歌曲同时删除封面行。
+- 错误：400 字段/扩展名无效或重复；401 未登录；403 非 owner / CSRF / Origin 无效；413 超大小；422 内容损坏、类型不符或像素超限；503 编码器/数据库不可用或上传繁忙。
+
+运行依赖新增 `cwebp`（WebP tools）；migration 019 使用 `chart_covers.webp bytea` 存储转换后的图片，数据库备份包含封面。

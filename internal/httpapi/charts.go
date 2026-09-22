@@ -20,6 +20,7 @@ import (
 )
 
 type Chart struct {
+	CoverHash   string    `json:"coverHash,omitempty"`
 	CategoryIDs []string  `json:"categoryIds"`
 	ID          string    `json:"id"`
 	OwnerID     string    `json:"ownerId"`
@@ -63,6 +64,11 @@ func (s *Server) chart(ctx context.Context, id string) (Chart, error) {
 	c, e := readChart(s.DB.QueryRow(ctx, chartSelect+` WHERE c.id=$1 AND `+publishedChart, id))
 	if e == nil {
 		c.Uploader = s.publicNames(ctx, []string{c.OwnerID})[c.OwnerID]
+	}
+	if e == nil {
+		items := []Chart{c}
+		e = s.coverHashes(ctx, items)
+		c = items[0]
 	}
 	return c, e
 }
@@ -129,6 +135,10 @@ func (s *Server) listFor(w http.ResponseWriter, r *http.Request, owner string) {
 		internal(w, e)
 		return
 	}
+	if e := s.coverHashes(r.Context(), items); e != nil {
+		internal(w, e)
+		return
+	}
 	s.chartNames(r.Context(), items)
 	respond(w, 200, map[string]any{"items": items, "total": total, "page": page, "pageSize": 12})
 }
@@ -162,7 +172,7 @@ func (s *Server) remove(w http.ResponseWriter, r *http.Request) {
 		problem(w, 403, "FORBIDDEN", "只能删除自己的作品")
 		return
 	}
-	if _, e := s.DB.Exec(r.Context(), `UPDATE charts SET status='deleted' WHERE id=$1 AND owner_id=$2`, c.ID, u.User.ID); e != nil {
+	if _, e := s.DB.Exec(r.Context(), `WITH removed AS (UPDATE charts SET status='deleted' WHERE id=$1 AND owner_id=$2 RETURNING id) DELETE FROM chart_covers WHERE chart_id IN (SELECT id FROM removed)`, c.ID, u.User.ID); e != nil {
 		internal(w, e)
 		return
 	}
