@@ -62,3 +62,7 @@ FANMADE_SSO_E2E=1 pnpm test:e2e
 `smoke_fanmade` 仅允许本地开发副本，验证网站登录、回调重放拒绝、上传、游戏登录及成绩、昵称同步、改密撤销和退出，完成后清理其临时账号与业务记录。Playwright 的注册测试受真实注册限流约束，每 IP 每小时最多 8 次注册；不要对部署环境运行。
 
 旧 `scripts/demo.py`、`score_smoke.py`、`metadata_smoke.py` 使用浏览器 SSO 后的测试 Cookie：FANMADE_SESSION_COOKIE；需要另一个用户时设置 FANMADE_OTHER_SESSION_COOKIE。请使用专用测试账号；脚本会创建测试作品，部分保留成绩并注销会话。不再提供脚本内密码登录或创建本地账号。
+
+## 语言偏好
+
+SSO 身份响应新增 `user.preferredLanguage`（`zh-hans`、`en`、`ja`、`ko`）。业务 API 通过既有实时 introspect 链路透传到 `/api/v1/me` 和游戏身份响应，不在业务数据库复制语言偏好。前端在 focus / visibility 刷新会话后应用语言；缺失或不支持的值回退简体中文。语言在 SSO 账号中心修改，改动不撤销会话。SSO 的新用户字段迁移应先于前端发布。

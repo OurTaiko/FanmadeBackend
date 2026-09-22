@@ -167,3 +167,27 @@ func TestPublicNamesDoNotExposeLogin(t *testing.T) {
 		t.Fatal("no outage fallback")
 	}
 }
+
+// Profile preferences are relayed live from SSO, never stored in the business DB.
+func TestSSOPreferredLanguageIsLive(t *testing.T) {
+	language := "ja"
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/internal/v1/web/introspect" || r.Header.Get("X-Service-ID") != "fanmade" {
+			t.Error("unexpected identity request")
+		}
+		json.NewEncoder(w).Encode(map[string]any{"user": User{ID: strings.Repeat("a", 32), PreferredLanguage: language}})
+	}))
+	defer upstream.Close()
+	client := &SSOClient{config: SSOConfig{Issuer: upstream.URL, ServiceID: "fanmade"}, http: upstream.Client()}
+	for _, preference := range []string{"ja", "ko", "en", "zh-hans", ""} {
+		language = preference
+		user, err := client.identity(context.Background(), "web", "test-token")
+		if err != nil || user.PreferredLanguage != preference {
+			t.Fatalf("stale preferred language: %#v, %v", user, err)
+		}
+		body, err := json.Marshal(user)
+		if err != nil || !strings.Contains(string(body), `"preferredLanguage":"`+preference+`"`) {
+			t.Fatalf("preferred language missing from API response: %s, %v", body, err)
+		}
+	}
+}

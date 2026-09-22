@@ -14,11 +14,12 @@ import (
 )
 
 type User struct {
-	ID            string `json:"id"`
-	Username      string `json:"username"`
-	Nickname      string `json:"nickname"`
-	EmailVerified bool   `json:"emailVerified"`
-	IsAdmin       bool   `json:"isAdmin"`
+	PreferredLanguage string `json:"preferredLanguage"`
+	ID                string `json:"id"`
+	Username          string `json:"username"`
+	Nickname          string `json:"nickname"`
+	EmailVerified     bool   `json:"emailVerified"`
+	IsAdmin           bool   `json:"isAdmin"`
 }
 type session struct {
 	User  User
