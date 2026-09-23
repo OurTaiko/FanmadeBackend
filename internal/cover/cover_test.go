@@ -19,7 +19,7 @@ func TestEncode(t *testing.T) {
 			img.SetNRGBA(x, y, color.NRGBA{R: 80, G: 160, B: 220, A: 180})
 		}
 	}
-	for _, extension := range []string{"jpg", "PNG"} {
+	for _, extension := range []string{"jpg", "PNG", "webp", "WEBP"} {
 		t.Run(extension, func(t *testing.T) {
 			var source bytes.Buffer
 			if extension == "jpg" {
@@ -30,6 +30,20 @@ func TestEncode(t *testing.T) {
 				if err := png.Encode(&source, img); err != nil {
 					t.Fatal(err)
 				}
+			}
+			if extension == "webp" || extension == "WEBP" {
+				args := []string{"-quiet", "-o", "-", "--", "-"}
+				if extension == "WEBP" {
+					args = append([]string{"-lossless"}, args...)
+				}
+				cmd := exec.Command("cwebp", args...)
+				cmd.Stdin = bytes.NewReader(source.Bytes())
+				encoded, err := cmd.Output()
+				if err != nil {
+					t.Fatal(err)
+				}
+				source.Reset()
+				source.Write(encoded)
 			}
 			webp, err := Encode(context.Background(), "cover."+extension, source.Bytes())
 			if err != nil {
@@ -50,7 +64,7 @@ func TestEncode(t *testing.T) {
 				t.Fatal(decoded.Bounds())
 			}
 			_, _, _, alpha := decoded.At(100, 100).RGBA()
-			if extension == "PNG" && alpha >= 65535 {
+			if extension != "jpg" && alpha >= 65535 {
 				t.Fatal("transparency lost")
 			}
 		})
@@ -64,6 +78,10 @@ func TestRejectInvalidImages(t *testing.T) {
 	_ = png.Encode(&tooWide, image.NewNRGBA(image.Rect(0, 0, 8193, 1)))
 	var tooMany bytes.Buffer
 	_ = png.Encode(&tooMany, image.NewNRGBA(image.Rect(0, 0, 4001, 4000)))
+	webpData, err := Encode(context.Background(), "cover.png", pngData.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, tc := range []struct {
 		name string
 		data []byte
@@ -72,6 +90,9 @@ func TestRejectInvalidImages(t *testing.T) {
 		{"cover.jpg", pngData.Bytes()}, {"cover.png", []byte("invalid")}, {"cover.png", nil},
 		{"cover.png", pngData.Bytes()[:30]}, {"cover.png", tooWide.Bytes()}, {"cover.png", tooMany.Bytes()},
 		{"cover.png", make([]byte, MaxBytes+1)},
+		{"cover.webp", []byte("invalid")}, {"cover.webp", nil},
+		{"cover.webp", webpData[:len(webpData)-10]}, {"cover.png", webpData},
+		{"cover.webp", make([]byte, MaxBytes+1)},
 	} {
 		if _, err := Encode(context.Background(), tc.name, tc.data); !errors.Is(err, ErrInvalid) {
 			t.Errorf("accepted %s (%d bytes): %v", tc.name, len(tc.data), err)

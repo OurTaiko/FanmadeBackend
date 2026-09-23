@@ -76,7 +76,7 @@ func (s *Server) getCover(w http.ResponseWriter, r *http.Request) {
 func encodeCover(w http.ResponseWriter, r *http.Request, name string, data []byte) ([]byte, bool) {
 	encoded, err := cover.Encode(r.Context(), name, data)
 	if errors.Is(err, cover.ErrInvalid) {
-		problem(w, 422, "COVER_INVALID", "封面必须是有效的 JPG 或 PNG，最大 8 MiB、1600 万像素，单边不超过 8192 像素")
+		problem(w, 422, "COVER_INVALID", "封面必须是有效的 JPG、PNG 或 WebP，最大 8 MiB、1600 万像素，单边不超过 8192 像素")
 		return nil, false
 	}
 	if err != nil {
@@ -127,7 +127,7 @@ func (s *Server) replaceCover(w http.ResponseWriter, r *http.Request) {
 	disposition, params, err := mime.ParseMediaType(part.Header.Get("Content-Disposition"))
 	name := params["filename"]
 	if err != nil || disposition != "form-data" || params["name"] != "cover" || !tja.SafeFilename(name) || !cover.ValidExtension(name) {
-		problem(w, 400, "COVER_INVALID", "只能上传一个 JPG 或 PNG 封面")
+		problem(w, 400, "COVER_INVALID", "只能上传一个 JPG、PNG 或 WebP 封面")
 		return
 	}
 	data, err := io.ReadAll(io.LimitReader(part, cover.MaxBytes+1))

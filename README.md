@@ -116,7 +116,7 @@ DOUBLE 谱面不记录云端成绩，但仍可上传与下载。后端按块解�
 
 ## 网站歌曲封面
 
-发布歌曲可通过 multipart `cover` 字段附带 `.jpg` / `.png`；封面可选，最大 8 MiB、1600 万像素、单边 8192 像素。
+发布歌曲可通过 multipart `cover` 字段附带 `.jpg` / `.png` / `.webp`（仅静态图片）；封面可选，最大 8 MiB、1600 万像素、单边 8192 像素。
 服务器完整解码图片，经 cwebp 转成最长边不超过 1600px 的 WebP，并只将转换后的二进制保存在 PostgreSQL。
 网站 owner 可通过 `PUT /api/v1/charts/{id}/cover` 单独替换封面；读取使用 `GET /api/v1/charts/{id}/cover`。
 封面不会进入游戏曲库响应或下载包，也不会重置成绩。详情见 [封面 API](docs/API.md#网站歌曲封面)。

@@ -19,6 +19,11 @@ import (
 )
 
 func TestCoverLifecycle(t *testing.T) {
+	t.Run("jpg-png", func(t *testing.T) { testCoverLifecycle(t, false) })
+	t.Run("webp", func(t *testing.T) { testCoverLifecycle(t, true) })
+}
+
+func testCoverLifecycle(t *testing.T, useWebP bool) {
 	// scoreTestDB creates a unique score_api_test_<timestamp> schema, configures
 	// search_path on every connection, and registers DROP SCHEMA in t.Cleanup.
 	pool := scoreTestDB(t)
@@ -116,6 +121,13 @@ func TestCoverLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	parts := []part{{"tja", "chart.tja", []byte("TITLE:Cover test\nBPM:120\nWAVE:music.ogg\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\n")}, {"audio", "music.ogg", audio}, {"cover", "cover.png", pngImage}}
+	if useWebP {
+		data, err := cover.Encode(ctx, "cover.png", pngImage)
+		if err != nil {
+			t.Fatal(err)
+		}
+		parts[2] = part{"cover", "cover.webp", data}
+	}
 	key := ID()
 	w := send("POST", "/api/v1/charts", "owner", "csrf", key, parts...)
 	status(w, 201)
@@ -151,6 +163,13 @@ func TestCoverLifecycle(t *testing.T) {
 	}
 	changed := append([]part(nil), parts...)
 	changed[2] = part{"cover", "new.jpg", jpgImage}
+	if useWebP {
+		data, err := cover.Encode(ctx, "new.jpg", jpgImage)
+		if err != nil {
+			t.Fatal(err)
+		}
+		changed[2] = part{"cover", "new.WEBP", data}
+	}
 	status(send("POST", "/api/v1/charts", "owner", "csrf", key, changed...), 409)
 	for _, tc := range []struct {
 		user, csrf string
@@ -161,7 +180,7 @@ func TestCoverLifecycle(t *testing.T) {
 	for _, tc := range []struct {
 		p      part
 		status int
-	}{{part{"cover", "fake.jpg", pngImage}, 422}, {part{"cover", "bad.png", []byte("bad")}, 422}, {part{"cover", "file.svg", pngImage}, 400}, {part{"cover", "huge.png", make([]byte, cover.MaxBytes+1)}, 413}} {
+	}{{part{"cover", "fake.webp", pngImage}, 422}, {part{"cover", "bad.webp", []byte("bad")}, 422}, {part{"cover", "fake.jpg", pngImage}, 422}, {part{"cover", "bad.png", []byte("bad")}, 422}, {part{"cover", "file.svg", pngImage}, 400}, {part{"cover", "huge.png", make([]byte, cover.MaxBytes+1)}, 413}} {
 		status(send("PUT", path, "owner", "csrf", "", tc.p), tc.status)
 	}
 	status(send("PUT", path, "owner", "csrf", "", changed[2], changed[2]), 400)

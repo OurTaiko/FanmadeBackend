@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	_ "golang.org/x/image/webp"
 )
 
 const MaxBytes = 8 * 1024 * 1024
@@ -24,7 +26,7 @@ var ErrInvalid = errors.New("invalid cover image")
 
 func ValidExtension(name string) bool {
 	ext := strings.ToLower(filepath.Ext(name))
-	return ext == ".jpg" || ext == ".png"
+	return ext == ".jpg" || ext == ".png" || ext == ".webp"
 }
 
 func Encode(ctx context.Context, name string, data []byte) ([]byte, error) {
@@ -32,7 +34,7 @@ func Encode(ctx context.Context, name string, data []byte) ([]byte, error) {
 		return nil, ErrInvalid
 	}
 	cfg, format, err := image.DecodeConfig(bytes.NewReader(data))
-	expected := "png"
+	expected := strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
 	if strings.EqualFold(filepath.Ext(name), ".jpg") {
 		expected = "jpeg"
 	}

@@ -102,7 +102,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 				maxBytes = cover.MaxBytes
 			}
 			if files[field] != nil || !tja.SafeFilename(name) || !validExtension {
-				problem(w, 400, "UPLOAD_FILES_INVALID", "文件类型、数量或文件名无效；封面仅支持 JPG / PNG，文件名不能包含路径")
+				problem(w, 400, "UPLOAD_FILES_INVALID", "文件类型、数量或文件名无效；封面仅支持 JPG / PNG / WebP，文件名不能包含路径")
 				return
 			}
 			f := &stagedFile{name: name, path: filepath.Join(dir, field), id: ID()}
