@@ -1,0 +1,34 @@
+name: ${FANMADE_PROJECT:-ourtaiko-fanmade-local}
+services:
+  fanmade:
+    image: ${FANMADE_IMAGE:-ourtaiko-fanmade:local}
+    build:
+      context: ..
+    restart: unless-stopped
+    env_file:
+      - path: ${STACK_DIR:?Set STACK_DIR}/fanmade.env
+        format: raw
+    environment:
+      LISTEN_ADDR: 0.0.0.0:8080
+      STORAGE_DIR: /data/files
+    volumes:
+      - files:/data/files
+    ports:
+      - '127.0.0.1:${FANMADE_PORT:-18080}:8080'
+    read_only: true
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=256m']
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1:8080/readyz']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks: [shared]
+volumes:
+  files:
+networks:
+  shared:
+    external: true
+    name: ${OURTAIKO_NETWORK:-ourtaiko-local}

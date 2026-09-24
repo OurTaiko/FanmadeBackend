@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -24,6 +25,9 @@ import (
 
 type SSOConfig struct {
 	Issuer, ServiceID, ServiceKey, ClientID, ClientSecret, RedirectURL, EncryptionKey string
+	// Optional TCP destination for the issuer, e.g. sso:8090 inside Docker.
+	// The public issuer, HTTP Host and TLS certificate verification stay unchanged.
+	ConnectAddress string
 }
 type SSOClient struct {
 	config   SSOConfig
@@ -58,7 +62,40 @@ func NewSSO(cfg SSOConfig) (*SSOClient, error) {
 	if e != nil {
 		return nil, e
 	}
-	return &SSOClient{config: cfg, cipher: aead, http: &http.Client{Timeout: 8 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+	client := &http.Client{Timeout: 8 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	if cfg.ConnectAddress != "" {
+		host, port, err := net.SplitHostPort(cfg.ConnectAddress)
+		if err != nil || host == "" || port == "" {
+			return nil, errors.New("SSO_CONNECT_ADDRESS must be host:port")
+		}
+		issuer, _ := url.Parse(cfg.Issuer)
+		issuerPort := issuer.Port()
+		if issuerPort == "" {
+			issuerPort = "443"
+			if issuer.Scheme == "http" {
+				issuerPort = "80"
+			}
+		}
+		issuerAddress := net.JoinHostPort(issuer.Hostname(), issuerPort)
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		// This explicit route must not send private SSO traffic through an env proxy.
+		proxy := transport.Proxy
+		transport.Proxy = func(r *http.Request) (*url.URL, error) {
+			if r.URL.Scheme == issuer.Scheme && r.URL.Host == issuer.Host {
+				return nil, nil
+			}
+			return proxy(r)
+		}
+		dialer := &net.Dialer{Timeout: 8 * time.Second, KeepAlive: 30 * time.Second}
+		transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+			if address == issuerAddress {
+				address = cfg.ConnectAddress
+			}
+			return dialer.DialContext(ctx, network, address)
+		}
+		client.Transport = transport
+	}
+	return &SSOClient{config: cfg, cipher: aead, http: client}, nil
 }
 func (c *SSOClient) seal(token, aad string) []byte {
 	nonce := make([]byte, c.cipher.NonceSize())
