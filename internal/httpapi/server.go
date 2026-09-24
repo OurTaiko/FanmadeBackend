@@ -94,6 +94,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/game/bootstrap", s.gameBootstrap)
 	mux.HandleFunc("GET /api/v1/game/categories/{category}/charts", s.gameCategory)
 	mux.HandleFunc("GET /api/v1/categories", s.categories)
+	mux.HandleFunc("GET /api/v1/users", s.listUsers)
+	mux.HandleFunc("GET /api/v1/users/{id}", s.userSpace)
 	mux.HandleFunc("POST /api/v1/game/scores", s.submitScore)
 	mux.HandleFunc("POST /api/v1/auth/email-code", s.retiredAccountAPI)
 	mux.HandleFunc("POST /api/v1/auth/register", s.retiredAccountAPI)

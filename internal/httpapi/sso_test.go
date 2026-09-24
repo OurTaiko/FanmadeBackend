@@ -36,8 +36,8 @@ func TestSSOMigrationGuardAndLiveProfile(t *testing.T) {
 		t.Fatal("migration not idempotent", e)
 	}
 	var columns int
-	if e = pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='users'`).Scan(&columns); e != nil || columns != 1 {
-		t.Fatal("local profiles retained", columns, e)
+	if e = pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='users'`).Scan(&columns); e != nil || columns != 3 {
+		t.Fatal("unexpected identity/activity columns", columns, e)
 	}
 	call := func(method, path, csrf string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, path, strings.NewReader(`{}`))

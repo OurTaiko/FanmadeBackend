@@ -72,7 +72,14 @@ func (s *Server) chart(ctx context.Context, id string) (Chart, error) {
 	}
 	return c, e
 }
-func (s *Server) list(w http.ResponseWriter, r *http.Request) { s.listFor(w, r, "") }
+func (s *Server) list(w http.ResponseWriter, r *http.Request) {
+	owner := r.URL.Query().Get("owner")
+	if owner != "" && !validSubject(owner) {
+		problem(w, 400, "QUERY_INVALID", "用户标识无效")
+		return
+	}
+	s.listFor(w, r, owner)
+}
 func (s *Server) mine(w http.ResponseWriter, r *http.Request) {
 	u, ok := s.required(w, r, false)
 	if !ok {

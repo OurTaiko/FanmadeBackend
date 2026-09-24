@@ -10,6 +10,7 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/oauth2"
 )
 
@@ -45,9 +46,22 @@ func (s *Server) localSession(r *http.Request) (session, error) {
 	v.Token, e = s.Config.SSO.unseal(encrypted, hash(c.Value))
 	return v, e
 }
-func (s *Server) ensureUser(ctx context.Context, u User) error {
-	_, e := s.DB.Exec(ctx, `INSERT INTO users(id) VALUES($1) ON CONFLICT DO NOTHING`, u.ID)
-	return e
+
+type activityWriter interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}
+
+// Called only after SSO authentication. Ordinary authenticated requests never
+// invent a first login for a legacy user. Limit activity writes to once a minute.
+func recordUserActivity(ctx context.Context, db activityWriter, id string, login bool) error {
+	_, err := db.Exec(ctx, `INSERT INTO users(id,first_login_at,last_active_at)
+ VALUES($1,CASE WHEN $2 THEN now() ELSE NULL END,now())
+ ON CONFLICT(id) DO UPDATE SET
+ first_login_at=COALESCE(users.first_login_at,EXCLUDED.first_login_at),
+ last_active_at=GREATEST(users.last_active_at,EXCLUDED.last_active_at)
+ WHERE users.last_active_at IS NULL OR users.last_active_at < now()-interval '1 minute'
+ OR (users.first_login_at IS NULL AND EXCLUDED.first_login_at IS NOT NULL)`, id, login)
+	return err
 }
 func (s *Server) current(r *http.Request) (session, error) {
 	var v session
@@ -61,7 +75,7 @@ func (s *Server) current(r *http.Request) (session, error) {
 			return v, e
 		}
 		v.User = u
-		return v, s.ensureUser(r.Context(), u)
+		return v, recordUserActivity(r.Context(), s.DB, u.ID, false)
 	}
 	v, e := s.localSession(r)
 	if e != nil {
@@ -75,7 +89,7 @@ func (s *Server) current(r *http.Request) (session, error) {
 		return session{}, pgx.ErrNoRows
 	}
 	v.User = u
-	return v, nil
+	return v, recordUserActivity(r.Context(), s.DB, u.ID, false)
 }
 func (s *Server) required(w http.ResponseWriter, r *http.Request, csrf bool) (session, bool) {
 	v, e := s.current(r)
@@ -139,7 +153,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		internal(w, errors.New("invalid SSO login response"))
 		return
 	}
-	if e = s.ensureUser(r.Context(), result.User); e != nil {
+	if e = recordUserActivity(r.Context(), s.DB, result.User.ID, true); e != nil {
 		internal(w, e)
 		return
 	}
@@ -233,7 +247,14 @@ func (s *Server) ssoCallback(w http.ResponseWriter, r *http.Request) {
 		fail()
 		return
 	}
-	if e = s.ensureUser(ctx, u); e != nil {
+	tx, e := s.DB.Begin(ctx)
+	if e != nil {
+		revoke()
+		fail()
+		return
+	}
+	defer tx.Rollback(ctx)
+	if e = recordUserActivity(ctx, tx, u.ID, true); e != nil {
 		revoke()
 		fail()
 		return
@@ -244,8 +265,13 @@ func (s *Server) ssoCallback(w http.ResponseWriter, r *http.Request) {
 	if expires.IsZero() || expires.After(time.Now().Add(time.Hour)) {
 		expires = time.Now().Add(time.Hour)
 	}
-	_, e = s.DB.Exec(ctx, `INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at,upstream_token) VALUES($1,$2,$3,$4,$5)`, digest, u.ID, csrf, expires, s.Config.SSO.seal(token.AccessToken, digest))
+	_, e = tx.Exec(ctx, `INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at,upstream_token) VALUES($1,$2,$3,$4,$5)`, digest, u.ID, csrf, expires, s.Config.SSO.seal(token.AccessToken, digest))
 	if e != nil {
+		revoke()
+		fail()
+		return
+	}
+	if e = tx.Commit(ctx); e != nil {
 		revoke()
 		fail()
 		return

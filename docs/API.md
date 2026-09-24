@@ -195,3 +195,47 @@ Fanmade `users` 只保存 SSO 用户 ID。昵称、登录名、邮箱状态、�
 - 错误：400 字段/扩展名无效或重复；401 未登录；403 非 owner / CSRF / Origin 无效；413 超大小；422 内容损坏、类型不符或像素超限；503 编码器/数据库不可用或上传繁忙。
 
 运行依赖新增 `cwebp`（WebP tools）；migration 019 使用 `chart_covers.webp bytea` 存储转换后的图片，数据库备份包含封面。
+
+
+## 用户广场与个人空间（migration 020）
+
+以下接口无需登录，只展示曾在 Fanmade 本地登记的用户，不枚举 SSO 全部账号。
+
+### GET /api/v1/users
+
+| 参数 | 规则 |
+| --- | --- |
+| q | 可选公开昵称搜索；去首尾空白后最多 200 UTF-8 字节；不搜索登录名或邮箱 |
+| sort | active（默认，最近活跃）或 newest（首次登录从新到旧）；未知时间放最后，相同时间按 ID 排序 |
+| page | 1–10000 的整数，默认 1；每页固定 12 |
+
+返回 `{items: PublicUser[], total, page, pageSize: 12, profilesAvailable}`，空列表是 `[]`。搜索只返回 SSO 昵称匹配结果与 Fanmade users 的交集；参数非法返回 400 QUERY_INVALID。列表内计数和统计在同一数据库快照中读取。
+
+### GET /api/v1/users/{id}
+
+返回 `{user: PublicUser, profilesAvailable}`。用户不在本地 users 表或 ID 格式无效，返回 404 USER_NOT_FOUND。前端路由为 `/users/:id`。
+
+PublicUser 为明确的公开字段集合，与 `/me` 的认证 User 不同：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | string | 稳定 SSO 用户 ID |
+| nickname | string 或 null | 当前公开昵称；缺失/上游不可用时为 null |
+| firstLoginAt | RFC3339 时间或 null | 上线后记录的首次成功登录，不是账号注册时间 |
+| lastActiveAt | RFC3339 时间或 null | 登录/成功认证请求的最近记录时间，约每分钟写一次 |
+| chartCount | integer | 当前公开且支持的作品数量 |
+| scoreCount | integer | 当前公开作品版本的已保存成绩条数 |
+
+不返回登录名、邮箱、邮箱验证状态、应用权限、语言偏好或认证凭证。旧用户未知时间不以迁移时间/上传时间填充。公开 GET 查询不更新被查看用户的活跃时间。
+
+profilesAvailable=false 表示本次昵称查询失败，统计仍返回；个别 ID 无对应公开昵称时也可能为 null。带 q 的搜索遇到 SSO 故障返回 503 SERVICE_UNAVAILABLE，不返回误导性的空结果。
+
+成绩数量从后端数据库聚合，包含每局保存的记录，并非去重后的最高分数、在线状态或历史总游玩次数。隐藏/删除作品及旧版本不计入；替换歌曲删除旧成绩后统计随之变化。
+
+### GET /api/v1/charts?owner=<id>
+
+现有公开作品列表增加可选 owner 参数（32 位小写十六进制 ID），可与 q/course/page 组合，返回原 ChartList。非法 owner 返回 400；没有公开作品返回空列表。`/me/charts` 始终使用会话用户，忽略请求中的 owner，不能借此读取他人的非公开作品。个人空间使用路径中的用户 ID 作为 owner，不信任页面 URL 中的同名覆盖参数。
+
+### 活动记录
+
+游戏登录成功记录首次登录与最近活跃；OIDC 回调在创建本站会话的同一事务中记录。后续 `/me`、上传、成绩及带有效游戏 Bearer 的认证请求刷新最近活跃；网页切换页面/重新聚焦时通过 `/me` 验证会话。无效凭证、SSO 故障和纯游客访问不更新时间，不缓存认证结论。
