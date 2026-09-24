@@ -26,7 +26,7 @@ var ErrInvalid = errors.New("invalid cover image")
 
 func ValidExtension(name string) bool {
 	ext := strings.ToLower(filepath.Ext(name))
-	return ext == ".jpg" || ext == ".png" || ext == ".webp"
+	return ext == ".jpg" || ext == ".jpeg" || ext == ".png" || ext == ".webp"
 }
 
 func Encode(ctx context.Context, name string, data []byte) ([]byte, error) {

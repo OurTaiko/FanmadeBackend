@@ -9,6 +9,7 @@ import (
 	"image/jpeg"
 	"image/png"
 	"os/exec"
+	"strings"
 	"testing"
 )
 
@@ -19,10 +20,11 @@ func TestEncode(t *testing.T) {
 			img.SetNRGBA(x, y, color.NRGBA{R: 80, G: 160, B: 220, A: 180})
 		}
 	}
-	for _, extension := range []string{"jpg", "PNG", "webp", "WEBP"} {
+	for _, extension := range []string{"jpg", "jpeg", "JPEG", "PNG", "webp", "WEBP"} {
 		t.Run(extension, func(t *testing.T) {
+			isJPEG := extension == "jpg" || strings.EqualFold(extension, "jpeg")
 			var source bytes.Buffer
-			if extension == "jpg" {
+			if isJPEG {
 				if err := jpeg.Encode(&source, img, nil); err != nil {
 					t.Fatal(err)
 				}
@@ -64,7 +66,7 @@ func TestEncode(t *testing.T) {
 				t.Fatal(decoded.Bounds())
 			}
 			_, _, _, alpha := decoded.At(100, 100).RGBA()
-			if extension != "jpg" && alpha >= 65535 {
+			if !isJPEG && alpha >= 65535 {
 				t.Fatal("transparency lost")
 			}
 		})
