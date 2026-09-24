@@ -175,5 +175,10 @@ func (s *Server) editMetadata(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	chart.Uploader = s.publicNames(r.Context(), []string{chart.OwnerID})[chart.OwnerID]
-	respond(w, 200, chart)
+	items := []Chart{chart}
+	if err = s.coverHashes(r.Context(), items); err != nil {
+		internal(w, err)
+		return
+	}
+	respond(w, 200, items[0])
 }

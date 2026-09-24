@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -64,6 +65,38 @@ func TestMetadataAuthorOrAdmin(t *testing.T) {
 		if w.Code != tc.status {
 			t.Fatalf("actor %s wanted %d: %d %s", tc.actor, tc.status, w.Code, w.Body.String())
 		}
+		if w.Code == http.StatusOK {
+			var updated Chart
+			if err := json.Unmarshal(w.Body.Bytes(), &updated); err != nil || updated.CoverHash != "" {
+				t.Fatalf("unexpected cover in metadata response: %s %v", w.Body.String(), err)
+			}
+		}
+	}
+	// Seed cover storage directly: editing display metadata must preserve it
+	// regardless of upload/audio validation and return the same hash as GET.
+	coverBytes := []byte("existing cover fixture")
+	coverHash := hash(string(coverBytes))
+	if _, err = pool.Exec(ctx, `INSERT INTO chart_covers(id,chart_id,webp,sha256) VALUES('cover','chart',$1,$2)`, coverBytes, coverHash); err != nil {
+		t.Fatal(err)
+	}
+	editedResponse := call("d46774d30dd13b92d9e536808da468a4", "csrf", `{"titleTranslations":{"zh":"新译名"}}`)
+	var edited Chart
+	if editedResponse.Code != http.StatusOK || json.Unmarshal(editedResponse.Body.Bytes(), &edited) != nil {
+		t.Fatalf("metadata edit failed: %s", editedResponse.Body.String())
+	}
+	if edited.TitleTranslations["zh"] != "新译名" || edited.CoverHash != coverHash || edited.VersionID != "v" || edited.TJAHash != strings.Repeat("a", 64) || edited.AudioHash != strings.Repeat("b", 64) {
+		t.Fatalf("metadata response lost cover or changed resources: %+v", edited)
+	}
+	detailResponse := httptest.NewRecorder()
+	handler.ServeHTTP(detailResponse, httptest.NewRequest("GET", "/api/v1/charts/chart", nil))
+	var detail Chart
+	if detailResponse.Code != http.StatusOK || json.Unmarshal(detailResponse.Body.Bytes(), &detail) != nil || detail.CoverHash != edited.CoverHash || detail.TitleTranslations["zh"] != "新译名" {
+		t.Fatalf("GET/PATCH metadata mismatch: %s", detailResponse.Body.String())
+	}
+	storedCover := httptest.NewRecorder()
+	handler.ServeHTTP(storedCover, httptest.NewRequest("GET", "/api/v1/charts/chart/cover?v="+edited.CoverHash, nil))
+	if storedCover.Code != http.StatusOK || !bytes.Equal(storedCover.Body.Bytes(), coverBytes) {
+		t.Fatal("metadata edit changed cover bytes")
 	}
 	r := httptest.NewRequest("GET", "/api/v1/me", nil)
 	r.AddCookie(&http.Cookie{Name: "ourtaiko_session", Value: tokens["5f63f79d876d201a13f8710453636837"]})
