@@ -1,0 +1,33 @@
+name: ourtaiko-fanmade
+services:
+  fanmade:
+    image: ourtaiko-fanmade:release
+    build: /opt/ourtaiko-fanmade/src/backend
+    container_name: ourtaiko-fanmade
+    restart: unless-stopped
+    env_file:
+      - path: /etc/ourtaiko-fanmade/docker/api.env
+        format: raw
+    environment:
+      LISTEN_ADDR: 0.0.0.0:8080
+      STORAGE_DIR: /data/files
+    volumes: ['files:/data/files']
+    ports: ['127.0.0.1:8080:8080']
+    read_only: true
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=256m']
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1:8080/readyz']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    networks: [shared]
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}
+volumes:
+  files: {external: true, name: ourtaiko-fanmade-files}
+networks:
+  shared: {external: true, name: ourtaiko-shared}
