@@ -22,4 +22,4 @@ docker compose -f deploy/compose.yml up -d --wait
 
 备份需要同时包含业务数据库、文件卷和私有配置。应用镜像不会包含这些数据。
 不得运行旧 `deploy/compose.postgres.yml` 再建一个数据库实例；该配置已迁入 SSO 仓库，
-现有生产实例的兼容文件为 `deploy/compose.postgres.legacy.yml`。本次改动没有切换线上 systemd 部署。
+现有生产实例的兼容文件为 `deploy/compose.postgres.legacy.yml`。2026-09-24 已切换生产至 `compose.production.yml`，原 systemd 服务已停用；详见 [生产部署说明](../docs/DEPLOYMENT.md)。
