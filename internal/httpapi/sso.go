@@ -39,6 +39,21 @@ type SSOClient struct {
 type ssoError struct{ Status int }
 
 func (e *ssoError) Error() string { return fmt.Sprintf("SSO responded with HTTP %d", e.Status) }
+
+// Application client secrets need not be hex. Accept header-safe opaque credentials;
+// SSO remains authoritative for verification and application capability checks.
+func validServiceCredential(value string, minLen, maxLen int) bool {
+	if len(value) < minLen || len(value) > maxLen {
+		return false
+	}
+	for _, b := range []byte(value) {
+		if b < 0x21 || b > 0x7e {
+			return false
+		}
+	}
+	return true
+}
+
 func NewSSO(cfg SSOConfig) (*SSOClient, error) {
 	for _, raw := range []string{cfg.Issuer, cfg.RedirectURL} {
 		u, e := url.Parse(raw)
@@ -50,8 +65,7 @@ func NewSSO(cfg SSOConfig) (*SSOClient, error) {
 	if e != nil || len(key) != 32 {
 		return nil, errors.New("SESSION_ENCRYPTION_KEY must be 64 hex characters")
 	}
-	serviceKey, e := hex.DecodeString(cfg.ServiceKey)
-	if e != nil || len(serviceKey) != 32 || cfg.ServiceID == "" || cfg.ClientID == "" || cfg.ClientSecret == "" {
+	if !validServiceCredential(cfg.ServiceID, 1, 100) || !validServiceCredential(cfg.ServiceKey, 40, 1024) || cfg.ClientID == "" || cfg.ClientSecret == "" {
 		return nil, errors.New("SSO service and OAuth client credentials are required")
 	}
 	block, e := aes.NewCipher(key)

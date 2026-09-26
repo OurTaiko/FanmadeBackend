@@ -66,3 +66,14 @@ FANMADE_SSO_E2E=1 pnpm test:e2e
 ## 语言偏好
 
 SSO 身份响应新增 `user.preferredLanguage`（`zh-hans`、`en`、`ja`、`ko`）。业务 API 通过既有实时 introspect 链路透传到 `/api/v1/me` 和游戏身份响应，不在业务数据库复制语言偏好。前端在 focus / visibility 刷新会话后应用语言；缺失或不支持的值回退简体中文。语言在 SSO 账号中心修改，改动不撤销会话。SSO 的新用户字段迁移应先于前端发布。
+
+
+## 统一 Application（本地待发布）
+
+新 SSO 可使用 Application 的 Client ID/Secret 认证内部 API。
+切换时将 `SSO_SERVICE_ID` 设置为既有 `SSO_CLIENT_ID`，`SSO_SERVICE_KEY` 设置为既有
+`SSO_CLIENT_SECRET`；网站登录及会话加密配置保持不变。
+服务密钥现在允许 40–1024 位可见 ASCII 字符，不再只允许 hex。
+`SESSION_ENCRYPTION_KEY` 仍必须是 64 位 hex，不受此变更影响。
+先升级 SSO（保留旧凭据兼容），再升级本后端及环境，验证后关闭旧凭据。
+完整计划见 `../../OurTaikoSSO/docs/APPLICATION-MIGRATION.md`。尚未更新生产。
