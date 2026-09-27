@@ -108,7 +108,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/v1/me", s.retiredAccountAPI)
 	mux.HandleFunc("POST /api/v1/scores", s.submitScore)
 	mux.HandleFunc("GET /api/v1/charts", s.list)
-	mux.HandleFunc("GET /api/v1/game/search", s.list)
+	mux.HandleFunc("GET /api/v1/game/search", s.gameSearch)
 	mux.HandleFunc("GET /api/v1/me/charts", s.mine)
 	mux.HandleFunc("POST /api/v1/charts", s.upload)
 	mux.HandleFunc("GET /api/v1/charts/{id}", s.detail)

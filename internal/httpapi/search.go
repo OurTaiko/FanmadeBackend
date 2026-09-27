@@ -1,0 +1,115 @@
+package httpapi
+
+import (
+	"errors"
+	"net/http"
+	"strconv"
+
+	"github.com/jackc/pgx/v5"
+)
+
+// gameSearch returns one ordered snapshot without web-only enrichment.
+func (s *Server) gameSearch(w http.ResponseWriter, r *http.Request) {
+	s.searchCharts(w, r, "", true)
+}
+
+// Both search APIs share validation, matching and completion ordering. Only
+// the web API counts and paginates, then adds covers and public names.
+func (s *Server) searchCharts(w http.ResponseWriter, r *http.Request, owner string, all bool) {
+	q := r.URL.Query().Get("q")
+	if len(q) > 200 {
+		problem(w, 400, "QUERY_INVALID", "搜索内容过长")
+		return
+	}
+	page := 1
+	if !all {
+		page, _ = strconv.Atoi(r.URL.Query().Get("page"))
+		if page < 1 {
+			page = 1
+		}
+		if page > 10000 {
+			problem(w, 400, "QUERY_INVALID", "页码超出范围")
+			return
+		}
+	}
+	course := r.URL.Query().Get("course")
+	if course != "" && course != "Easy" && course != "Normal" && course != "Hard" && course != "Oni" && course != "Edit" {
+		problem(w, 400, "DIFFICULTY_INVALID", "仅支持 Easy / Normal / Hard / Oni / Edit 难度")
+		return
+	}
+	level := -1
+	if raw := r.URL.Query().Get("level"); raw != "" {
+		var err error
+		level, err = strconv.Atoi(raw)
+		if err != nil || level < 1 || level > 10 {
+			problem(w, 400, "QUERY_INVALID", "星数必须在 1 到 10 之间")
+			return
+		}
+	}
+	order := r.URL.Query().Get("order")
+	if order != "" && order != "default" && order != "unfc" && order != "unperfect" {
+		problem(w, 400, "QUERY_INVALID", "顺序必须为 default / unfc / unperfect")
+		return
+	}
+	userID := ""
+	if order == "unfc" || order == "unperfect" {
+		u, err := s.current(r)
+		if err == nil {
+			userID = u.User.ID
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			internal(w, err)
+			return
+		}
+	}
+	where := ` WHERE ` + publishedChart + ` AND ($1='' OR COALESCE(c.title_override,v.title) ILIKE '%'||$1||'%' OR COALESCE(c.subtitle_override,v.subtitle) ILIKE '%'||$1||'%' OR EXISTS(SELECT 1 FROM difficulties dm WHERE dm.version_id=v.id AND dm.maker ILIKE '%'||$1||'%')
+	 OR EXISTS(SELECT 1 FROM jsonb_each_text(v.title_translations || c.title_translation_overrides) t WHERE t.value ILIKE '%'||$1||'%')
+	 OR EXISTS(SELECT 1 FROM jsonb_each_text(v.subtitle_translations || c.subtitle_translation_overrides) t WHERE t.value ILIKE '%'||$1||'%')) AND ($2='' OR c.owner_id=$2) AND EXISTS(SELECT 1 FROM difficulties d WHERE d.version_id=v.id AND ($3='' OR d.course=$3) AND ($4::int=-1 OR d.level=$4))`
+	var total int
+	if !all {
+		if e := s.DB.QueryRow(r.Context(), `SELECT count(*) FROM charts c JOIN chart_versions v ON v.id=c.current_version_id JOIN users u ON u.id=c.owner_id`+where, q, owner, course, level).Scan(&total); e != nil {
+			internal(w, e)
+			return
+		}
+	}
+	// Prioritize a chart when any matching difficulty has no qualifying score
+	// for this user and current version. Guests keep the default stable order.
+	ordering := ` ORDER BY ($5::text<>'' AND EXISTS(
+	 SELECT 1 FROM difficulties d WHERE d.version_id=v.id AND ($3='' OR d.course=$3) AND ($4::int=-1 OR d.level=$4)
+	 AND NOT EXISTS(SELECT 1 FROM scores sc WHERE sc.user_id=$5 AND sc.song_id=c.id AND sc.version_id=v.id
+	 AND sc.block_index=d.block_index AND sc.difficulty=d.course AND sc.bad=0 AND (sc.good>0 OR sc.ok>0)
+	 AND ($6::text='unfc' OR sc.ok=0)))) DESC, c.created_at DESC,c.id DESC`
+	args := []any{q, owner, course, level, userID, order}
+	if !all {
+		ordering += ` LIMIT 12 OFFSET $7`
+		args = append(args, (page-1)*12)
+	}
+	rows, e := s.DB.Query(r.Context(), chartSelect+where+ordering, args...)
+	if e != nil {
+		internal(w, e)
+		return
+	}
+	defer rows.Close()
+	items := []Chart{}
+	for rows.Next() {
+		c, e := readChart(rows)
+		if e != nil {
+			internal(w, e)
+			return
+		}
+		items = append(items, c)
+	}
+	if e := rows.Err(); e != nil {
+		internal(w, e)
+		return
+	}
+	if all {
+		respond(w, 200, map[string]any{"items": items, "total": len(items)})
+		return
+	}
+	if e := s.coverHashes(r.Context(), items); e != nil {
+		internal(w, e)
+		return
+	}
+	s.chartNames(r.Context(), items)
+	respond(w, 200, map[string]any{"items": items, "total": total, "page": page, "pageSize": 12})
+}

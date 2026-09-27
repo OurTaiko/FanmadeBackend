@@ -264,14 +264,16 @@ profilesAvailable=false 表示本次昵称查询失败，统计仍返回；个�
 本地完整验证：`sh scripts/test.sh` 自动创建并清理私有 PostgreSQL 测试集群，运行 `go test -race ./...` 和 `go vet ./...`。可通过 PG_BINDIR 指定 PostgreSQL 工具目录；指定 DATABASE_TEST_URL 时应指向独立测试库。
 
 
-### 游戏匿名搜索
+### 游戏搜索
 
-`GET /api/v1/game/search?q=&course=&level=&order=default&page=1` 无需 Bearer token 或 Cookie。返回 `{items,total,page,pageSize}`，每页 12 条，按创建时间和 ID 倒序；items 使用现有 Chart 结构，可继续通过详情及版本文件接口下载游玩。
+`GET /api/v1/game/search?q=&course=&level=&order=default` 默认无需登录，一次返回完整有序结果 `{items,total}`，不含 page/pageSize。items 使用 Chart 结构，可继续通过详情及版本文件接口下载游玩；游戏不需要的封面与上传者昵称不补查（coverHash 省略、uploader 为空）。网页继续使用 `/api/v1/charts`，保持 `{items,total,page,pageSize}`、每页 12 条及原有展示信息。
 
 - `q` 可省略或为空，最多 200 UTF-8 字节；仅匹配公开标题、副标题、所有多语言翻译及难度署名，不匹配上传者昵称。与 `/charts` 共用相同搜索规则，不调用 SSO 昵称搜索。
 - `course` 可省略，或为 Easy / Normal / Hard / Oni / Edit；其他值返回 400。
-- `level` 可省略，或为 0–99 的整数；非整数和越界返回 400。course 与 level 必须匹配同一 difficulties 行，避免 Easy 的星数误匹配 Oni。网站列表同样支持该参数。
-- `page` 从 1 开始，最大 10000；客户端应读取至全部结果。只返回已发布、受支持的常规谱面，隐藏、删除和混有不支持难度的作品不返回。
-- 未全连/未全良优先由游戏端用已载入的本人历史成绩计算；匿名接口不接收用户标识来读取私人完成状态。
+- `level` 可省略，或为 1–10 的整数；非整数和越界返回 400。course 与 level 必须匹配同一 difficulties 行，避免 Easy 的星数误匹配 Oni。网站列表同样支持该参数。
+- 游戏不发送 page；网页 page 从 1 开始，最大 10000。只返回已发布、受支持的常规谱面，隐藏、删除和混有不支持难度的作品不返回。
+- 两条接口在 `internal/httpapi/search.go` 共用参数校验、筛选和完成状态排序。游戏仅执行一次列表查询，total 取本次结果数量，避免重复 COUNT 和逐页查询。
 
-搜索 `order` 可省略，或设为 `default`（默认）、`unfc`（未全连优先）、`unperfect`（未全良优先）。仅非默认顺序验证当前会话：网站 Cookie、游戏 Bearer。未登录或会话失效时忽略顺序参数，返回默认顺序；身份服务故障返回 503。已登录时依据本人当前谱面版本、符合难度/星数条件的历史成绩，将尚未达成者排前，再按创建时间和 ID 倒序，最后分页；不删除已达成谱面。全连要求零 bad 且存在判定，全良额外要求零 ok。默认顺序不校验登录。
+搜索 `order` 可省略，或设为 `default`（默认）、`unfc`（未全连优先）、`unperfect`（未全良优先）。仅非默认顺序验证当前会话：网站 Cookie、游戏 Bearer。未登录或会话失效时忽略顺序参数，返回默认顺序；身份服务故障返回 503。已登录时依据本人当前谱面版本、符合难度/星数条件的历史成绩，将尚未达成者排前，再按创建时间和 ID 倒序；网页最后分页，游戏一次返回全部结果。不删除已达成谱面。全连要求零 bad 且存在判定，全良额外要求零 ok。默认顺序不校验登录。
+
+游戏和两种后端须同步升级；本次按要求不保留旧分页响应的兼容分支。个人顺序每次完整搜索只校验一次会话，不缓存身份来绕过撤销。

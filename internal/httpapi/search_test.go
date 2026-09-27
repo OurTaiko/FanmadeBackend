@@ -62,15 +62,13 @@ func TestPublicGameSearch(t *testing.T) {
 		{"?level=100", 0, 0, 400},
 		{"?page=10001", 0, 0, 400},
 	} {
-		var previousBody string
 		for _, endpoint := range []string{"/api/v1/charts", "/api/v1/game/search"} {
+			if endpoint == "/api/v1/game/search" && strings.Contains(tc.query, "page=") {
+				continue
+			}
 			r := httptest.NewRequest("GET", endpoint+tc.query, nil)
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, r)
-			if tc.status == 200 && previousBody != "" && previousBody != w.Body.String() {
-				t.Fatalf("%s: website and game responses differ", tc.query)
-			}
-			previousBody = w.Body.String()
 			if w.Code != tc.status {
 				t.Fatalf("%s: %d %s", tc.query, w.Code, w.Body.String())
 			}
@@ -84,7 +82,11 @@ func TestPublicGameSearch(t *testing.T) {
 			if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
 				t.Fatal(err)
 			}
-			if result.Total != tc.total || len(result.Items) != tc.items {
+			wantItems := tc.items
+			if endpoint == "/api/v1/game/search" {
+				wantItems = tc.total
+			}
+			if result.Total != tc.total || len(result.Items) != wantItems {
 				t.Fatalf("%s: got %d/%d", tc.query, result.Total, len(result.Items))
 			}
 		}
@@ -122,13 +124,13 @@ func TestPublicGameSearch(t *testing.T) {
 			r := httptest.NewRequest("GET", endpoint+"?order="+tc.order+"&course="+tc.course, nil)
 			if tc.auth != "" {
 				token := webToken
-				if endpoint == "/api/v1/game/search" {
+				if strings.HasPrefix(endpoint, "/api/v1/game/") {
 					token = gameToken
 				}
 				if tc.auth == "invalid" {
 					token = strings.Repeat("d", 64)
 				}
-				if endpoint == "/api/v1/game/search" {
+				if strings.HasPrefix(endpoint, "/api/v1/game/") {
 					r.Header.Set("Authorization", "Bearer "+token)
 				} else {
 					r.AddCookie(&http.Cookie{Name: "ourtaiko_session", Value: token})
@@ -140,11 +142,61 @@ func TestPublicGameSearch(t *testing.T) {
 				Items []Chart `json:"items"`
 				Total int     `json:"total"`
 			}
-			if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &result) != nil || len(result.Items) != 12 || result.Total != 14 || result.Items[0].ID != fmt.Sprintf("%032d", tc.first) {
+			wantItems := 12
+			if endpoint == "/api/v1/game/search" {
+				wantItems = 14
+			}
+			if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &result) != nil || len(result.Items) != wantItems || result.Total != 14 || result.Items[0].ID != fmt.Sprintf("%032d", tc.first) {
 				t.Fatalf("%s %+v: %d %s", endpoint, tc, w.Code, w.Body.String())
 			}
 		}
 	}
+	// The complete game snapshot preserves the entire paginated order, while
+	// omitting web enrichment. Browser cookies cannot authorize game ordering.
+	for _, order := range []string{"default", "unfc", "unperfect"} {
+		var paged []string
+		for _, path := range []string{"/api/v1/charts?page=1", "/api/v1/charts?page=2", "/api/v1/game/search?"} {
+			r := httptest.NewRequest("GET", path+"&course=Oni&order="+order, nil)
+			if strings.HasPrefix(path, "/api/v1/game/") {
+				r.Header.Set("Authorization", "Bearer "+gameToken)
+			} else {
+				r.AddCookie(&http.Cookie{Name: "ourtaiko_session", Value: webToken})
+			}
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, r)
+			var result struct {
+				Items    []Chart
+				Total    int
+				PageSize *int
+			}
+			if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &result) != nil {
+				t.Fatal(w.Code, w.Body.String())
+			}
+			if strings.HasPrefix(path, "/api/v1/charts") {
+				for _, c := range result.Items {
+					paged = append(paged, c.ID)
+				}
+				continue
+			}
+			if result.PageSize != nil || len(result.Items) != len(paged) {
+				t.Fatal("bulk response was paginated")
+			}
+			for i, c := range result.Items {
+				if c.ID != paged[i] || c.Uploader != "" || c.CoverHash != "" {
+					t.Fatal("bulk order or enrichment mismatch", c.ID)
+				}
+			}
+		}
+	}
+	r := httptest.NewRequest("GET", "/api/v1/game/search?order=unfc&course=Oni", nil)
+	r.AddCookie(&http.Cookie{Name: "ourtaiko_session", Value: webToken})
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	var guest struct{ Items []Chart }
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &guest) != nil || len(guest.Items) != 14 || guest.Items[0].ID != fmt.Sprintf("%032d", 13) {
+		t.Fatal("browser cookie authorized game search", w.Body.String())
+	}
+
 	// Metadata search must keep working without SSO nickname search.
 	s.Config.SSO.http = &http.Client{Transport: failingTransport{}}
 	for _, endpoint := range []string{"/api/v1/charts", "/api/v1/game/search"} {
