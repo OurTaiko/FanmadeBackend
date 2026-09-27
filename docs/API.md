@@ -14,7 +14,7 @@
 | PATCH | /me | 已迁移，返回 410 SSO_REQUIRED；在 SSO 管理昵称 |
 | POST | /scores | JSON 提交单人谱成绩；首次保存 201，幂等重试 200 |
 | GET | /upload-rules | 校验版本、大小上限、编码与音频支持信息 |
-| GET | /charts?q=&course=&page=1 | 返回 `{items,total,page,pageSize}`；每页 12 |
+| GET | /charts?q=&course=&level=&order=default&page=1 | 返回 `{items,total,page,pageSize}`；每页 12 |
 | GET | /me/charts | 本人作品列表，查询参数与公开列表一致 |
 | POST | /charts | multipart：tja、audio、encoding（默认 utf-8）、description（可空）、categoryIds、difficultyMakers（可选 JSON）；首次创建 201，同请求重试 200 |
 | PUT | /charts/{id}/files | 作者或管理员整体替换 TJA／音频，删除全部旧版本、文件及成绩，返回 200 |
@@ -262,3 +262,16 @@ profilesAvailable=false 表示本次昵称查询失败，统计仍返回；个�
 - 回执、bootstrap 中的 scores 及排行榜保持原成绩结构，不返回完整回放数据。当前只归档输入和延迟，不实现回放下载、请求轮询、播放或服务端重放验分；也不承诺仅靠这份 v1 数据能还原随机 modifiers 等所有玩法。
 
 本地完整验证：`sh scripts/test.sh` 自动创建并清理私有 PostgreSQL 测试集群，运行 `go test -race ./...` 和 `go vet ./...`。可通过 PG_BINDIR 指定 PostgreSQL 工具目录；指定 DATABASE_TEST_URL 时应指向独立测试库。
+
+
+### 游戏匿名搜索
+
+`GET /api/v1/game/search?q=&course=&level=&order=default&page=1` 无需 Bearer token 或 Cookie。返回 `{items,total,page,pageSize}`，每页 12 条，按创建时间和 ID 倒序；items 使用现有 Chart 结构，可继续通过详情及版本文件接口下载游玩。
+
+- `q` 可省略或为空，最多 200 UTF-8 字节；仅匹配公开标题、副标题、所有多语言翻译及难度署名，不匹配上传者昵称。与 `/charts` 共用相同搜索规则，不调用 SSO 昵称搜索。
+- `course` 可省略，或为 Easy / Normal / Hard / Oni / Edit；其他值返回 400。
+- `level` 可省略，或为 0–99 的整数；非整数和越界返回 400。course 与 level 必须匹配同一 difficulties 行，避免 Easy 的星数误匹配 Oni。网站列表同样支持该参数。
+- `page` 从 1 开始，最大 10000；客户端应读取至全部结果。只返回已发布、受支持的常规谱面，隐藏、删除和混有不支持难度的作品不返回。
+- 未全连/未全良优先由游戏端用已载入的本人历史成绩计算；匿名接口不接收用户标识来读取私人完成状态。
+
+搜索 `order` 可省略，或设为 `default`（默认）、`unfc`（未全连优先）、`unperfect`（未全良优先）。仅非默认顺序验证当前会话：网站 Cookie、游戏 Bearer。未登录或会话失效时忽略顺序参数，返回默认顺序；身份服务故障返回 503。已登录时依据本人当前谱面版本、符合难度/星数条件的历史成绩，将尚未达成者排前，再按创建时间和 ID 倒序，最后分页；不删除已达成谱面。全连要求零 bad 且存在判定，全良额外要求零 ok。默认顺序不校验登录。
