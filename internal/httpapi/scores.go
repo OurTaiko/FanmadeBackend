@@ -15,15 +15,16 @@ import (
 
 // Pointers distinguish required zero-valued counts from missing/null fields.
 type scoreSubmission struct {
-	SongID     string `json:"songId"`
-	VersionID  string `json:"versionId,omitempty"`
-	Difficulty string `json:"difficulty"`
-	Good       *int64 `json:"good"`
-	OK         *int64 `json:"ok"`
-	Bad        *int64 `json:"bad"`
-	Score      *int64 `json:"score"`
-	Drumroll   *int64 `json:"drumroll"`
-	MaxCombo   *int64 `json:"max_combo"`
+	SongID     string          `json:"songId"`
+	VersionID  string          `json:"versionId,omitempty"`
+	Difficulty string          `json:"difficulty"`
+	Good       *int64          `json:"good"`
+	OK         *int64          `json:"ok"`
+	Bad        *int64          `json:"bad"`
+	Score      *int64          `json:"score"`
+	Drumroll   *int64          `json:"drumroll"`
+	MaxCombo   *int64          `json:"max_combo"`
+	ReplayData json.RawMessage `json:"replay_data,omitempty"`
 }
 
 type Score struct {
@@ -80,11 +81,16 @@ func (s *Server) submitScore(w http.ResponseWriter, r *http.Request) {
 		problem(w, 415, "CONTENT_TYPE_INVALID", "请使用 JSON 请求")
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 8192)
+	r.Body = http.MaxBytesReader(w, r.Body, maxScoreRequestBytes)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	var input scoreSubmission
 	if err = decoder.Decode(&input); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			problem(w, 413, "REQUEST_TOO_LARGE", "成绩请求超过大小限制")
+			return
+		}
 		problem(w, 400, "REQUEST_INVALID", "成绩需要完整的 JSON 对象，计数与分数必须为整数")
 		return
 	}
@@ -101,6 +107,7 @@ func (s *Server) submitScore(w http.ResponseWriter, r *http.Request) {
 		problem(w, 400, "IDEMPOTENCY_KEY_INVALID", "成绩请求标识需要 16–80 位字母、数字或短横线")
 		return
 	}
+	input.ReplayData = normalizeScoreReplay(input.ReplayData)
 	payload, _ := json.Marshal(input)
 	digest := hash(string(payload))
 	tx, err := s.DB.Begin(r.Context())
@@ -188,9 +195,9 @@ func (s *Server) submitScore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := readScore(tx.QueryRow(r.Context(), `INSERT INTO scores
-	 (id,user_id,song_id,version_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,idempotency_key,payload_digest)
-	 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NULLIF($13,''),$14) RETURNING `+scoreColumns,
-		ID(), u.User.ID, input.SongID, version, block, input.Difficulty, *input.Good, *input.OK, *input.Bad, *input.Score, *input.Drumroll, *input.MaxCombo, key, digest))
+	 (id,user_id,song_id,version_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,idempotency_key,payload_digest,replay_data)
+	 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NULLIF($13,''),$14,$15) RETURNING `+scoreColumns,
+		ID(), u.User.ID, input.SongID, version, block, input.Difficulty, *input.Good, *input.OK, *input.Bad, *input.Score, *input.Drumroll, *input.MaxCombo, key, digest, input.ReplayData))
 	if err != nil {
 		internal(w, err)
 		return

@@ -153,6 +153,22 @@ func TestCloudScoreMigration(t *testing.T) {
 	 VALUES('missing-combo','u','c','v',0,'Oni',10,2,1,9000,5,repeat('d',64))`); err == nil {
 		t.Fatal("database accepted a score without an explicit maximum combo")
 	}
+	// Upgrade a pre-021 database with real historical scores, then repeat safely.
+	if _, err = pool.Exec(ctx, `ALTER TABLE scores DROP COLUMN replay_data; DELETE FROM schema_migrations WHERE version=21`); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err = Migrate(ctx, pool, storage); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var replayNull bool
+	if err = pool.QueryRow(ctx, `SELECT replay_data IS NULL,score,max_combo,payload_digest FROM scores WHERE id='old-score'`).Scan(&replayNull, &points, &combo, &digest); err != nil || !replayNull || points != 9000 || combo != 0 || digest != strings.Repeat("c", 64) {
+		t.Fatal("021 must preserve historical scores and initialize SQL NULL", err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE scores SET replay_data='null'::jsonb WHERE id='old-score'`); err == nil {
+		t.Fatal("JSON null must not replace SQL NULL")
+	}
 	// Re-run 013 with an existing score and compare complete business rows.
 	before := map[string]string{}
 	for _, table := range []string{"users", "files", "charts", "chart_versions", "difficulties", "scores", "upload_requests"} {

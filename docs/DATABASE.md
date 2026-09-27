@@ -1,6 +1,6 @@
 # Fanmade 后端数据库结构
 
-本文按当前源码（基线提交 `4111bf6`）整理，描述完整执行迁移 001–020 后的 PostgreSQL 结构；不是生产数据库的实时巡检结果。结构依据为 [SQL 迁移](../internal/database/)、[迁移入口](../internal/database/database.go) 和 [SSO 迁移入口](../internal/database/sso.go)。
+本文按当前源码整理，描述完整执行迁移 001–021 后的 PostgreSQL 结构；不是生产数据库的实时巡检结果。结构依据为 [SQL 迁移](../internal/database/)、[迁移入口](../internal/database/database.go) 和 [SSO 迁移入口](../internal/database/sso.go)。
 
 ## 数据职责与总览
 
@@ -191,10 +191,13 @@ UQ：`(chart_id,version_number)`、`(chart_id,id)`。014 已删除旧的 `maker`
 | submitted_at | timestamptz，默认 now() | 服务端保存时间 |
 | idempotency_key | text，可空 | 可选重试键 |
 | payload_digest | text，CHECK 长度为 64 | 请求摘要 |
+| replay_data | jsonb，可空，CHECK 为 object | 021 新增；输入事件与本局两项延迟，未知/无效为 SQL NULL |
 
 复合 FK：`(song_id,version_id) → chart_versions(chart_id,id)`；`(version_id,block_index,difficulty,cloud_score_eligible) → difficulties(version_id,block_index,course,cloud_score_eligible)`。
 
 UQ `(user_id,idempotency_key)`；NULL 允许多局独立提交，同用户同键同载荷返回原结果，不同载荷返回 409。每局一行，不覆盖最高分。排行榜从 `scores` 查询每人最高分，没有排行榜表或持久名次字段。数值和关联约束不等于服务端重放验分。
+
+021 不回填历史输入；历史成绩与旧客户端新成绩的 replay_data 均为 SQL NULL。合法录制采用 version=1 对象，内含 audio_offset_ms、visual_offset_ms 和 inputs 数组。空数组表示已记录但全程未敲击；不能用空对象或 JSON null 代替 SQL NULL。校验失败先归一为 NULL 再计算摘要，无回放请求保留旧版摘要，已有幂等键升级后可继续重试。输入记录不随 bootstrap、排行榜或提交回执返回；当前无回放读取接口。
 
 ### upload_requests
 
