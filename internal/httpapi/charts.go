@@ -14,28 +14,28 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"ourtaiko.dev/fanmade/api/internal/audio"
 	"ourtaiko.dev/fanmade/api/internal/tja"
 )
 
 type Chart struct {
-	CoverHash   string    `json:"coverHash,omitempty"`
-	CategoryIDs []string  `json:"categoryIds"`
-	ID          string    `json:"id"`
-	OwnerID     string    `json:"ownerId"`
-	Uploader    string    `json:"uploader"`
-	VersionID   string    `json:"versionId"`
-	Description string    `json:"description"`
-	CreatedAt   time.Time `json:"createdAt"`
-	Duration    float64   `json:"duration"`
-	Encoding    string    `json:"encoding"`
-	TJAName     string    `json:"tjaName"`
-	AudioName   string    `json:"audioName"`
-	TJAHash     string    `json:"tjaHash"`
-	AudioHash   string    `json:"audioHash"`
-	AudioSize   int64     `json:"audioSize"`
-	TJAKey      string    `json:"-"`
-	AudioKey    string    `json:"-"`
+	AudioPreview *AudioPreview `json:"audioPreview,omitempty"`
+	CoverHash    string        `json:"coverHash,omitempty"`
+	CategoryIDs  []string      `json:"categoryIds"`
+	ID           string        `json:"id"`
+	OwnerID      string        `json:"ownerId"`
+	Uploader     string        `json:"uploader"`
+	VersionID    string        `json:"versionId"`
+	Description  string        `json:"description"`
+	CreatedAt    time.Time     `json:"createdAt"`
+	Duration     float64       `json:"duration"`
+	Encoding     string        `json:"encoding"`
+	TJAName      string        `json:"tjaName"`
+	AudioName    string        `json:"audioName"`
+	TJAHash      string        `json:"tjaHash"`
+	AudioHash    string        `json:"audioHash"`
+	AudioSize    int64         `json:"audioSize"`
+	TJAKey       string        `json:"-"`
+	AudioKey     string        `json:"-"`
 	tja.Metadata
 }
 
@@ -56,6 +56,7 @@ func readChart(row pgx.Row) (Chart, error) {
 	if e == nil {
 		e = json.Unmarshal(difficulties, &c.Difficulties)
 		c.Maker = difficultyMakers(c.Difficulties)
+		c.AudioPreview = audioPreview(c)
 	}
 	return c, e
 }
@@ -176,8 +177,6 @@ func (s *Server) download(w http.ResponseWriter, r *http.Request) {
 	switch kind {
 	case "tja":
 		key, name, contentType, etag = c.TJAKey, c.TJAName, "application/octet-stream", c.TJAHash
-	case "audio":
-		key, name, contentType, etag = c.AudioKey, c.Wave, audio.MediaType(c.AudioName), c.AudioHash
 	default:
 		problem(w, 404, "RESOURCE_NOT_FOUND", "资源不存在")
 		return
@@ -195,10 +194,6 @@ func (s *Server) download(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("ETag", `"`+etag+`"`)
-	disposition := "attachment"
-	if kind == "audio" {
-		disposition = "inline"
-	}
-	w.Header().Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": name}))
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
 	http.ServeContent(w, r, name, stat.ModTime(), f)
 }

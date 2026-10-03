@@ -2,6 +2,8 @@
 
 当前使用独立 OurTaikoSSO，网站以 OIDC 登录、游戏 API 转接认证。首次启动前请按 [SSO 接入与迁移](docs/SSO.md) 配置。
 
+在线音频支持 HTTP 渐进读取与 Range；预览协议、参考实现分析和 Unity 游戏端接入步骤见 [在线歌曲流播放与游戏端预览改进](docs/ONLINE_AUDIO_PREVIEW.md)。
+
 独立的 Go + PostgreSQL 后端仓库。本地示范版已实现账号会话、TJA + OGG / MP3 上传校验、作品查询、试听资源、原文件 / ZIP 下载和本人作品删除、登录用户成绩提交。前端位于相邻的 `../frontend` 仓库，由 pnpm 管理。
 
 ## 本地启动

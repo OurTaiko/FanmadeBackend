@@ -119,6 +119,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/v1/charts/{id}/files", s.upload)
 	mux.HandleFunc("DELETE /api/v1/charts/{id}", s.remove)
 	mux.HandleFunc("GET /api/v1/charts/{id}/versions/{version}/{kind}", s.download)
+	mux.HandleFunc("GET /api/v1/charts/{id}/versions/{version}/audio", s.streamAudio)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Request-ID", ID())
 		w.Header().Set("X-Content-Type-Options", "nosniff")

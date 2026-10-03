@@ -22,10 +22,14 @@
 | PATCH | /charts/{id} | 作者或管理员修改默认英文及 ja/zh/ko 名称／副标题，返回更新后的作品 |
 | DELETE | /charts/{id} | 本人软删除；后续资源访问返回 404 |
 | GET | /charts/{id}/versions/{version}/tja | 原始 TJA 字节，attachment |
-| GET | /charts/{id}/versions/{version}/audio | OGG 或 MP3，支持 Range / ETag；Content-Type 分别为 audio/ogg、audio/mpeg |
+| GET / HEAD | /charts/{id}/versions/{version}/audio | 原始 OGG 或 MP3 流，支持 Range、ETag、If-Range；Content-Type 分别为 audio/ogg、audio/mpeg |
 | GET | /charts/{id}/versions/{version}/download | ZIP，含原始 TJA 与按 WAVE 原值命名的音频 |
 
 `GET /healthz` 为进程状态，`GET /readyz` 额外检查数据库连接。
+
+在线预览：`GET /game/bootstrap` 新增 `audioPreviewVersion: 1`；歌曲 `Chart` 新增可选 `audioPreview: {url, contentType, startSeconds, durationSeconds}`。URL 指向原始音频，起点为规范化后的 DEMOSTART，建议时长最多 15 秒且不超过剩余音频时长；无有效整曲时长时省略。响应仍为完整原文件或请求的字节范围，不是服务端裁剪的试听片段。
+
+音频成功响应设置 `Cache-Control: public, no-cache, no-transform`，缓存复用前需重验证。旧版本、下架或删除歌曲仍返回 404。完整 HTTP 契约、MajdataPlay／mmfcapi 分析和游戏端修改说明见 [在线歌曲流播放与游戏端预览改进](ONLINE_AUDIO_PREVIEW.md)。
 
 所有写请求要求 `Origin` 等于配置 APP_ORIGIN。已登录写请求还要求 `X-CSRF-Token` 等于当前 Session 的令牌。上传要求 `Idempotency-Key`：16–80 位字母、数字或短横线，推荐随机 UUID；同键不同载荷返回 409。
 
