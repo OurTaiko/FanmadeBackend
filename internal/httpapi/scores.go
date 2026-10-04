@@ -25,6 +25,8 @@ type scoreSubmission struct {
 	Drumroll   *int64          `json:"drumroll"`
 	MaxCombo   *int64          `json:"max_combo"`
 	ReplayData json.RawMessage `json:"replay_data,omitempty"`
+	// Omit zero from the digest to preserve retries of pre-ClearStatus requests.
+	ClearStatus int `json:"ClearStatus,omitempty"`
 }
 
 type Score struct {
@@ -40,6 +42,7 @@ type Score struct {
 	Score       int64     `json:"score"`
 	Drumroll    int64     `json:"drumroll"`
 	MaxCombo    int64     `json:"max_combo"`
+	ClearStatus int       `json:"ClearStatus"`
 	SubmittedAt time.Time `json:"submittedAt"`
 }
 
@@ -60,14 +63,14 @@ func (v *scoreSubmission) valid() bool {
 			return false
 		}
 	}
-	return v.Score != nil && *v.Score >= 0 && *v.Score <= 9007199254740991
+	return v.Score != nil && *v.Score >= 0 && *v.Score <= 9007199254740991 && v.ClearStatus >= 0 && v.ClearStatus <= 3
 }
 
-const scoreColumns = `id,user_id,song_id,version_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,submitted_at`
+const scoreColumns = `id,user_id,song_id,version_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,clear_status,submitted_at`
 
 func readScore(row pgx.Row) (Score, error) {
 	var v Score
-	err := row.Scan(&v.ID, &v.UserID, &v.SongID, &v.VersionID, &v.BlockIndex, &v.Difficulty, &v.Good, &v.OK, &v.Bad, &v.Score, &v.Drumroll, &v.MaxCombo, &v.SubmittedAt)
+	err := row.Scan(&v.ID, &v.UserID, &v.SongID, &v.VersionID, &v.BlockIndex, &v.Difficulty, &v.Good, &v.OK, &v.Bad, &v.Score, &v.Drumroll, &v.MaxCombo, &v.ClearStatus, &v.SubmittedAt)
 	return v, err
 }
 
@@ -99,7 +102,7 @@ func (s *Server) submitScore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !input.valid() || (isGameRequest(r) && input.VersionID == "") {
-		problem(w, 422, "SCORE_INVALID", "需要有效的歌曲 ID、难度和全部六项非负整数；计数（含最大连击）上限 2147483647，分数上限 9007199254740991")
+		problem(w, 422, "SCORE_INVALID", "需要有效的歌曲 ID、难度和全部六项非负整数；计数（含最大连击）上限 2147483647，分数上限 9007199254740991；ClearStatus 必须为 0–3")
 		return
 	}
 	key := r.Header.Get("Idempotency-Key")
@@ -195,9 +198,9 @@ func (s *Server) submitScore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := readScore(tx.QueryRow(r.Context(), `INSERT INTO scores
-	 (id,user_id,song_id,version_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,idempotency_key,payload_digest,replay_data)
-	 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NULLIF($13,''),$14,$15) RETURNING `+scoreColumns,
-		ID(), u.User.ID, input.SongID, version, block, input.Difficulty, *input.Good, *input.OK, *input.Bad, *input.Score, *input.Drumroll, *input.MaxCombo, key, digest, input.ReplayData))
+	 (id,user_id,song_id,version_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,idempotency_key,payload_digest,replay_data,clear_status)
+	 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NULLIF($13,''),$14,$15,$16) RETURNING `+scoreColumns,
+		ID(), u.User.ID, input.SongID, version, block, input.Difficulty, *input.Good, *input.OK, *input.Bad, *input.Score, *input.Drumroll, *input.MaxCombo, key, digest, input.ReplayData, input.ClearStatus))
 	if err != nil {
 		internal(w, err)
 		return

@@ -78,15 +78,18 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
   "bad": 8,
   "score": 900000,
   "drumroll": 50,
-  "max_combo": 350
+  "max_combo": 350,
+  "ClearStatus": 1
 }
 ```
 
-示例 songId 需替换为作品 API 返回的 `id`，不是文件哈希或 versionId。八个字段全部必填，`max_combo` 为最大连击：good 为良、ok 为可、bad 为不可、score 为总分、drumroll 为连打数。六个数字不接受 null、字符串或小数；计数为 0–2147483647，总分为 0–9007199254740991（JSON/JavaScript 安全整数范围）。`max_combo` 为必填的 0–2147483647 整数；省略或 null 返回 422，非整数返回 400，负数或越界值返回 422。这些是存储边界，不是玩法理论上限。难度仅接受 Easy、Normal、Hard、Oni、Edit，不区分大小写、忽略首尾空白；Ura 归一为 Edit。
+示例 songId 需替换为作品 API 返回的 `id`，不是文件哈希或 versionId。八个基础字段全部必填，`max_combo` 为最大连击：good 为良、ok 为可、bad 为不可、score 为总分、drumroll 为连打数。六个数字不接受 null、字符串或小数；计数为 0–2147483647，总分为 0–9007199254740991（JSON/JavaScript 安全整数范围）。`max_combo` 为必填的 0–2147483647 整数；省略或 null 返回 422，非整数返回 400，负数或越界值返回 422。这些是存储边界，不是玩法理论上限。难度仅接受 Easy、Normal、Hard、Oni、Edit，不区分大小写、忽略首尾空白；Ura 归一为 Edit。
+
+`ClearStatus` 为可选整数，取值 `0`（无皇冠／状态未知）、`1`（普通通关）、`2`（全连）、`3`（全良）。字段名大小写按此示例；省略或 `null` 按 `0` 保存，兼容旧客户端。负数或大于 3 返回 `422 SCORE_INVALID`；字符串、小数、布尔值返回 `400 REQUEST_INVALID`。服务端保存上报状态，不根据分数、不可数量或回放推断通关。
 
 后端锁定当前已发布版本，按难度寻找唯一有资格的单人块。同一难度含一个 Single 和若干 Double 时只选 Single；只有 Double 时拒绝。重复 Single 已在新上传时拦截，成绩接口仍对历史异常数据返回歧义错误。浏览器请求省略 versionId 时按提交时的当前版本归属；原生游戏接口要求 versionId 并校验版本一致。服务端保存客户端上报值，未根据游玩过程重算成绩。
 
-成功返回 201，响应包含上述八个成绩字段（difficulty 已归一化），以及服务端生成的 `id`、`userId`、`versionId`、`blockIndex` 和 `submittedAt`（UTC RFC3339）。每次新提交保留一条游玩记录，不覆盖最高分；排行榜读取时选出每人的最高分记录。歌曲更名或软删除不删除已保存成绩；下架后拒绝新成绩。
+成功返回 201，响应包含上述八个基础成绩字段（difficulty 已归一化）和 `ClearStatus`（即使为 0 也返回），以及服务端生成的 `id`、`userId`、`versionId`、`blockIndex` 和 `submittedAt`（UTC RFC3339）。每次新提交保留一条游玩记录，不覆盖最高分；排行榜读取时选出每人的最高分记录。歌曲更名或软删除不删除已保存成绩；下架后拒绝新成绩。
 
 可选请求头 `Idempotency-Key` 为 16–80 位字母、数字或短横线，推荐每局生成 UUID 并在网络重试时复用。相同用户、相同 key、相同归一化载荷返回原成绩及 200；同 key 不同载荷返回 409。不同用户的 key 互不影响；省略 key 时每次请求都是新游玩。已成功提交的幂等重试即使歌曲后来下架也返回原回执，不重新选择版本或写入成绩。
 
@@ -125,7 +128,7 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
 - 原始文件继续使用 `GET /api/v1/charts/{id}/versions/{version}/{tja|audio}`。加载前重新获取 `GET /api/v1/charts/{id}` 核对 versionId 与哈希，文件下载后必须核对 SHA-256。
 - `POST /api/v1/game/scores`：八项成绩字段（含必填 `max_combo`）加**必填** `versionId`，并使用每次游玩固定的 `Idempotency-Key`。字段示例：`{"songId":"<32 hex>","versionId":"<32 hex>","difficulty":"Oni","good":300,"ok":10,"bad":2,"score":900000,"drumroll":50,"max_combo":250}`。DOUBLE 仍不支持云端成绩。版本变化返回 `409 CHART_VERSION_CHANGED`，不将旧成绩写到新版本。临时失败重试时保持请求体和 key 不变。
 
-`POST /api/v1/scores` 接受可选 `versionId`，但同样要求 `max_combo`。提交回执、`game/bootstrap` 中的成绩以及排行榜记录都必须包含 `max_combo`。原生会话由 SSO GameSession 持有，按业务客户端隔离；Fanmade 只保存浏览器会话，迁移版本为 018。
+`POST /api/v1/scores` 接受可选 `versionId`，但同样要求 `max_combo`。上传也接受可选 `ClearStatus`（0–3）。提交回执、`game/bootstrap` 中的成绩以及排行榜记录都必须包含 `max_combo` 和 `ClearStatus`。原生会话由 SSO GameSession 持有，按业务客户端隔离；Fanmade 只保存浏览器会话，迁移版本为 018。
 
 游客无需登录即可使用 `game/bootstrap`、`game/categories/{categoryId}/charts`、谱面详情和文件下载。bootstrap 无 Authorization 时返回相同的公开分类与数量，但 `user: null`、`scores: []`，不查询个人成绩，浏览器 Cookie 不会改变游客身份。携带 Bearer token 时仍严格校验原生会话；无效或过期 token 返回 401，客户端可重新登录。`POST /api/v1/game/scores` 仍必须携带有效原生 Bearer token，游客返回 401。游戏端需同步升级，才能移除旧版的账号必填限制；无需新增数据库迁移。
 # 谱面排行榜
@@ -281,3 +284,9 @@ profilesAvailable=false 表示本次昵称查询失败，统计仍返回；个�
 搜索 `order` 可省略，或设为 `default`（默认）、`unfc`（未全连优先）、`unperfect`（未全良优先）。仅非默认顺序验证当前会话：网站 Cookie、游戏 Bearer。未登录或会话失效时忽略顺序参数，返回默认顺序；身份服务故障返回 503。已登录时依据本人当前谱面版本、符合难度/星数条件的历史成绩，将尚未达成者排前，再按创建时间和 ID 倒序；网页最后分页，游戏一次返回全部结果。不删除已达成谱面。全连要求零 bad 且存在判定，全良额外要求零 ok。默认顺序不校验登录。
 
 游戏和两种后端须同步升级；本次按要求不保留旧分页响应的兼容分支。个人顺序每次完整搜索只校验一次会话，不缓存身份来绕过撤销。
+
+## 通关状态（migration 022）
+
+`POST /api/v1/scores`、`POST /api/v1/game/scores` 接受 `ClearStatus`，提交回执、`GET /api/v1/game/bootstrap` 的 `scores` 和 `GET /api/v1/charts/{id}/leaderboard` 的 `items` 返回相同字段。数据库历史成绩统一初始化为 `0`，不根据旧判定推算皇冠。新客户端需要在上传时传入本局状态，并在展示时读取它。
+
+省略、`null` 和显式 `0` 使用相同的归一化请求摘要，保留升级前幂等键的重试兼容性（包括附带回放的成绩）。非零状态参与摘要；同一幂等键改变状态返回 `409 IDEMPOTENCY_CONFLICT`。排行榜仍按原最高分规则选择成绩，返回该局的通关状态。

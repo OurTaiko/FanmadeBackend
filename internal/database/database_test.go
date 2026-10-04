@@ -169,6 +169,50 @@ func TestCloudScoreMigration(t *testing.T) {
 	if _, err = pool.Exec(ctx, `UPDATE scores SET replay_data='null'::jsonb WHERE id='old-score'`); err == nil {
 		t.Fatal("JSON null must not replace SQL NULL")
 	}
+	// Upgrade historical rows without deriving a crown from score or judgments.
+	if _, err = pool.Exec(ctx, `ALTER TABLE scores DROP COLUMN clear_status; DELETE FROM schema_migrations WHERE version=22`); err != nil {
+		t.Fatal(err)
+	}
+	var beforeClear string
+	if err = pool.QueryRow(ctx, `SELECT row_to_json(s)::text FROM scores s WHERE id='old-score'`).Scan(&beforeClear); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err = Migrate(ctx, pool, storage); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var clearStatus int
+	var preserved bool
+	if err = pool.QueryRow(ctx, `SELECT clear_status,(to_jsonb(s)-'clear_status')=$1::jsonb FROM scores s WHERE id='old-score'`, beforeClear).Scan(&clearStatus, &preserved); err != nil || clearStatus != 0 || !preserved {
+		t.Fatal("022 must initialize zero and preserve all historical fields", err)
+	}
+	for _, status := range []int{0, 1, 2, 3} {
+		if _, err = pool.Exec(ctx, `UPDATE scores SET clear_status=$1 WHERE id='old-score'`, status); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = Migrate(ctx, pool, storage); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT clear_status FROM scores WHERE id='old-score'`).Scan(&clearStatus); err != nil || clearStatus != 3 {
+		t.Fatal("repeated migration reset an existing clear status", err)
+	}
+	for _, status := range []any{-1, 4, nil} {
+		if _, err = pool.Exec(ctx, `UPDATE scores SET clear_status=$1 WHERE id='old-score'`, status); err == nil {
+			t.Fatalf("database accepted invalid clear status %v", status)
+		}
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO scores(id,user_id,song_id,version_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest)
+	 VALUES('default-clear','u','c','v',0,'Oni',10,2,1,9000,5,10,repeat('d',64))`); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT clear_status FROM scores WHERE id='default-clear'`).Scan(&clearStatus); err != nil || clearStatus != 0 {
+		t.Fatal("SQL writers omitting clear status must default to zero", err)
+	}
+	if _, err = pool.Exec(ctx, `DELETE FROM scores WHERE id='default-clear'`); err != nil {
+		t.Fatal(err)
+	}
 	// Re-run 013 with an existing score and compare complete business rows.
 	before := map[string]string{}
 	for _, table := range []string{"users", "files", "charts", "chart_versions", "difficulties", "scores", "upload_requests"} {

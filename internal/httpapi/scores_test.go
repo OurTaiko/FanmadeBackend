@@ -143,7 +143,48 @@ func TestSubmitScore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	body := `{"songId":"` + song + `","difficulty":"Oni","good":300,"ok":10,"bad":2,"score":900000,"drumroll":50,"max_combo":250}`
+	for _, raw := range []string{"", "null", "0", "1", "2", "3"} {
+		body := gameBody
+		status := 0
+		if raw != "" {
+			body = strings.TrimSuffix(body, "}") + `,"ClearStatus":` + raw + `}`
+			if raw != "null" {
+				if err := json.Unmarshal([]byte(raw), &status); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		field := fmt.Sprintf(`"ClearStatus":%d`, status)
+		w := native("POST", "/api/v1/game/scores", body)
+		if w.Code != 201 || !strings.Contains(w.Body.String(), field) {
+			t.Fatal("clear status receipt", w.Code, w.Body.String())
+		}
+		var first Score
+		if err := json.Unmarshal(w.Body.Bytes(), &first); err != nil {
+			t.Fatal(err)
+		}
+		var stored int
+		if err := pool.QueryRow(ctx, `SELECT clear_status FROM scores WHERE id=$1`, first.ID).Scan(&stored); err != nil || stored != status {
+			t.Fatal("clear status not persisted", stored, err)
+		}
+		if retry := native("POST", "/api/v1/game/scores", body); retry.Code != 200 || !strings.Contains(retry.Body.String(), first.ID) || !strings.Contains(retry.Body.String(), field) {
+			t.Fatal("clear status retry failed", retry.Code, retry.Body.String())
+		}
+		changed := strings.TrimSuffix(gameBody, "}") + fmt.Sprintf(`,"ClearStatus":%d}`, (status+1)%4)
+		if conflict := native("POST", "/api/v1/game/scores", changed); conflict.Code != 409 {
+			t.Fatal("clear status must participate in idempotency", conflict.Code, conflict.Body.String())
+		}
+		for _, path := range []string{"/api/v1/game/bootstrap", "/api/v1/charts/" + song + "/leaderboard"} {
+			if w := native("GET", path, ""); w.Code != 200 || !strings.Contains(w.Body.String(), first.ID) || !strings.Contains(w.Body.String(), field) {
+				t.Fatal("clear status missing from query", path, w.Code, w.Body.String())
+			}
+		}
+		if _, err := pool.Exec(ctx, `DELETE FROM scores WHERE id=$1`, first.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	body := `{"songId":"` + song + `","difficulty":"Oni","good":300,"ok":10,"bad":2,"score":900000,"drumroll":50,"max_combo":250,"ClearStatus":1}`
 	var requestCount atomic.Uint32
 	call := func(body, key, token string, headers map[string]string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("POST", "/api/v1/scores", strings.NewReader(body))
@@ -189,6 +230,11 @@ func TestSubmitScore(t *testing.T) {
 		{"origin", body, "", cookie, map[string]string{"Origin": "https://invalid.example"}, 403, "ORIGIN_INVALID"},
 		{"media", body, "", cookie, map[string]string{"Content-Type": "text/plain"}, 415, "CONTENT_TYPE_INVALID"},
 		{"negative", strings.Replace(body, `"good":300`, `"good":-1`, 1), "", cookie, nil, 422, "SCORE_INVALID"},
+		{"clear negative", strings.Replace(body, `"ClearStatus":1`, `"ClearStatus":-1`, 1), "", cookie, nil, 422, "SCORE_INVALID"},
+		{"clear range", strings.Replace(body, `"ClearStatus":1`, `"ClearStatus":4`, 1), "", cookie, nil, 422, "SCORE_INVALID"},
+		{"clear fraction", strings.Replace(body, `"ClearStatus":1`, `"ClearStatus":1.5`, 1), "", cookie, nil, 400, "REQUEST_INVALID"},
+		{"clear string", strings.Replace(body, `"ClearStatus":1`, `"ClearStatus":"1"`, 1), "", cookie, nil, 400, "REQUEST_INVALID"},
+		{"clear boolean", strings.Replace(body, `"ClearStatus":1`, `"ClearStatus":true`, 1), "", cookie, nil, 400, "REQUEST_INVALID"},
 		{"missing", strings.Replace(body, `"good":300,`, "", 1), "", cookie, nil, 422, "SCORE_INVALID"},
 		{"null", strings.Replace(body, `"ok":10`, `"ok":null`, 1), "", cookie, nil, 422, "SCORE_INVALID"},
 		{"fraction", strings.Replace(body, `"bad":2`, `"bad":2.5`, 1), "", cookie, nil, 400, "REQUEST_INVALID"},
@@ -223,6 +269,9 @@ func TestSubmitScore(t *testing.T) {
 	var first Score
 	if err = json.Unmarshal(w.Body.Bytes(), &first); err != nil {
 		t.Fatal(err)
+	}
+	if first.ClearStatus != 1 || !strings.Contains(w.Body.String(), `"ClearStatus":1`) {
+		t.Fatal("browser upload lost clear status", w.Body.String())
 	}
 	if first.UserID != "89b6ef3a5cb57b6e04f74711d15a8a5f" || first.VersionID != version || first.BlockIndex != 0 || first.Good != 300 || first.OK != 10 || first.Bad != 2 || first.Score != 900000 || first.Drumroll != 50 || first.MaxCombo != 250 || first.SubmittedAt.IsZero() {
 		t.Fatalf("bad receipt: %+v", first)

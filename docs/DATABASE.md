@@ -1,6 +1,6 @@
 # Fanmade 后端数据库结构
 
-本文按当前源码整理，描述完整执行迁移 001–021 后的 PostgreSQL 结构；不是生产数据库的实时巡检结果。结构依据为 [SQL 迁移](../internal/database/)、[迁移入口](../internal/database/database.go) 和 [SSO 迁移入口](../internal/database/sso.go)。
+本文按当前源码整理，描述完整执行迁移 001–022 后的 PostgreSQL 结构；不是生产数据库的实时巡检结果。结构依据为 [SQL 迁移](../internal/database/)、[迁移入口](../internal/database/database.go) 和 [SSO 迁移入口](../internal/database/sso.go)。
 
 ## 数据职责与总览
 
@@ -191,6 +191,7 @@ UQ：`(chart_id,version_number)`、`(chart_id,id)`。014 已删除旧的 `maker`
 | submitted_at | timestamptz，默认 now() | 服务端保存时间 |
 | idempotency_key | text，可空 | 可选重试键 |
 | payload_digest | text，CHECK 长度为 64 | 请求摘要 |
+| clear_status | integer，NOT NULL，默认 0，CHECK 0–3 | 022 新增；API 字段 `ClearStatus`，0 无皇冠／未知，1 通关，2 全连，3 全良 |
 | replay_data | jsonb，可空，CHECK 为 object | 021 新增；输入事件与本局两项延迟，未知/无效为 SQL NULL |
 
 复合 FK：`(song_id,version_id) → chart_versions(chart_id,id)`；`(version_id,block_index,difficulty,cloud_score_eligible) → difficulties(version_id,block_index,course,cloud_score_eligible)`。
@@ -198,6 +199,8 @@ UQ：`(chart_id,version_number)`、`(chart_id,id)`。014 已删除旧的 `maker`
 UQ `(user_id,idempotency_key)`；NULL 允许多局独立提交，同用户同键同载荷返回原结果，不同载荷返回 409。每局一行，不覆盖最高分。排行榜从 `scores` 查询每人最高分，没有排行榜表或持久名次字段。数值和关联约束不等于服务端重放验分。
 
 021 不回填历史输入；历史成绩与旧客户端新成绩的 replay_data 均为 SQL NULL。合法录制采用 version=1 对象，内含 audio_offset_ms、visual_offset_ms 和 inputs 数组。空数组表示已记录但全程未敲击；不能用空对象或 JSON null 代替 SQL NULL。校验失败先归一为 NULL 再计算摘要，无回放请求保留旧版摘要，已有幂等键升级后可继续重试。输入记录不随 bootstrap、排行榜或提交回执返回；当前无回放读取接口。
+
+022 将所有历史成绩的 clear_status 初始化为 0，保留其余字段与原请求摘要；旧写入省略该列也默认 0。重复启动不会重置已有状态。该加列迁移随服务启动自动执行；回退旧程序可保留新增列。
 
 ### upload_requests
 
@@ -258,8 +261,10 @@ PostgreSQL 不会为每个外键自动创建索引，不能把关系图当作索
 | 018 | SSO 用户瘦身、清空旧会话、移除 registration_codes/email_send_limits、建立 oidc_flows |
 | 019 | chart_covers |
 | 020 | users.first_login_at / last_active_at、时间顺序约束和两个排序索引 |
+| 021 | scores.replay_data 可空输入记录 |
+| 022 | scores.clear_status，历史成绩统一初始化为 0，约束 0–3 |
 
-`Migrate` 在事务与 advisory lock 内执行 001–017、019 和 020；随后 `MigrateSSO` 另开受保护事务执行 018。因此不能只用 `MAX(version)=20` 判断 SSO 迁移成功，必须检查 018 行。003/004/006 的历史回填需要与数据库配套的 TJA 文件，缺失或解析不一致会回滚。
+`Migrate` 在事务与 advisory lock 内执行 001–017、019–022；随后 `MigrateSSO` 另开受保护事务执行 018。因此不能只用 `MAX(version)=22` 判断 SSO 迁移成功，必须检查 018 行。003/004/006 的历史回填需要与数据库配套的 TJA 文件，缺失或解析不一致会回滚。
 
 有旧账号时，018 要求先完成备份确认及全部用户 ID 的 SSO 存在性核对，再删除账号资料列。旧资料导入不是双向同步。操作见 [SSO 文档](SSO.md)；回退 018 必须恢复迁移前业务数据库及匹配程序，不能只换二进制。
 

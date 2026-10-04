@@ -134,8 +134,11 @@ func TestScoreReplayCompatibility(t *testing.T) {
 			t.Fatalf("legacy payload/digest changed: null=%v err=%v", isNull, err)
 		}
 		// A retry after upgrading the server must match an old request exactly.
-		if retry := call(path, base, key, 200); retry.ID != legacy.ID {
+		if retry := call(path, base, key, 200); retry.ID != legacy.ID || retry.ClearStatus != 0 {
 			t.Fatal("duplicated legacy score")
+		}
+		if retry := call(path, strings.TrimSuffix(base, "}")+`,"ClearStatus":0}`, key, 200); retry.ID != legacy.ID || retry.ClearStatus != 0 {
+			t.Fatal("explicit zero broke legacy idempotency")
 		}
 		for _, raw := range []string{"null", `"broken"`, `{}`, strings.Replace(testReplay, `[-15.5,0]`, `[1,9]`, 1)} {
 			if retry := call(path, attach(raw), key, 200); retry.ID != legacy.ID {

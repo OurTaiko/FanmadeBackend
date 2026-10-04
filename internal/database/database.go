@@ -69,6 +69,9 @@ var userActivitySchema string
 //go:embed 021_score_replays.sql
 var scoreReplaysSchema string
 
+//go:embed 022_score_clear_status.sql
+var scoreClearStatusSchema string
+
 func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	pool, err := pgxpool.New(ctx, url)
 	if err != nil {
@@ -322,6 +325,17 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, storage string) error {
 			return fmt.Errorf("migration 021: %w", err)
 		}
 		if _, err = tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES(21)`); err != nil {
+			return err
+		}
+	}
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=22)`).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		if _, err = tx.Exec(ctx, scoreClearStatusSchema); err != nil {
+			return fmt.Errorf("migration 022: %w", err)
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES(22)`); err != nil {
 			return err
 		}
 	}
