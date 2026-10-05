@@ -22,12 +22,30 @@ func Preview(ctx context.Context, source, destination string, start, end, durati
 	defer cancel()
 	number := func(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
 	// Decode only the selected audio track; omit artwork and source metadata.
-	cmd := exec.CommandContext(ctx, "ffmpeg", "-nostdin", "-v", "error", "-xerror", "-threads", "1", "-protocol_whitelist", "file", "-ss", number(start), "-i", source, "-t", number(math.Min(end, duration)-start), "-map", "0:a:0", "-map_metadata", "-1", "-vn", "-ac", "2", "-ar", "44100", "-c:a", "libvorbis", "-q:a", "2", "-threads", "1", "-f", "ogg", "-n", destination)
+	// Rebuild continuous timestamps after seeking: some valid Ogg sources carry
+	// discontinuities which otherwise produce non-monotonic encoder DTS.
+	cmd := exec.CommandContext(ctx, "ffmpeg", "-nostdin", "-v", "error", "-xerror", "-threads", "1", "-protocol_whitelist", "file", "-ss", number(start), "-i", source, "-t", number(math.Min(end, duration)-start), "-map", "0:a:0", "-map_metadata", "-1", "-vn", "-af", "asetpts=N/SR/TB", "-ac", "2", "-ar", "44100", "-c:a", "libvorbis", "-q:a", "2", "-threads", "1", "-f", "ogg", "-n", destination)
+	var diagnostic previewDiagnostic
+	cmd.Stderr = &diagnostic
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("preview encoding failed: %w", err)
+		return fmt.Errorf("preview encoding failed: %w: %s", err, diagnostic.data)
 	}
 	if err := CheckPages(destination); err != nil {
 		return fmt.Errorf("invalid generated preview: %w", err)
 	}
 	return nil
+}
+
+// Keep codec diagnostics bounded, including when decoding a damaged input.
+type previewDiagnostic struct{ data []byte }
+
+func (d *previewDiagnostic) Write(p []byte) (int, error) {
+	n := len(p)
+	if remaining := 2048 - len(d.data); remaining > 0 {
+		if len(p) > remaining {
+			p = p[:remaining]
+		}
+		d.data = append(d.data, p...)
+	}
+	return n, nil
 }
