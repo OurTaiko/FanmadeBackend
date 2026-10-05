@@ -112,7 +112,6 @@ erDiagram
 | title_translation_overrides | jsonb，默认 {}，CHECK 为 object | 各语言标题覆盖 |
 | subtitle_translation_overrides | jsonb，默认 {}，CHECK 为 object | 各语言副标题覆盖 |
 | metadata_updated_at | timestamptz，可空 | 展示元数据更新时间 |
-
 | title | text | 文件解析的默认标题 |
 | subtitle | text，默认空串 | 默认副标题 |
 | title_translations / subtitle_translations | jsonb，各默认 {}，CHECK 为 object | 文件内 ja/zh/ko 翻译 |
@@ -255,7 +254,6 @@ PostgreSQL 不会为每个外键自动创建索引，不能把关系图当作索
 | 022 | scores.clear_status，历史成绩统一初始化为 0，约束 0–3 |
 | 023 | S3 封面元数据、chart_archives、pending_objects 与对象清理触发器 |
 | 024 | 删除歌曲版本表/字段，改为 chart_data；成绩/难度/ZIP 按歌曲关联；旧文件清理及成绩请求墓碑 |
-
 | 025 | chart_data 合并入 charts；files/封面/ZIP 合为 chart_resources；删除 validation_version；本地 bytea 封面经校验导出 |
 | 026 | 在 SSO 迁移完成后将认证和维护表移动到 auth/internal |
 
