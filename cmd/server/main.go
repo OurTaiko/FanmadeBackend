@@ -15,6 +15,7 @@ import (
 	"github.com/joho/godotenv"
 	"ourtaiko.dev/fanmade/api/internal/database"
 	"ourtaiko.dev/fanmade/api/internal/httpapi"
+	"ourtaiko.dev/fanmade/api/internal/objectstore"
 )
 
 func env(key, fallback string) string {
@@ -68,7 +69,18 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	app := httpapi.New(pool, httpapi.Config{SSO: sso, TrustedProxies: proxies, Origin: env("APP_ORIGIN", "http://127.0.0.1:5173"), Storage: env("STORAGE_DIR", ".data/files"), CookieSecure: env("COOKIE_SECURE", "false") == "true"})
+	var objects objectstore.Store
+	if os.Getenv("STORAGE_BACKEND") == "s3" {
+		storageCtx, stop := context.WithTimeout(context.Background(), 30*time.Second)
+		objects, err = objectstore.NewS3(storageCtx, os.Getenv("S3_BUCKET"), os.Getenv("AWS_REGION"), os.Getenv("S3_PREFIX"))
+		stop()
+		if err != nil {
+			log.Fatal(err)
+		}
+	} else if mode := os.Getenv("STORAGE_BACKEND"); mode != "" && mode != "local" {
+		log.Fatal("invalid STORAGE_BACKEND")
+	}
+	app := httpapi.New(pool, httpapi.Config{GameOnly: os.Getenv("GAME_ONLY") == "true", Objects: objects, SSO: sso, TrustedProxies: proxies, Origin: env("APP_ORIGIN", "http://127.0.0.1:5173"), Storage: env("STORAGE_DIR", ".data/files"), CookieSecure: env("COOKIE_SECURE", "false") == "true"})
 	if err = app.EnsureStorage(); err != nil {
 		log.Fatal(err)
 	}

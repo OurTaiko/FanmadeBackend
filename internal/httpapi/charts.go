@@ -8,7 +8,6 @@ import (
 	"io"
 	"mime"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -143,13 +142,33 @@ func (s *Server) download(w http.ResponseWriter, r *http.Request) {
 	}
 	kind := r.PathValue("kind")
 	if kind == "download" {
-		tf, e := os.Open(filepath.Join(s.Config.Storage, c.TJAKey))
+		if s.remoteStorage() {
+			var key, digest string
+			if e = s.DB.QueryRow(r.Context(), `SELECT storage_key,sha256 FROM chart_archives WHERE version_id=$1`, c.VersionID).Scan(&key, &digest); e != nil {
+				internal(w, e)
+				return
+			}
+			f, e := s.Config.Objects.Open(r.Context(), key)
+			if e != nil {
+				internal(w, e)
+				return
+			}
+			defer f.Close()
+			name := strings.TrimSuffix(c.TJAName, filepath.Ext(c.TJAName)) + ".zip"
+			w.Header().Set("Content-Type", "application/zip")
+			w.Header().Set("ETag", `"`+digest+`"`)
+			w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
+			http.ServeContent(w, r, name, f.ModTime(), f)
+			return
+		}
+
+		tf, e := s.Config.Objects.Open(r.Context(), c.TJAKey)
 		if e != nil {
 			internal(w, e)
 			return
 		}
 		defer tf.Close()
-		af, e := os.Open(filepath.Join(s.Config.Storage, c.AudioKey))
+		af, e := s.Config.Objects.Open(r.Context(), c.AudioKey)
 		if e != nil {
 			internal(w, e)
 			return
@@ -160,7 +179,7 @@ func (s *Server) download(w http.ResponseWriter, r *http.Request) {
 		z := zip.NewWriter(w)
 		for _, f := range []struct {
 			name string
-			file *os.File
+			file io.Reader
 		}{{c.TJAName, tf}, {c.Wave, af}} {
 			dst, e := z.CreateHeader(&zip.FileHeader{Name: f.name, Method: zip.Store})
 			if e != nil {
@@ -181,19 +200,14 @@ func (s *Server) download(w http.ResponseWriter, r *http.Request) {
 		problem(w, 404, "RESOURCE_NOT_FOUND", "资源不存在")
 		return
 	}
-	f, e := os.Open(filepath.Join(s.Config.Storage, key))
+	f, e := s.Config.Objects.Open(r.Context(), key)
 	if e != nil {
 		internal(w, e)
 		return
 	}
 	defer f.Close()
-	stat, e := f.Stat()
-	if e != nil {
-		internal(w, e)
-		return
-	}
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("ETag", `"`+etag+`"`)
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
-	http.ServeContent(w, r, name, stat.ModTime(), f)
+	http.ServeContent(w, r, name, f.ModTime(), f)
 }

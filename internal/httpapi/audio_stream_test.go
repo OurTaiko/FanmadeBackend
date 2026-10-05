@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 
+	"ourtaiko.dev/fanmade/api/internal/objectstore"
+	"ourtaiko.dev/fanmade/api/internal/teststore"
 	"ourtaiko.dev/fanmade/api/internal/tja"
 )
 
@@ -38,11 +40,20 @@ func TestAudioPreviewWindow(t *testing.T) {
 }
 
 func TestAudioStreamHTTP(t *testing.T) {
+	for _, remote := range []bool{false, true} {
+		t.Run(fmt.Sprint("s3=", remote), func(t *testing.T) { testAudioStreamHTTP(t, remote) })
+	}
+}
+func testAudioStreamHTTP(t *testing.T, remote bool) {
 	pool := scoreTestDB(t)
 	ctx := context.Background()
 	storage := t.TempDir()
 	// No SSO configuration: streaming must never call nickname/auth services.
-	handler := New(pool, Config{Storage: storage}).Handler()
+	cfg := Config{Storage: storage}
+	if remote {
+		cfg.Objects = teststore.New(t)
+	}
+	handler := New(pool, cfg).Handler()
 	mustExec := func(sql string, args ...any) {
 		t.Helper()
 		if _, err := pool.Exec(ctx, sql, args...); err != nil {
@@ -50,7 +61,7 @@ func TestAudioStreamHTTP(t *testing.T) {
 		}
 	}
 	mustExec(`INSERT INTO users(id,username,password_hash) VALUES('89b6ef3a5cb57b6e04f74711d15a8a5f','audioowner','unused')`)
-	app := testServer(t, pool, Config{Storage: storage})
+	app := testServer(t, pool, cfg)
 	// Simulate legacy unsupported rows retained by migration 012.
 	mustExec(`ALTER TABLE difficulties DROP CONSTRAINT difficulties_course_check`)
 	for _, filename := range []string{"cbr.mp3", "vorbis.ogg"} {
@@ -61,6 +72,9 @@ func TestAudioStreamHTTP(t *testing.T) {
 			}
 			if err = os.WriteFile(filepath.Join(storage, filename), data, 0600); err != nil {
 				t.Fatal(err)
+			}
+			if remote {
+				teststore.Seed(t, cfg.Objects.(*objectstore.S3), filename, data)
 			}
 			song, version, audioID, tjaID := ID(), ID(), ID(), ID()
 			digest := hash(string(data))

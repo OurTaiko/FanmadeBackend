@@ -13,11 +13,17 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"ourtaiko.dev/fanmade/api/internal/teststore"
 	"strings"
 	"testing"
 )
 
 func TestAudioUploadAndDownload(t *testing.T) {
+	for _, remote := range []bool{false, true} {
+		t.Run(fmt.Sprint("s3=", remote), func(t *testing.T) { testAudioUploadAndDownload(t, remote) })
+	}
+}
+func testAudioUploadAndDownload(t *testing.T, remote bool) {
 	pool := scoreTestDB(t)
 	ctx := context.Background()
 	cookie := strings.Repeat("a", 64)
@@ -27,7 +33,12 @@ func TestAudioUploadAndDownload(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at) VALUES($1,'89b6ef3a5cb57b6e04f74711d15a8a5f','csrf',now()+interval '1 day')`, hash(cookie)); err != nil {
 		t.Fatal(err)
 	}
-	handler := testServer(t, pool, Config{Origin: "http://localhost", Storage: t.TempDir()}).Handler()
+	cfg := Config{Origin: "http://localhost", Storage: t.TempDir()}
+	if remote {
+		cfg.Objects = teststore.New(t)
+	}
+	app := testServer(t, pool, cfg)
+	handler := app.Handler()
 	for _, name := range []string{"cbr.mp3", "vorbis.ogg"} {
 		t.Run(name, func(t *testing.T) {
 			data, err := os.ReadFile("../audio/testdata/" + name)
@@ -84,6 +95,9 @@ func TestAudioUploadAndDownload(t *testing.T) {
 			w = get("audio", "bytes=0-3")
 			if w.Code != 206 || !bytes.Equal(w.Body.Bytes(), data[:4]) || w.Header().Get("Content-Type") != media {
 				t.Fatal("broken audio range request")
+			}
+			if remote {
+				verifyResourceLinks(t, handler, base, data)
 			}
 			w = get("download", "")
 			z, err := zip.NewReader(bytes.NewReader(w.Body.Bytes()), int64(w.Body.Len()))

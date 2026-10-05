@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -72,13 +71,8 @@ func (s *Server) beginUpload(w http.ResponseWriter, r *http.Request, user, key, 
 
 // Copy retained audio into the new version; the original object is still retired.
 // The caller holds the chart lock so a concurrent replacement cannot remove it.
-func (s *Server) copyAudio(c *Chart, dir string) (*stagedFile, error) {
-	root, err := os.OpenRoot(s.Config.Storage)
-	if err != nil {
-		return nil, err
-	}
-	defer root.Close()
-	in, err := root.Open(c.AudioKey)
+func (s *Server) copyAudio(ctx context.Context, c *Chart, dir string) (*stagedFile, error) {
+	in, err := s.Config.Objects.Open(ctx, c.AudioKey)
 	if err != nil {
 		return nil, err
 	}
@@ -141,17 +135,16 @@ func (s *Server) RunFileCleanup(ctx context.Context) {
 func (s *Server) cleanupReplacedFiles() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	if err := s.reconcilePending(ctx); err != nil {
+		log.Printf("pending object cleanup failed: %v", err)
+		return
+	}
 	if err := s.deleteRetiredFiles(ctx); err != nil {
 		log.Printf("retired file cleanup pending: %v", err)
 	}
 }
 
 func (s *Server) deleteRetiredFiles(ctx context.Context) error {
-	root, err := os.OpenRoot(s.Config.Storage)
-	if err != nil {
-		return err
-	}
-	defer root.Close()
 	rows, err := s.DB.Query(ctx, `SELECT storage_key FROM retired_files ORDER BY created_at,storage_key LIMIT 100`)
 	if err != nil {
 		return err
@@ -176,7 +169,7 @@ func (s *Server) deleteRetiredFiles(ctx context.Context) error {
 			failures = append(failures, errors.New("invalid retired storage key"))
 			continue
 		}
-		if err = root.Remove(key); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err = s.Config.Objects.Delete(ctx, key); err != nil && !errors.Is(err, os.ErrNotExist) {
 			failures = append(failures, err)
 			continue
 		}
@@ -184,9 +177,7 @@ func (s *Server) deleteRetiredFiles(ctx context.Context) error {
 			failures = append(failures, err)
 			continue
 		}
-		if dir := filepath.Dir(key); strings.HasPrefix(dir, "objects"+string(filepath.Separator)) {
-			_ = root.Remove(dir)
-		}
+
 	}
 	return errors.Join(failures...)
 }

@@ -6,7 +6,6 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
-	"os"
 
 	"github.com/jackc/pgx/v5"
 	"ourtaiko.dev/fanmade/api/internal/audio"
@@ -57,27 +56,12 @@ func (s *Server) streamAudio(w http.ResponseWriter, r *http.Request) {
 		problem(w, 404, "VERSION_NOT_FOUND", "版本不存在")
 		return
 	}
-	root, err := os.OpenRoot(s.Config.Storage)
-	if err != nil {
-		internal(w, err)
-		return
-	}
-	defer root.Close()
-	f, err := root.Open(key)
+	f, err := s.Config.Objects.Open(r.Context(), key)
 	if err != nil {
 		internal(w, err)
 		return
 	}
 	defer f.Close()
-	stat, err := f.Stat()
-	if err != nil {
-		internal(w, err)
-		return
-	}
-	if !stat.Mode().IsRegular() {
-		internal(w, errors.New("audio object is not a regular file"))
-		return
-	}
 	w.Header().Set("Content-Type", audio.MediaType(originalName))
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": name}))
 	w.Header().Set("ETag", `"`+digest+`"`)
@@ -87,5 +71,5 @@ func (s *Server) streamAudio(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 	// Serve directly from a seekable file: bounded memory, GET/HEAD, 206/416,
 	// conditional requests and If-Range are handled by the standard library.
-	http.ServeContent(w, r, name, stat.ModTime(), f)
+	http.ServeContent(w, r, name, f.ModTime(), f)
 }

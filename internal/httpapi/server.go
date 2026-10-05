@@ -17,12 +17,15 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"ourtaiko.dev/fanmade/api/internal/cover"
+	"ourtaiko.dev/fanmade/api/internal/objectstore"
 	"ourtaiko.dev/fanmade/api/internal/tja"
 )
 
 type Config struct {
 	Origin, Storage string
+	Objects         objectstore.Store
 	CookieSecure    bool
+	GameOnly        bool
 	SSO             *SSOClient
 	TrustedProxies  []netip.Prefix
 }
@@ -39,6 +42,9 @@ type window struct {
 }
 
 func New(pool *pgxpool.Pool, cfg Config) *Server {
+	if cfg.Objects == nil {
+		cfg.Objects = objectstore.Local{Root: cfg.Storage}
+	}
 	return &Server{DB: pool, Config: cfg, uploads: make(chan struct{}, 2), limits: map[string]window{}}
 }
 func ID() string {
@@ -120,11 +126,16 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/v1/charts/{id}", s.remove)
 	mux.HandleFunc("GET /api/v1/charts/{id}/versions/{version}/{kind}", s.download)
 	mux.HandleFunc("GET /api/v1/charts/{id}/versions/{version}/audio", s.streamAudio)
+	mux.HandleFunc("GET /api/v1/charts/{id}/versions/{version}/resources", s.resourceLinks)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Request-ID", ID())
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Referrer-Policy", "no-referrer")
+		if s.Config.GameOnly && (strings.HasPrefix(r.URL.Path, "/api/v1/auth/") || strings.HasPrefix(r.URL.Path, "/api/v1/me") || ((r.Method != "GET" && r.Method != "HEAD") && !isGameRequest(r))) {
+			problem(w, 404, "GAME_ONLY", "此测试入口仅提供游戏 API")
+			return
+		}
 		if r.Method != "GET" && r.Method != "HEAD" {
 			if (isGameRequest(r) && r.Header.Get("Origin") != "") || (!isGameRequest(r) && r.Header.Get("Origin") != s.Config.Origin) {
 				problem(w, 403, "ORIGIN_INVALID", "请求来源无效，请从本站页面操作")

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"ourtaiko.dev/fanmade/api/internal/teststore"
 	"strings"
 	"testing"
 
@@ -19,11 +20,12 @@ import (
 )
 
 func TestCoverLifecycle(t *testing.T) {
-	t.Run("jpg-png", func(t *testing.T) { testCoverLifecycle(t, false) })
-	t.Run("webp", func(t *testing.T) { testCoverLifecycle(t, true) })
+	t.Run("jpg-png", func(t *testing.T) { testCoverLifecycle(t, false, false) })
+	t.Run("s3", func(t *testing.T) { testCoverLifecycle(t, false, true) })
+	t.Run("webp", func(t *testing.T) { testCoverLifecycle(t, true, false) })
 }
 
-func testCoverLifecycle(t *testing.T, useWebP bool) {
+func testCoverLifecycle(t *testing.T, useWebP, remote bool) {
 	// scoreTestDB creates a unique score_api_test_<timestamp> schema, configures
 	// search_path on every connection, and registers DROP SCHEMA in t.Cleanup.
 	pool := scoreTestDB(t)
@@ -43,7 +45,11 @@ func testCoverLifecycle(t *testing.T, useWebP bool) {
 			t.Fatal(err)
 		}
 	}
-	app := testServer(t, pool, Config{Origin: "http://localhost", Storage: t.TempDir()})
+	cfg := Config{Origin: "http://localhost", Storage: t.TempDir()}
+	if remote {
+		cfg.Objects = teststore.New(t)
+	}
+	app := testServer(t, pool, cfg)
 	handler := app.Handler()
 	type part struct {
 		field, name string

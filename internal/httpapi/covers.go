@@ -41,18 +41,39 @@ func (s *Server) coverHashes(ctx context.Context, charts []Chart) error {
 	return rows.Err()
 }
 
-func saveCover(ctx context.Context, tx pgx.Tx, chartID string, data []byte) error {
+func (s *Server) saveCover(ctx context.Context, tx pgx.Tx, chartID string, data []byte) error {
+	id := ID()
+	var key *string
+	var size *int64
+	if s.remoteStorage() {
+		objectKey := "covers/" + id + "/cover.webp"
+		n := int64(len(data))
+		key = &objectKey
+		size = &n
+		if _, err := s.DB.Exec(ctx, `INSERT INTO pending_objects(storage_key) VALUES($1)`, objectKey); err != nil {
+			return err
+		}
+		if err := s.Config.Objects.Put(ctx, objectKey, bytes.NewReader(data), n, "image/webp", hash(string(data))); err != nil {
+			return err
+		}
+	}
+	digest := hash(string(data))
+	if key != nil {
+		data = nil
+	}
+
 	if _, err := tx.Exec(ctx, `DELETE FROM chart_covers WHERE chart_id=$1`, chartID); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, `INSERT INTO chart_covers(id,chart_id,webp,sha256) VALUES($1,$2,$3,$4)`, ID(), chartID, data, hash(string(data)))
+	_, err := tx.Exec(ctx, `INSERT INTO chart_covers(id,chart_id,webp,sha256,storage_key,byte_size) VALUES($1,$2,$3,$4,$5,$6)`, id, chartID, data, digest, key, size)
 	return err
 }
 
 func (s *Server) getCover(w http.ResponseWriter, r *http.Request) {
 	var data []byte
 	var digest string
-	err := s.DB.QueryRow(r.Context(), `SELECT cv.webp,cv.sha256 FROM chart_covers cv JOIN charts c ON c.id=cv.chart_id WHERE c.id=$1 AND `+publishedChart, r.PathValue("id")).Scan(&data, &digest)
+	var key *string
+	err := s.DB.QueryRow(r.Context(), `SELECT cv.webp,cv.sha256,cv.storage_key FROM chart_covers cv JOIN charts c ON c.id=cv.chart_id WHERE c.id=$1 AND `+publishedChart, r.PathValue("id")).Scan(&data, &digest, &key)
 	if errors.Is(err, pgx.ErrNoRows) {
 		problem(w, 404, "COVER_NOT_FOUND", "封面不存在")
 		return
@@ -70,6 +91,16 @@ func (s *Server) getCover(w http.ResponseWriter, r *http.Request) {
 	// Revalidate even hash URLs: replaced/deleted images must not stay addressable.
 	w.Header().Set("Cache-Control", "public, no-cache")
 	w.Header().Set("ETag", `"`+digest+`"`)
+	if key != nil {
+		f, err := s.Config.Objects.Open(r.Context(), *key)
+		if err != nil {
+			internal(w, err)
+			return
+		}
+		defer f.Close()
+		http.ServeContent(w, r, "cover.webp", time.Time{}, f)
+		return
+	}
 	http.ServeContent(w, r, "cover.webp", time.Time{}, bytes.NewReader(data))
 }
 
@@ -171,7 +202,7 @@ func (s *Server) replaceCover(w http.ResponseWriter, r *http.Request) {
 		problem(w, 403, "FORBIDDEN", "只有上传者可以修改封面")
 		return
 	}
-	if err = saveCover(r.Context(), tx, id, encoded); err != nil {
+	if err = s.saveCover(r.Context(), tx, id, encoded); err != nil {
 		internal(w, err)
 		return
 	}

@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"ourtaiko.dev/fanmade/api/internal/audio"
@@ -174,7 +176,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cf := files["cover"]
-	delete(files, "cover") // Cover bytes stay in PostgreSQL, not the version/file store.
+	delete(files, "cover") // Covers belong to charts, independently of chart versions.
 	var coverData []byte
 	if cf != nil {
 		raw, err := os.ReadFile(cf.path)
@@ -259,7 +261,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if af == nil {
-			af, e = s.copyAudio(existing, dir)
+			af, e = s.copyAudio(r.Context(), existing, dir)
 			if e != nil {
 				internal(w, e)
 				return
@@ -316,17 +318,22 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 	committed := false
 	defer func() {
 		if !committed {
-			os.RemoveAll(filepath.Join(s.Config.Storage, "objects", versionID))
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			for _, f := range files {
+				if f.key != "" {
+					_ = s.Config.Objects.Delete(ctx, f.key)
+				}
+			}
 		}
 	}()
 	for field, f := range files {
-		f.key = filepath.Join("objects", versionID, field)
-		target := filepath.Join(s.Config.Storage, f.key)
-		if e = os.MkdirAll(filepath.Dir(target), 0700); e != nil {
-			internal(w, e)
-			return
+		f.key = filepath.ToSlash(filepath.Join("objects", versionID, field))
+		media := "application/octet-stream"
+		if field == "audio" {
+			media = audio.MediaType(f.name)
 		}
-		if e = os.Rename(f.path, target); e != nil {
+		if e = s.storeFile(r.Context(), f.key, f.path, f.size, media, f.sha); e != nil {
 			internal(w, e)
 			return
 		}
@@ -351,7 +358,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if cf != nil {
-		if e = saveCover(r.Context(), tx, chartID, coverData); e != nil {
+		if e = s.saveCover(r.Context(), tx, chartID, coverData); e != nil {
 			internal(w, e)
 			return
 		}
@@ -363,6 +370,12 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 	if _, e = tx.Exec(r.Context(), `INSERT INTO chart_versions(id,chart_id,version_number,title,subtitle,bpm,offset_seconds,demo_start,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version) VALUES($1,$2,1,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, versionID, chartID, meta.Title, meta.Subtitle, meta.BPM, meta.Offset, meta.DemoStart, duration, encoding, meta.Wave, tf.id, af.id, tja.Version); e != nil {
 		internal(w, e)
 		return
+	}
+	if s.remoteStorage() {
+		if e = s.saveArchive(r.Context(), tx, versionID, tf.path, af.path, tf.name, meta.Wave, dir); e != nil {
+			internal(w, e)
+			return
+		}
 	}
 	if _, e = tx.Exec(r.Context(), `UPDATE chart_versions SET title_translations=$2,subtitle_translations=$3 WHERE id=$1`, versionID, meta.TitleTranslations, meta.SubtitleTranslations); e != nil {
 		internal(w, e)
@@ -384,7 +397,6 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		internal(w, e)
 		return
 	}
-	committed = true
 	c, e := s.chart(r.Context(), chartID)
 	if e != nil {
 		internal(w, e)

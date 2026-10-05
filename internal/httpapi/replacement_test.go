@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"ourtaiko.dev/fanmade/api/internal/teststore"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -16,6 +18,11 @@ import (
 )
 
 func TestChartReplacement(t *testing.T) {
+	for _, remote := range []bool{false, true} {
+		t.Run(fmt.Sprint("s3=", remote), func(t *testing.T) { testChartReplacement(t, remote) })
+	}
+}
+func testChartReplacement(t *testing.T, remote bool) {
 	pool := scoreTestDB(t)
 	ctx := context.Background()
 	mustExec := func(sql string, args ...any) {
@@ -30,7 +37,19 @@ func TestChartReplacement(t *testing.T) {
 		mustExec(`INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at) VALUES($1,$3,'csrf',now()+interval '1 day'),($2,$3,'csrf',now()+interval '1 day')`, hash(token), hash("game:"+token), user)
 	}
 	storage := t.TempDir()
-	app := testServer(t, pool, Config{Origin: "http://localhost", Storage: storage})
+	cfg := Config{Origin: "http://localhost", Storage: storage}
+	if remote {
+		cfg.Objects = teststore.New(t)
+	}
+	app := testServer(t, pool, cfg)
+	readObject := func(key string) ([]byte, error) {
+		f, e := app.Config.Objects.Open(ctx, key)
+		if e != nil {
+			return nil, e
+		}
+		defer f.Close()
+		return io.ReadAll(f)
+	}
 	handler := app.Handler()
 	audio, err := os.ReadFile("../audio/testdata/cbr.mp3")
 	if err != nil {
@@ -118,10 +137,10 @@ func TestChartReplacement(t *testing.T) {
 		if err != nil || c.VersionID != original.VersionID || count(`SELECT count(*) FROM scores WHERE song_id=$1`, original.ID) != 2 {
 			t.Fatal("failed update changed original", c.VersionID, err)
 		}
-		if b, err := os.ReadFile(filepath.Join(storage, original.TJAKey)); err != nil || string(b) != source {
+		if b, err := readObject(original.TJAKey); err != nil || string(b) != source {
 			t.Fatal("old TJA lost", err)
 		}
-		if b, err := os.ReadFile(filepath.Join(storage, original.AudioKey)); err != nil || !bytes.Equal(b, audio) {
+		if b, err := readObject(original.AudioKey); err != nil || !bytes.Equal(b, audio) {
 			t.Fatal("old audio lost", err)
 		}
 	}
@@ -166,7 +185,7 @@ func TestChartReplacement(t *testing.T) {
 		t.Fatal("unrelated data changed or old file rows remain")
 	}
 	for _, key := range []string{original.TJAKey, original.AudioKey} {
-		if _, err := os.Stat(filepath.Join(storage, key)); !os.IsNotExist(err) {
+		if _, err := readObject(key); !os.IsNotExist(err) {
 			t.Fatal("old file remains", key, err)
 		}
 	}
