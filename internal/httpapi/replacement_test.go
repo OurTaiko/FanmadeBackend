@@ -130,7 +130,7 @@ func testChartReplacement(t *testing.T, remote bool) {
 		t.Fatal(err)
 	}
 	path := "/api/v1/charts/" + original.ID + "/files"
-	fields := map[string]string{"confirmReset": "true", "description": "new description", "difficultyMakers": `[{"course":"Hard","maker":"A"},{"course":"Oni","maker":"B"}]`}
+	fields := map[string]string{"confirmReset": "true", "description": "new description", "demoStart": "0.1", "demoEnd": "0.3", "difficultyMakers": `[{"course":"Hard","maker":"A"},{"course":"Oni","maker":"B"}]`}
 	count := func(sql string, args ...any) int {
 		t.Helper()
 		var n int
@@ -180,7 +180,7 @@ func testChartReplacement(t *testing.T, remote bool) {
 	if remote {
 		verifyResourceLinks(t, handler, original.ID, audio)
 	}
-	if updated.ID != original.ID || updated.TJAHash == original.TJAHash || updated.Title != "Updated" || updated.Maker != "A | B" || updated.Description != "new description" || len(updated.Difficulties) != 2 || updated.AudioHash != original.AudioHash {
+	if updated.DemoStart != 0.1 || updated.DemoEnd != 0.3 || updated.ID != original.ID || updated.TJAHash == original.TJAHash || updated.Title != "Updated" || updated.Maker != "A | B" || updated.Description != "new description" || len(updated.Difficulties) != 2 || updated.AudioHash != original.AudioHash {
 		t.Fatalf("bad updated chart: %+v", updated)
 	}
 	if count(`SELECT count(*) FROM scores WHERE song_id=$1`, original.ID) != 0 || count(`SELECT count(*) FROM charts WHERE id=$1`, original.ID) != 1 || count(`SELECT jsonb_array_length(difficulties) FROM charts WHERE id=$1`, original.ID) != 2 {

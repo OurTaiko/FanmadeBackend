@@ -31,7 +31,7 @@ func TestDifficultyMakersFlow(t *testing.T) {
 	for _, course := range []string{"Hard", "Oni", "Edit"} {
 		source += "COURSE:" + course + "\nLEVEL:5\n#START\n1000,\n#END\n"
 	}
-	post := func(makers, key string) *httptest.ResponseRecorder {
+	post := func(makers, key string, extra ...map[string]string) *httptest.ResponseRecorder {
 		var body bytes.Buffer
 		form := multipart.NewWriter(&body)
 		tf, _ := form.CreateFormFile("tja", "chart.tja")
@@ -40,6 +40,11 @@ func TestDifficultyMakersFlow(t *testing.T) {
 		af.Write(audio)
 		if makers != "" {
 			form.WriteField("difficultyMakers", makers)
+		}
+		for _, fields := range extra {
+			for name, value := range fields {
+				form.WriteField(name, value)
+			}
 		}
 		form.Close()
 		r := httptest.NewRequest("POST", "/api/v1/charts", &body)
@@ -67,6 +72,23 @@ func TestDifficultyMakersFlow(t *testing.T) {
 	for _, d := range original.Difficulties {
 		if d.Maker != "Original" {
 			t.Fatal(d)
+		}
+	}
+	previewKey := ID()
+	custom := map[string]string{"demoStart": "0.1", "demoEnd": "0.3"}
+	preview := decode(post("", previewKey, custom), 201)
+	if preview.DemoStart != 0.1 || preview.DemoEnd != 0.3 || preview.PreviewPath == "" {
+		t.Fatalf("range not saved: %+v", preview)
+	}
+	if retry := decode(post("", previewKey, custom), 200); retry.ID != preview.ID {
+		t.Fatal("range retry created new chart")
+	}
+	if w := post("", previewKey, map[string]string{"demoStart": "0.1", "demoEnd": "0.4"}); w.Code != 409 {
+		t.Fatalf("range conflict: %d %s", w.Code, w.Body.String())
+	}
+	for _, fields := range []map[string]string{{"demoStart": "-1"}, {"demoStart": "NaN"}, {"demoEnd": "Inf"}, {"demoEnd": ""}, {"demoStart": "0.3", "demoEnd": "0.1"}, {"demoStart": "1200"}, {"demoEnd": "1216"}} {
+		if w := post("", ID(), fields); w.Code != 422 {
+			t.Fatalf("bad range accepted: %d %s", w.Code, w.Body.String())
 		}
 	}
 	makers := `[{"course":"Edit","maker":"A"},{"course":"Hard","maker":" A "},{"course":"Oni","maker":"B"}]`

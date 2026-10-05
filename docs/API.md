@@ -16,7 +16,7 @@
 | GET | /upload-rules | 校验版本、大小上限、编码与音频支持信息 |
 | GET | /charts?q=&course=&level=&order=default&page=1 | 返回 `{items,total,page,pageSize}`；每页 12 |
 | GET | /me/charts | 本人作品列表，查询参数与公开列表一致 |
-| POST | /charts | multipart：tja、audio、encoding（默认 utf-8）、description（可空）、categoryIds、difficultyMakers（可选 JSON）；首次创建 201，同请求重试 200 |
+| POST | /charts | multipart：tja、audio、encoding（默认 utf-8）、description（可空）、categoryIds、difficultyMakers（可选 JSON）、demoStart、demoEnd（可选秒数）；首次创建 201，同请求重试 200 |
 | PUT | /charts/{id}/files | 作者或管理员整体替换 TJA／音频，删除旧文件及成绩，只保存当前资源，返回 200 |
 | GET | /charts/{id} | 当前已发布歌曲详情 |
 | PATCH | /charts/{id} | 作者或管理员修改分类、试听范围、介绍、谱师名义和译名，返回更新后的作品 |
@@ -295,3 +295,7 @@ profilesAvailable=false 表示本次昵称查询失败，统计仍返回；个�
 ### 编辑介绍与谱师名义
 
 `PATCH /charts/{id}` 的 `description` 为最多 1000 字符的字符串，允许换行和空字符串，拒绝 null 与空字符；非法值返回 `DESCRIPTION_INVALID`。`difficultyMakers` 格式与上传一致，必须按当前完整 course 集合提供 `{course,maker}` 数组，每项名义最多 500 字节、不含控制字符，允许空字符串；不能修改难度、星级或模式。非法值返回 `MAKERS_INVALID`。省略字段保持原值，所有编辑在同一事务保存，失败全部回滚。介绍和名义修改不改写原始 TJA、音频或成绩。
+
+### 上传时设置试听区间
+
+新上传和替换歌曲的 multipart 表单支持可选 `demoStart` / `demoEnd`。未传起点时读取新 TJA 的 DEMOSTART，未传终点时采用有效起点加 15 秒。起点必须在音频内，终点晚于起点且不超过 1215 秒；超出音频长度时生成片段截到 EOF，非法值返回 422 PREVIEW_RANGE_INVALID。区间与歌曲在同次上传保存并生成 preview.ogg，不修改上传的 TJA 文件；自定义区间参与上传幂等摘要。

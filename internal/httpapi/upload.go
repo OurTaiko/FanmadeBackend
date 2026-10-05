@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -132,7 +133,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 			f.sha = hex.EncodeToString(h.Sum(nil))
 			files[field] = f
 		} else {
-			if (field != "encoding" && field != "description" && field != "categoryIds" && field != "difficultyMakers" && !(existing != nil && field == "confirmReset")) || name != "" {
+			if (field != "encoding" && field != "description" && field != "categoryIds" && field != "difficultyMakers" && field != "demoStart" && field != "demoEnd" && !(existing != nil && field == "confirmReset")) || name != "" {
 				problem(w, 400, "UPLOAD_FILES_INVALID", "包含不支持的上传字段")
 				return
 			}
@@ -283,11 +284,31 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		problem(w, 422, "AUDIO_INVALID", "音频未通过完整性检查，请使用完整的单音轨 Ogg Vorbis 或 MP3 文件（最长 20 分钟）")
 		return
 	}
-	if !audio.ValidPreviewRange(meta.DemoStart, meta.DemoStart+15, duration) {
-		problem(w, 422, "PREVIEW_RANGE_INVALID", "DEMOSTART 必须位于音频范围内")
+	demoStart := meta.DemoStart
+	if raw, ok := fields["demoStart"]; ok {
+		demoStart, e = strconv.ParseFloat(strings.TrimSpace(raw), 64)
+		if e != nil {
+			problem(w, 422, "PREVIEW_RANGE_INVALID", "试听起点必须为秒数")
+			return
+		}
+	}
+	demoEnd := demoStart + 15
+	if raw, ok := fields["demoEnd"]; ok {
+		demoEnd, e = strconv.ParseFloat(strings.TrimSpace(raw), 64)
+		if e != nil {
+			problem(w, 422, "PREVIEW_RANGE_INVALID", "试听终点必须为秒数")
+			return
+		}
+	}
+	if !audio.ValidPreviewRange(demoStart, demoEnd, duration) {
+		problem(w, 422, "PREVIEW_RANGE_INVALID", "试听起点必须位于音频范围内，终点须晚于起点且不超过 1215 秒")
 		return
 	}
 	digestData, _ := json.Marshal([]string{tf.name, tf.sha, af.name, af.sha, encoding, fields["description"]})
+	if demoStart != meta.DemoStart || demoEnd != meta.DemoStart+15 {
+		encoded, _ := json.Marshal([]any{"preview", demoStart, demoEnd})
+		digestData = append(digestData, encoded...)
+	}
 	if len(categoryIDs) != 1 || categoryIDs[0] != "variety" {
 		encoded, _ := json.Marshal(categoryIDs)
 		digestData = append(digestData, encoded...)
@@ -348,9 +369,9 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if _, e = tx.Exec(r.Context(), `INSERT INTO charts(id,owner_id,description,title,subtitle,bpm,offset_seconds,demo_start,duration,encoding,wave_filename,title_translations,subtitle_translations,is_single,difficulties)
- VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
- ON CONFLICT(id) DO UPDATE SET title=EXCLUDED.title,subtitle=EXCLUDED.subtitle,bpm=EXCLUDED.bpm,offset_seconds=EXCLUDED.offset_seconds,demo_start=EXCLUDED.demo_start,demo_end=EXCLUDED.demo_end,duration=EXCLUDED.duration,encoding=EXCLUDED.encoding,wave_filename=EXCLUDED.wave_filename,title_translations=EXCLUDED.title_translations,subtitle_translations=EXCLUDED.subtitle_translations,is_single=EXCLUDED.is_single,difficulties=EXCLUDED.difficulties`, chartID, u.User.ID, fields["description"], meta.Title, meta.Subtitle, meta.BPM, meta.Offset, meta.DemoStart, duration, encoding, meta.Wave, meta.TitleTranslations, meta.SubtitleTranslations, meta.IsSingle, meta.Difficulties); e != nil {
+	if _, e = tx.Exec(r.Context(), `INSERT INTO charts(id,owner_id,description,title,subtitle,bpm,offset_seconds,demo_start,duration,encoding,wave_filename,title_translations,subtitle_translations,is_single,difficulties,demo_end)
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+ ON CONFLICT(id) DO UPDATE SET title=EXCLUDED.title,subtitle=EXCLUDED.subtitle,bpm=EXCLUDED.bpm,offset_seconds=EXCLUDED.offset_seconds,demo_start=EXCLUDED.demo_start,demo_end=EXCLUDED.demo_end,duration=EXCLUDED.duration,encoding=EXCLUDED.encoding,wave_filename=EXCLUDED.wave_filename,title_translations=EXCLUDED.title_translations,subtitle_translations=EXCLUDED.subtitle_translations,is_single=EXCLUDED.is_single,difficulties=EXCLUDED.difficulties`, chartID, u.User.ID, fields["description"], meta.Title, meta.Subtitle, meta.BPM, meta.Offset, demoStart, duration, encoding, meta.Wave, meta.TitleTranslations, meta.SubtitleTranslations, meta.IsSingle, meta.Difficulties, demoEnd); e != nil {
 		internal(w, e)
 		return
 	}
@@ -364,7 +385,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if e = s.savePreview(r.Context(), tx, chartID, af.path, meta.DemoStart, meta.DemoStart+15, duration); e != nil {
+	if e = s.savePreview(r.Context(), tx, chartID, af.path, demoStart, demoEnd, duration); e != nil {
 		internal(w, e)
 		return
 	}
