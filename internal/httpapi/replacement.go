@@ -103,7 +103,7 @@ func retireChart(ctx context.Context, tx pgx.Tx, chartID, description string) er
 			return err
 		}
 	}
-	_, err := tx.Exec(ctx, `UPDATE charts SET description=$2,title_override=NULL,subtitle_override=NULL,title_translation_overrides='{}',subtitle_translation_overrides='{}',metadata_updated_at=now() WHERE id=$1`, chartID, description)
+	_, err := tx.Exec(ctx, `UPDATE charts SET description=$2,metadata_updated_at=now() WHERE id=$1`, chartID, description)
 	return err
 }
 

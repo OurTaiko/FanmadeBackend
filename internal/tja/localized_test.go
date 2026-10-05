@@ -14,11 +14,15 @@ func TestLocalizedTitles(t *testing.T) {
 	if issue != nil {
 		t.Fatal(issue)
 	}
-	if m.Title != "English" || m.Subtitle != "--Default" || len(m.TitleTranslations) != 3 || m.TitleTranslations["ja"] != "日本語" || m.TitleTranslations["zh"] != "中文" || m.TitleTranslations["ko"] != "한국어" || m.SubtitleTranslations["ja"] != "--副題" || m.SubtitleTranslations["zh"] != "++副标题" {
+	if m.Title != "English" || m.Subtitle != "--Default" || len(m.TitleTranslations) != 4 || m.TitleTranslations["en"] != "English" || m.SubtitleTranslations["en"] != "--Default" || m.TitleTranslations["ja"] != "日本語" || m.TitleTranslations["zh"] != "中文" || m.TitleTranslations["ko"] != "한국어" || m.SubtitleTranslations["ja"] != "--副題" || m.SubtitleTranslations["zh"] != "++副标题" {
 		t.Fatalf("lost localization: %+v", m)
 	}
 	if v, ok := m.SubtitleTranslations["ko"]; !ok || v != "" {
 		t.Fatal("explicit empty translation lost")
+	}
+	m, issue = Parse([]byte("TITLEEN:Explicit English\nSUBTITLEEN:Translated subtitle\n"+headers+chart), "utf-8", "music.ogg")
+	if issue != nil || m.Title != "English" || m.Subtitle != "--Default" || m.TitleTranslations["en"] != "Explicit English" || m.SubtitleTranslations["en"] != "Translated subtitle" {
+		t.Fatalf("English translation must not replace original: %+v %v", m, issue)
 	}
 	for _, bad := range []string{headers + "TITLEJA:Duplicate\n" + chart, headers + chart + "TITLEZH:Late\n", "TITLE:English\nTITLEJA:" + strings.Repeat("a", 501) + "\n" + chart} {
 		_, issue := Parse([]byte(bad), "utf-8", "music.ogg")
@@ -35,7 +39,7 @@ func TestLocalizedTitles(t *testing.T) {
 		t.Fatalf("Shift-JIS: %+v %v", m, issue)
 	}
 	m, issue = Parse([]byte("TITLE:English\n"+chart), "utf-8", "music.ogg")
-	if issue != nil || m.TitleTranslations == nil || m.SubtitleTranslations == nil || len(m.TitleTranslations) != 0 {
-		t.Fatal("missing languages must be empty maps")
+	if issue != nil || m.TitleTranslations == nil || m.SubtitleTranslations == nil || len(m.TitleTranslations) != 1 || m.TitleTranslations["en"] != "English" {
+		t.Fatal("default English must be included")
 	}
 }

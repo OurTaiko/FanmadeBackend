@@ -61,9 +61,9 @@ func (s *Server) searchCharts(w http.ResponseWriter, r *http.Request, owner stri
 			return
 		}
 	}
-	where := ` WHERE ` + publishedChart + ` AND ($1='' OR COALESCE(c.title_override,c.title) ILIKE '%'||$1||'%' OR COALESCE(c.subtitle_override,c.subtitle) ILIKE '%'||$1||'%' OR EXISTS(SELECT 1 FROM difficulties dm WHERE dm.chart_id=c.id AND dm.maker ILIKE '%'||$1||'%')
-	 OR EXISTS(SELECT 1 FROM jsonb_each_text(c.title_translations || c.title_translation_overrides) t WHERE t.value ILIKE '%'||$1||'%')
-	 OR EXISTS(SELECT 1 FROM jsonb_each_text(c.subtitle_translations || c.subtitle_translation_overrides) t WHERE t.value ILIKE '%'||$1||'%')) AND ($2='' OR c.owner_id=$2) AND EXISTS(SELECT 1 FROM difficulties d WHERE d.chart_id=c.id AND ($3='' OR d.course=$3) AND ($4::int=-1 OR d.level=$4))`
+	where := ` WHERE ` + publishedChart + ` AND ($1='' OR c.title ILIKE '%'||$1||'%' OR c.subtitle ILIKE '%'||$1||'%' OR EXISTS(SELECT 1 FROM difficulties dm WHERE dm.chart_id=c.id AND dm.maker ILIKE '%'||$1||'%')
+	 OR EXISTS(SELECT 1 FROM jsonb_each_text(c.title_translations) t WHERE t.value ILIKE '%'||$1||'%')
+	 OR EXISTS(SELECT 1 FROM jsonb_each_text(c.subtitle_translations) t WHERE t.value ILIKE '%'||$1||'%')) AND ($2='' OR c.owner_id=$2) AND EXISTS(SELECT 1 FROM difficulties d WHERE d.chart_id=c.id AND ($3='' OR d.course=$3) AND ($4::int=-1 OR d.level=$4))`
 	var total int
 	if !all {
 		if e := s.DB.QueryRow(r.Context(), `SELECT count(*) FROM charts c JOIN users u ON u.id=c.owner_id`+where, q, owner, course, level).Scan(&total); e != nil {

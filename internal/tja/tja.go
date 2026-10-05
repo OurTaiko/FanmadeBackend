@@ -12,7 +12,7 @@ import (
 	"ourtaiko.dev/fanmade/api/internal/audio"
 )
 
-const Version = "tja-upload-v6"
+const Version = "tja-upload-v7"
 const MaxTJA = 2 * 1024 * 1024
 const MaxAudio = 100 * 1024 * 1024
 
@@ -64,7 +64,7 @@ func SafeFilename(s string) bool {
 }
 
 var number = regexp.MustCompile(`^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)$`)
-var localizedFields = map[string]string{"TITLEJA": "ja", "TITLEZH": "zh", "TITLEKO": "ko", "SUBTITLEJA": "ja", "SUBTITLEZH": "zh", "SUBTITLEKO": "ko"}
+var localizedFields = map[string]string{"TITLEEN": "en", "SUBTITLEEN": "en", "TITLEJA": "ja", "TITLEZH": "zh", "TITLEKO": "ko", "SUBTITLEJA": "ja", "SUBTITLEZH": "zh", "SUBTITLEKO": "ko"}
 
 func numeric(s string) (float64, bool) {
 	n, e := strconv.ParseFloat(s, 64)
@@ -254,6 +254,12 @@ func Parse(data []byte, encoding, audioName string) (Metadata, *Issue) {
 	}
 	if m.Title == "" || m.BPM <= 0 || inBlock || len(m.Difficulties) == 0 {
 		return m, fail("TJA_STRUCTURE_INVALID", "需要 TITLE、正数 BPM 和完整谱面块", 0)
+	}
+	if _, ok := m.TitleTranslations["en"]; !ok {
+		m.TitleTranslations["en"] = m.Title
+	}
+	if _, ok := m.SubtitleTranslations["en"]; !ok {
+		m.SubtitleTranslations["en"] = m.Subtitle
 	}
 	return m, nil
 }

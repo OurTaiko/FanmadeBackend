@@ -19,7 +19,7 @@
 | POST | /charts | multipart：tja、audio、encoding（默认 utf-8）、description（可空）、categoryIds、difficultyMakers（可选 JSON）；首次创建 201，同请求重试 200 |
 | PUT | /charts/{id}/files | 作者或管理员整体替换 TJA／音频，删除旧文件及成绩，只保存当前资源，返回 200 |
 | GET | /charts/{id} | 当前已发布歌曲详情 |
-| PATCH | /charts/{id} | 作者或管理员修改默认英文及 ja/zh/ko 名称／副标题，返回更新后的作品 |
+| PATCH | /charts/{id} | 作者或管理员修改 en/ja/zh/ko 名称／副标题，返回更新后的作品 |
 | DELETE | /charts/{id} | 本人软删除；后续资源访问返回 404 |
 | GET | /charts/{id}/tja | 原始 TJA 字节，attachment |
 | GET / HEAD | /charts/{id}/audio | 原始 OGG 或 MP3 流，支持 Range、ETag、If-Range；Content-Type 分别为 audio/ogg、audio/mpeg |
@@ -57,7 +57,7 @@
 ]
 ```
 
-后端解析 STYLE 值时不区分大小写，支持 Single/0、Double/1 和 ESE 中的 Duet（按 Double）。STYLE 在当前 COURSE 内持续生效直到下一次 STYLE 声明，每次 COURSE 声明恢复默认 Single；P1/P2 块无论 STYLE 如何均按 Double。未知 STYLE 或在谱面块内部声明 STYLE 返回 422 `TJA_STRUCTURE_INVALID`，包含行号。前后端校验标识为 `tja-upload-v6`，都拒绝不支持的难度；STYLE、重复单人难度等规则仍由后端权威校验。
+后端解析 STYLE 值时不区分大小写，支持 Single/0、Double/1 和 ESE 中的 Duet（按 Double）。STYLE 在当前 COURSE 内持续生效直到下一次 STYLE 声明，每次 COURSE 声明恢复默认 Single；P1/P2 块无论 STYLE 如何均按 Double。未知 STYLE 或在谱面块内部声明 STYLE 返回 422 `TJA_STRUCTURE_INVALID`，包含行号。前后端校验标识为 `tja-upload-v7`，都拒绝不支持的难度；STYLE、重复单人难度等规则仍由后端权威校验。
 
 每个 TJA 的同一难度最多一个 Single 块。重复时在上传阶段返回 422 `TJA_DIFFICULTY_DUPLICATE`，`errors[0].line` 指向重复块的 #START，message 指出首次声明行号。难度名与数字别名归一化后比较，修改 LEVEL 不会使重复难度合法；P1/P2 和显式 Double 块不参与这个单人重复检查。
 
@@ -111,9 +111,9 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
 
 ## 多语言名称与编辑
 
-作品响应新增 `titleTranslations`、`subtitleTranslations` 对象，键为 ja/zh/ko，默认英文仍为 `title`、`subtitle`。缺失语言不返回对应键，显式空值保留为字符串 `""`。GET 列表的 q 同时搜索默认和多语言名称、副标题。
+作品响应始终完整返回 `titleTranslations`、`subtitleTranslations` 字典（支持 en/ja/zh/ko），英文也在 en 键内。`title`、`subtitle` 保留 TJA 原文，不代表当前显示语言。后端不按 Accept-Language 或请求语言筛选；由前端和游戏客户端选择显示语言及回退。缺失翻译不伪造对应键，显式空值保留为字符串 `""`。GET 列表的 q 搜索原文和所有翻译。
 
-`PATCH /api/v1/charts/{id}` 只接受四个字段：title、subtitle、titleTranslations、subtitleTranslations。登录上传者可以部分修改，缺省字段保持不变；null 恢复原文件值，副标题空字符串表示清空。JSON 请求需要现有 Cookie、Origin 与 X-CSRF-Token；成功 200 返回更新后的完整作品。返回 401 未登录、403 无所有权／CSRF／来源不正确、404 不存在或已下架、400 请求格式或未知字段错误、415 非 JSON、422 `METADATA_INVALID` 内容／语言／长度不合法。完整请求示例、逐语言恢复规则和存储边界见 [多语言与管理说明](LOCALIZATION.md)。
+`PATCH /api/v1/charts/{id}` 接受 titleTranslations、subtitleTranslations 和 categoryIds；旧 title/subtitle 写入仅作为 en 翻译的兼容别名，与相应字典 en 同时提交会被拒绝。登录上传者可以部分修改，缺省字段保持不变；null 恢复原文件值，副标题空字符串表示清空。JSON 请求需要现有 Cookie、Origin 与 X-CSRF-Token；成功 200 返回更新后的完整作品。返回 401 未登录、403 无所有权／CSRF／来源不正确、404 不存在或已下架、400 请求格式或未知字段错误、415 非 JSON、422 `METADATA_INVALID` 内容／语言／长度不合法。完整请求示例、逐语言恢复规则和存储边界见 [多语言与管理说明](LOCALIZATION.md)。
 
 编辑仅改变网站展示与搜索，下载仍是原始 TJA，已保存成绩和歌曲 ID 不变。前端详情页已提供作者／管理员可见的编辑弹窗。
 

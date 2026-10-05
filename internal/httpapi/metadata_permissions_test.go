@@ -103,6 +103,33 @@ func TestMetadataAuthorOrAdmin(t *testing.T) {
 	if storedCover.Code != http.StatusOK || !bytes.Equal(storedCover.Body.Bytes(), coverBytes) {
 		t.Fatal("metadata edit changed cover bytes")
 	}
+
+	// Every response carries every language. Request language never selects a title.
+	all := call("d46774d30dd13b92d9e536808da468a4", "csrf", `{"titleTranslations":{"en":"English","ja":"日本語","zh":"中文","ko":"한국어"},"subtitleTranslations":{"en":"English subtitle","ja":"副題","zh":"副标题","ko":"부제"}}`)
+	var allChart Chart
+	if all.Code != 200 || json.Unmarshal(all.Body.Bytes(), &allChart) != nil || len(allChart.TitleTranslations) != 4 || allChart.Title != "Original" {
+		t.Fatalf("incomplete dictionary: %s", all.Body.String())
+	}
+	for _, lang := range []string{"en", "ja", "zh", "ko"} {
+		rr := httptest.NewRequest("GET", "/api/v1/charts/chart?lang="+lang, nil)
+		rr.Header.Set("Accept-Language", lang)
+		ww := httptest.NewRecorder()
+		handler.ServeHTTP(ww, rr)
+		var got Chart
+		if ww.Code != 200 || json.Unmarshal(ww.Body.Bytes(), &got) != nil || len(got.TitleTranslations) != 4 || len(got.SubtitleTranslations) != 4 || got.Title != "Original" || got.TitleTranslations["en"] != "English" {
+			t.Fatalf("server selected %s: %s", lang, ww.Body.String())
+		}
+	}
+	// Restore uses immutable source TJA, without another database overlay.
+	source := []byte("TITLE:Original\nTITLEEN:Source English\nTITLEJA:原文\nSUBTITLE:Raw subtitle\nBPM:120\nWAVE:a.ogg\nCOURSE:Oni\nLEVEL:5\n#START\n1000,\n#END\n")
+	if err = os.WriteFile(filepath.Join(storage, "t"), source, 0600); err != nil {
+		t.Fatal(err)
+	}
+	restored := call("d46774d30dd13b92d9e536808da468a4", "csrf", `{"titleTranslations":{"en":null,"ja":null},"subtitleTranslations":{"en":null}}`)
+	var restoredChart Chart
+	if restored.Code != 200 || json.Unmarshal(restored.Body.Bytes(), &restoredChart) != nil || restoredChart.TitleTranslations["en"] != "Source English" || restoredChart.TitleTranslations["ja"] != "原文" || restoredChart.TitleTranslations["ko"] != "한국어" || restoredChart.SubtitleTranslations["en"] != "Raw subtitle" {
+		t.Fatalf("source restore lost translations: %s", restored.Body.String())
+	}
 	r := httptest.NewRequest("GET", "/api/v1/me", nil)
 	r.AddCookie(&http.Cookie{Name: "ourtaiko_session", Value: tokens["5f63f79d876d201a13f8710453636837"]})
 	w := httptest.NewRecorder()
@@ -119,7 +146,7 @@ func TestMetadataAuthorOrAdmin(t *testing.T) {
 		t.Fatalf("old session kept admin: %s", w.Body.String())
 	}
 	var title string
-	if err = pool.QueryRow(ctx, `SELECT title_override FROM charts WHERE id='chart'`).Scan(&title); err != nil || title != "Admin edit" {
+	if err = pool.QueryRow(ctx, `SELECT title_translations->>'en' FROM charts WHERE id='chart'`).Scan(&title); err != nil || title != "Source English" {
 		t.Fatalf("denied write changed title: %s %v", title, err)
 	}
 	// Registration does not accept an administrator flag.

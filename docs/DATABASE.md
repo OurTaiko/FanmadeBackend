@@ -107,21 +107,17 @@ erDiagram
 | description | text，默认空串 | 作品说明 |
 | status | text，默认 published；published/deleted/hidden | 发布、软删除、隐藏 |
 | created_at | timestamptz，默认 now() | 创建时间 |
-| title_override | text，可空 | 标题覆盖；非空时去首尾空格后非空，最多 500 字节 |
-| subtitle_override | text，可空 | 副标题覆盖，最多 500 字节，可为空串 |
-| title_translation_overrides | jsonb，默认 {}，CHECK 为 object | 各语言标题覆盖 |
-| subtitle_translation_overrides | jsonb，默认 {}，CHECK 为 object | 各语言副标题覆盖 |
 | metadata_updated_at | timestamptz，可空 | 展示元数据更新时间 |
 | title | text | 文件解析的默认标题 |
 | subtitle | text，默认空串 | 默认副标题 |
-| title_translations / subtitle_translations | jsonb，各默认 {}，CHECK 为 object | 文件内 ja/zh/ko 翻译 |
+| title_translations / subtitle_translations | jsonb，各默认 {}，CHECK 为 object | 完整 en/ja/zh/ko 翻译，编辑直接保存于此 |
 | bpm | double precision，CHECK > 0 且 < Infinity | BPM |
 | offset_seconds / demo_start | double precision，各默认 0 | 偏移与试听起点，秒 |
 | duration | double precision，CHECK > 0 且 ≤ 1200 | 音频时长，秒 |
 | encoding | text，utf-8 / shift-jis | 实际保存的 TJA 编码 |
 | wave_filename | text | 音频文件名 |
 
-没有歌曲版本 ID、版本号、`validation_version` 或历史资源行。014 已将 maker 移到难度块。展示覆盖列为 NULL / 对应翻译键缺失时继承文件解析元数据，普通编辑仅修改覆盖列。
+没有歌曲版本 ID、版本号、`validation_version` 或历史资源行。014 已将 maker 移到难度块。迁移 027 将旧英文及其他语言的修改合并到翻译字典，并删除四个 override 列。普通编辑直接更新字典；恢复原值时读取当前 TJA，不存储额外覆盖层。title/subtitle 保留原始 TJA 文本，API 不选择显示语言。
 
 ### difficulties
 

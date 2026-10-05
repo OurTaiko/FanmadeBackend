@@ -101,7 +101,7 @@ func TestLeaderboard(t *testing.T) {
 		get(path+"?page="+page, 400, "QUERY_INVALID")
 	}
 	get("/api/v1/charts/missing/leaderboard", 404, "CHART_NOT_FOUND")
-	if _, err := pool.Exec(ctx, `UPDATE charts SET title_override='Renamed' WHERE id=$1`, song); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE charts SET title_translations=jsonb_build_object('en','Renamed') WHERE id=$1`, song); err != nil {
 		t.Fatal(err)
 	}
 	if v := get(path, 200, ""); v.Items[0].ID != "score00" || v.Total != 23 {

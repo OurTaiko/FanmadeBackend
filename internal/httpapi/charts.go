@@ -42,7 +42,7 @@ const supportedCoursesSQL = "('Easy','Normal','Hard','Oni','Edit')"
 const publishedChart = `c.status='published' AND NOT EXISTS (SELECT 1 FROM difficulties excluded
  WHERE excluded.chart_id=c.id AND excluded.course NOT IN ` + supportedCoursesSQL + `)`
 
-const chartSelect = `SELECT c.id,c.owner_id,''::text,c.description,c.created_at,c.duration,c.encoding,tf.original_filename,af.original_filename,tf.sha256,af.sha256,af.byte_size,tf.storage_key,af.storage_key,COALESCE(c.title_override,c.title),COALESCE(c.subtitle_override,c.subtitle),c.bpm,c.offset_seconds,c.demo_start,c.wave_filename,c.title_translations || c.title_translation_overrides,c.subtitle_translations || c.subtitle_translation_overrides,
+const chartSelect = `SELECT c.id,c.owner_id,''::text,c.description,c.created_at,c.duration,c.encoding,tf.original_filename,af.original_filename,tf.sha256,af.sha256,af.byte_size,tf.storage_key,af.storage_key,c.title,c.subtitle,c.bpm,c.offset_seconds,c.demo_start,c.wave_filename,c.title_translations,c.subtitle_translations,
  COALESCE((SELECT jsonb_agg(jsonb_build_object('maker',d.maker,'course',d.course,'level',d.level,'blockIndex',d.block_index,'player',d.player,'style',d.style,'cloudScoreEligible',d.cloud_score_eligible) ORDER BY d.block_index) FROM difficulties d WHERE d.chart_id=c.id),'[]'::jsonb),
  ARRAY(SELECT cc.category_id FROM chart_categories cc WHERE cc.chart_id=c.id ORDER BY cc.category_id)
  FROM charts c JOIN chart_resources tf ON tf.chart_id=c.id AND tf.kind='tja' JOIN chart_resources af ON af.chart_id=c.id AND af.kind='audio' `

@@ -90,7 +90,7 @@ DOUBLE 谱面不记录云端成绩，但仍可上传与下载。后端按块解�
 
 所有变更使用 Conventional Commits。远端仓库：[OurTaiko/Fanmade_Backend](https://github.com/OurTaiko/Fanmade_Backend)，使用 `ourtaiko` 远端管理。
 
-后端已解析 TITLE/SUBTITLE 的 JA、ZH、KO 字段并回填旧谱面；默认字段按英文保存。作者或管理员可用 `PATCH /api/v1/charts/{id}` 修改默认及多语言名称、副标题，支持 null 恢复原值。修改只影响网站元数据和搜索，原始 TJA 与成绩不变；前端详情页已提供编辑弹窗。[管理员配置说明](docs/ADMIN.md)。
+所有名称翻译统一保存在 `title_translations` / `subtitle_translations`（en/ja/zh/ko）。接口完整返回语言字典，由网页和游戏选择显示语言；`title` / `subtitle` 保留 TJA 原文。作者或管理员可用 `PATCH /api/v1/charts/{id}` 修改各语言名称、副标题，支持 null 从当前 TJA 恢复原值。修改只影响网站元数据和搜索，原始 TJA 与成绩不变；前端详情页已提供编辑弹窗。[管理员配置说明](docs/ADMIN.md)。
 
 ## TJA 编码与保存
 

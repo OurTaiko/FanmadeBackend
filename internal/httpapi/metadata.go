@@ -2,11 +2,15 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"maps"
 	"mime"
 	"net/http"
+	"ourtaiko.dev/fanmade/api/internal/tja"
 	"strings"
 	"unicode"
 
@@ -20,10 +24,7 @@ type metadataPatch struct {
 	TitleTranslations    json.RawMessage `json:"titleTranslations"`
 	SubtitleTranslations json.RawMessage `json:"subtitleTranslations"`
 }
-type metadataOverrides struct {
-	Title, Subtitle   *string
-	Titles, Subtitles map[string]string
-}
+type metadataTranslations struct{ Titles, Subtitles map[string]string }
 
 func validDisplayText(s string, title bool) bool {
 	if len(s) > 500 || (title && strings.TrimSpace(s) == "") {
@@ -37,31 +38,14 @@ func validDisplayText(s string, title bool) bool {
 	return true
 }
 
-func patchText(raw json.RawMessage, dst **string, title bool) bool {
-	if len(raw) == 0 {
-		return true
-	}
-	var value *string
-	if json.Unmarshal(raw, &value) != nil {
-		return false
-	}
-	if value != nil {
-		trimmed := strings.TrimSpace(*value)
-		value = &trimmed
-		if !validDisplayText(*value, title) {
-			return false
-		}
-	}
-	*dst = value
-	return true
-}
-
-func patchTranslations(raw json.RawMessage, dst *map[string]string, title bool) bool {
+// null restores the corresponding value from the original TJA. Dictionaries
+// themselves contain authoritative translations, not an overlay layer.
+func patchTranslations(raw json.RawMessage, dst *map[string]string, original map[string]string, title bool) bool {
 	if len(raw) == 0 {
 		return true
 	}
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-		*dst = map[string]string{}
+		*dst = maps.Clone(original)
 		return true
 	}
 	var patch map[string]*string
@@ -72,11 +56,15 @@ func patchTranslations(raw json.RawMessage, dst *map[string]string, title bool) 
 		*dst = map[string]string{}
 	}
 	for locale, value := range patch {
-		if locale != "ja" && locale != "zh" && locale != "ko" {
+		if locale != "en" && locale != "ja" && locale != "zh" && locale != "ko" {
 			return false
 		}
 		if value == nil {
-			delete(*dst, locale)
+			if text, ok := original[locale]; ok {
+				(*dst)[locale] = text
+			} else {
+				delete(*dst, locale)
+			}
 		} else {
 			text := strings.TrimSpace(*value)
 			if !validDisplayText(text, title) {
@@ -88,11 +76,77 @@ func patchTranslations(raw json.RawMessage, dst *map[string]string, title bool) 
 	return true
 }
 
-func (p metadataPatch) apply(o *metadataOverrides) bool {
+func (p metadataPatch) apply(o *metadataTranslations, original metadataTranslations) bool {
 	if len(p.Title)+len(p.Subtitle)+len(p.TitleTranslations)+len(p.SubtitleTranslations)+len(p.CategoryIDs) == 0 {
 		return false
 	}
-	return patchText(p.Title, &o.Title, true) && patchText(p.Subtitle, &o.Subtitle, false) && patchTranslations(p.TitleTranslations, &o.Titles, true) && patchTranslations(p.SubtitleTranslations, &o.Subtitles, false)
+	// Legacy scalar writes are aliases for English only. Reads remain raw source
+	// text plus complete dictionaries, independent of request locale.
+	for _, pair := range [][2]json.RawMessage{{p.Title, p.TitleTranslations}, {p.Subtitle, p.SubtitleTranslations}} {
+		if len(pair[0]) > 0 {
+			var dict map[string]json.RawMessage
+			_ = json.Unmarshal(pair[1], &dict)
+			if _, exists := dict["en"]; exists {
+				return false
+			}
+		}
+	}
+	if !patchTranslations(p.TitleTranslations, &o.Titles, original.Titles, true) || !patchTranslations(p.SubtitleTranslations, &o.Subtitles, original.Subtitles, false) {
+		return false
+	}
+	for _, field := range []struct {
+		raw      json.RawMessage
+		dst      *map[string]string
+		original map[string]string
+		title    bool
+	}{{p.Title, &o.Titles, original.Titles, true}, {p.Subtitle, &o.Subtitles, original.Subtitles, false}} {
+		if len(field.raw) > 0 {
+			raw := append([]byte(`{"en":`), field.raw...)
+			raw = append(raw, '}')
+			if !patchTranslations(raw, field.dst, field.original, field.title) {
+				return false
+			}
+		}
+	}
+	return true
+}
+func translationReset(raw json.RawMessage) bool {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return true
+	}
+	var dict map[string]json.RawMessage
+	if json.Unmarshal(raw, &dict) != nil {
+		return false
+	}
+	for _, v := range dict {
+		if bytes.Equal(bytes.TrimSpace(v), []byte("null")) {
+			return true
+		}
+	}
+	return false
+}
+func (s *Server) sourceTranslations(ctx context.Context, tx pgx.Tx, id string) (metadataTranslations, error) {
+	var key, encoding, wave string
+	if err := tx.QueryRow(ctx, `SELECT r.storage_key,c.encoding,c.wave_filename FROM charts c JOIN chart_resources r ON r.chart_id=c.id AND r.kind='tja' WHERE c.id=$1`, id).Scan(&key, &encoding, &wave); err != nil {
+		return metadataTranslations{}, err
+	}
+	f, err := s.Config.Objects.Open(ctx, key)
+	if err != nil {
+		return metadataTranslations{}, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, tja.MaxTJA+1))
+	if err != nil {
+		return metadataTranslations{}, err
+	}
+	if len(data) > tja.MaxTJA {
+		return metadataTranslations{}, fmt.Errorf("source TJA exceeds limit")
+	}
+	parsed, issue := tja.Parse(data, encoding, wave)
+	if issue != nil {
+		return metadataTranslations{}, issue
+	}
+	return metadataTranslations{parsed.TitleTranslations, parsed.SubtitleTranslations}, nil
 }
 
 func (s *Server) editMetadata(w http.ResponseWriter, r *http.Request) {
@@ -120,8 +174,9 @@ func (s *Server) editMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	var owner string
-	var overrides metadataOverrides
-	err = tx.QueryRow(r.Context(), `SELECT owner_id,title_override,subtitle_override,title_translation_overrides,subtitle_translation_overrides FROM charts c WHERE c.id=$1 AND `+publishedChart+` FOR UPDATE`, r.PathValue("id")).Scan(&owner, &overrides.Title, &overrides.Subtitle, &overrides.Titles, &overrides.Subtitles)
+	var translations metadataTranslations
+	var sourceTitle, sourceSubtitle string
+	err = tx.QueryRow(r.Context(), `SELECT owner_id,title,subtitle,title_translations,subtitle_translations FROM charts c WHERE c.id=$1 AND `+publishedChart+` FOR UPDATE`, r.PathValue("id")).Scan(&owner, &sourceTitle, &sourceSubtitle, &translations.Titles, &translations.Subtitles)
 	if errors.Is(err, pgx.ErrNoRows) {
 		problem(w, 404, "CHART_NOT_FOUND", "作品不存在或已下架")
 		return
@@ -134,8 +189,16 @@ func (s *Server) editMetadata(w http.ResponseWriter, r *http.Request) {
 		problem(w, 403, "FORBIDDEN", "只有作品作者或网站管理员可以修改信息")
 		return
 	}
-	if !patch.apply(&overrides) {
-		problem(w, 422, "METADATA_INVALID", "需要有效的名称／副标题；每项最多 500 字节，名称不能为空，多语言仅支持 ja、zh、ko，null 恢复原值")
+	original := metadataTranslations{map[string]string{"en": sourceTitle}, map[string]string{"en": sourceSubtitle}}
+	if translationReset(patch.TitleTranslations) || translationReset(patch.SubtitleTranslations) {
+		original, err = s.sourceTranslations(r.Context(), tx, r.PathValue("id"))
+		if err != nil {
+			internal(w, err)
+			return
+		}
+	}
+	if !patch.apply(&translations, original) {
+		problem(w, 422, "METADATA_INVALID", "需要有效的名称／副标题；每项最多 500 字节，名称不能为空，多语言仅支持 en、ja、zh、ko，null 恢复原值")
 		return
 	}
 	if len(patch.CategoryIDs) > 0 {
@@ -159,7 +222,7 @@ func (s *Server) editMetadata(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(patch.Title)+len(patch.Subtitle)+len(patch.TitleTranslations)+len(patch.SubtitleTranslations) > 0 {
-		_, err = tx.Exec(r.Context(), `UPDATE charts SET title_override=$2,subtitle_override=$3,title_translation_overrides=$4,subtitle_translation_overrides=$5,metadata_updated_at=now() WHERE id=$1`, r.PathValue("id"), overrides.Title, overrides.Subtitle, overrides.Titles, overrides.Subtitles)
+		_, err = tx.Exec(r.Context(), `UPDATE charts SET title_translations=$2,subtitle_translations=$3,metadata_updated_at=now() WHERE id=$1`, r.PathValue("id"), translations.Titles, translations.Subtitles)
 		if err != nil {
 			internal(w, err)
 			return

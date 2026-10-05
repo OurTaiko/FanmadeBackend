@@ -1,60 +1,33 @@
-# 多语言名称与谱面信息管理
+# 歌曲名称与翻译
 
-2026-09-13 原地检查本机 ESE 的全部 3,087 份 UTF-8 TJA，发现以下 8 个字段。数量为字段声明次数，包含空值，也包含因其他校验原因暂不接受上传的文件。
+## 存储及完整返回
 
-| 语言 | 标题字段 | 次数 | 副标题字段 | 次数 |
-| --- | --- | ---: | --- | ---: |
-| 默认英文 | TITLE | 3087 | SUBTITLE | 3085 |
-| 日文 ja | TITLEJA | 2921 | SUBTITLEJA | 2145 |
-| 中文 zh | TITLEZH | 1204 | SUBTITLEZH | 743 |
-| 韩文 ko | TITLEKO | 764 | SUBTITLEKO | 30 |
+`charts.title` / `subtitle` 保留当前 TJA 的原文。所有语言翻译统一保存在 `title_translations` / `subtitle_translations` JSONB 字典，支持 `en`、`ja`、`zh`、`ko`。没有 override 列或显示标题覆盖层。
 
-未发现 TITLEEN、SUBTITLEEN 或其他语言后缀。遵循项目约定，TITLE/SUBTITLE 作为默认英文；不根据字段值实际使用的文字自动猜测语言。例如部分 TITLEZH 内容仍为日文或英文，照原值保存。
+列表、详情、上传和编辑响应完整返回 `titleTranslations` / `subtitleTranslations`，不因 Accept-Language、用户偏好或请求参数改变内容。网页和游戏自行选择语言及回退，不把选择后的字符串写回原文。
 
-后端自 `tja-upload-v4` 起解析六个语言字段（当前为 v5），保留空值及 `--`、`++` 等原始前缀；同一字段不得重复，必须在首个 #START 前，每项上限 500 字节。UTF-8 与显式 Shift-JIS 都经过统一解码再提取。没有声明的语言不创建键，不自动复制英文文本充当翻译。
+解析器 `tja-upload-v7` 支持 TITLEEN/JA/ZH/KO 和 SUBTITLEEN/JA/ZH/KO。未提供 EN 时按既有项目约定由 TITLE/SUBTITLE 初始化 en；不猜测文本语言。其他缺失语言不创建键。显式空字符串和副标题 --/++ 前缀保留。重复字段、谱面开始后的语言字段及超过 500 字节的值被拒绝；UTF-8 与显式 Shift-JIS 统一解码。
 
-## 入库与返回
+## 编辑
 
-默认英文仍使用 `chart_data.title`、`subtitle`，保持原有接口兼容。新增 `title_translations` 和 `subtitle_translations` 两个 JSONB 列，键为 ja/zh/ko。接口返回 `titleTranslations` 与 `subtitleTranslations`，不含 en，默认英文从 title/subtitle 读取。列表、详情、上传与修改成功响应均包含这些字段。
-
-迁移 006 读取所有已有版本对应的原始 TJA，事务回填新增字段，不改原始文件、默认标题、文件哈希、版本 ID 或成绩；缺失文件或解析失败时回滚并指出版本，需要恢复配套资源再执行。原 validation_version 仍记录当次上传的校验版本。
-
-## 修改名称和副标题
-
-作品作者（owner 上传账号）或网站管理员登录后使用 `PATCH /api/v1/charts/{id}`，携带与其他写接口一致的 Cookie、Origin 和 X-CSRF-Token。例如：
+作者或网站管理员通过 `PATCH /api/v1/charts/{id}` 更新字典，需现有 Cookie、Origin 和 X-CSRF-Token：
 
 ```json
 {
-  "title": "Happy Synthesizer",
-  "subtitle": "EasyPop feat. Megurine Luka & GUMI",
-  "titleTranslations": {
-    "ja": "ハッピーシンセサイザ",
-    "zh": "快乐合成器"
-  },
-  "subtitleTranslations": {
-    "zh": "EasyPop feat. 巡音流歌、GUMI"
-  }
+  "titleTranslations": {"en": "English name", "ja": "日本語名", "zh": "中文名", "ko": "한국어 이름"},
+  "subtitleTranslations": {"en": "English subtitle", "zh": "中文副标题"}
 }
 ```
 
-- 只更新传入的字段；未传的字段和语言保持原样。
-- 默认名称、翻译名称不能为空；副标题允许 `""`，表示明确清空。
-- 默认字段传 `null` 恢复原始 TJA 值，例如 `{"title":null}`。
-- 语言值传 `null` 移除该语言的修改，恢复文件值，例如 `{"titleTranslations":{"zh":null}}`；原文件没有该语言则恢复为无此键。
-- 整个 translations 字段传 `null` 恢复这一组全部语言；空对象 `{}` 不改变这一组。
-- 每项最多 500 字节；修改值去除首尾空白，不接受控制字符；翻译键仅允许 ja/zh/ko。
+- 缺省语言保持不变；副标题空串表示清空。
+- 单个语言传 null，从当前 TJA 恢复此语言；文件没有该语言则删除键。整个字典传 null，恢复文件中的全部翻译。源文件读取失败时不保存修改。
+- 每项最多 500 字节，输入去除首尾空白、不接受控制字符，标题不得为空。
+- 旧 title/subtitle 写入只作为 en 翻译兼容别名；不得与字典内对应 en 同时提交。读取时 title/subtitle 始终为原文。
+- 编辑只改变字典和 metadata_updated_at，不重写 TJA、音频、资源哈希或成绩。搜索匹配原文和所有翻译。
+- 替换上传整个歌曲文件时，从新 TJA 重新生成原文和全部翻译，不继承旧翻译。
 
-修改内容存于 charts 的覆盖字段，与文件版本的原始解析结果分开。修改在事务中锁定作品并合并，因此并发修改不同字段不会因整体覆盖而丢失；同字段最终以最后执行的修改为准。metadata_updated_at 记录最后成功编辑时间，目前没有历史编辑审计列表。
+## 迁移 027
 
-列表、详情和搜索使用修改后的名称及副标题（含各语言），不修改歌曲 ID、难度块、文件哈希和成绩。原始 TJA／ZIP 下载仍保持上传时的字节：网站改名不会自动改变模拟器从 TJA 内读取到的名称。游戏若要显示网站修改后的名称，应读取 API 元数据；修改原始谱面文件需要资源替换接口。
+为英文建立 en 键，依次合并原字典、旧语言修改、旧英文修改，保留用户编辑值和显式空副标题；然后删除 title_override、subtitle_override、title_translation_overrides、subtitle_translation_overrides。歌曲 ID、资源键、文件哈希、成绩及其他业务数据不变。
 
-前端已实现“歌曲详情 → 编辑信息”弹窗，仅作者或管理员显示按钮，提供默认英文及日／中／韩名称、副标题和按语言恢复原值。保存后详情即时更新；取消／Escape 不保存；失败保留输入。展示语言切换仍为后续功能。
-
-管理员来自 users.is_admin，由后端每次验证会话时读取；不是客户端提交值。注册默认普通用户，角色撤销后已有会话的下一次编辑也会被拒绝。配置方式见 [管理员说明](ADMIN.md)。
-
-## 验证
-
-- `go test ./...`、`go vet ./...`。
-- `ESE_ROOT=~/Documents/GitHub/ESE go test ./internal/tja` 全量解析。
-- `DATABASE_TEST_URL=... go test ./internal/database ./internal/httpapi` 在临时 schema 验证迁移和服务逻辑。
-- `python3 scripts/metadata_smoke.py` 用 ESE 原文件通过实际 API 验证上传解析、所有权与 CSRF、修改、搜索、恢复、成绩回执不变、ZIP 字节不变和删除后禁止编辑。测试作品软删除，源文件不改动。
+网页编辑器对四种语言使用相同字典请求，显示时依次尝试用户语言、en、原文。游戏端按自己的显示策略选择，详见 [客户端说明](GAME_CLIENT_RESOURCE_DOWNLOAD.md#歌曲名称与全部翻译)。

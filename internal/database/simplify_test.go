@@ -73,7 +73,7 @@ func TestSimplifyPreservesDataAndGroupsSchemas(t *testing.T) {
 		return result
 	}
 	before := snapshot()
-	if err = MigrateS3(ctx, pool, storage); err == nil || !strings.Contains(err.Error(), "must be migrated to S3") {
+	if err = migrateToMode(ctx, pool, storage, 25, true); err == nil || !strings.Contains(err.Error(), "must be migrated to S3") {
 		t.Fatalf("S3 accepted local-only cover: %v", err)
 	}
 	// A mismatched existing export must abort, leaving old tables and bytes intact.
@@ -84,7 +84,7 @@ func TestSimplifyPreservesDataAndGroupsSchemas(t *testing.T) {
 	if err = os.WriteFile(filepath.Join(storage, key), []byte("wrong bytes"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err = Migrate(ctx, pool, storage); err == nil || !strings.Contains(err.Error(), "integrity mismatch") {
+	if err = migrateTo(ctx, pool, storage, 25); err == nil || !strings.Contains(err.Error(), "integrity mismatch") {
 		t.Fatalf("bad cover accepted: %v", err)
 	}
 	var old bool
@@ -95,7 +95,7 @@ func TestSimplifyPreservesDataAndGroupsSchemas(t *testing.T) {
 		t.Fatal(err)
 	}
 	for range 2 {
-		if err = Migrate(ctx, pool, storage); err != nil {
+		if err = migrateTo(ctx, pool, storage, 25); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -140,7 +140,7 @@ func TestSimplifyPreservesDataAndGroupsSchemas(t *testing.T) {
 		if err = MigrateSSO(ctx, pool, func(context.Context, []string) error { return nil }); err != nil {
 			t.Fatal(err)
 		}
-		if err = Migrate(ctx, pool, storage); err != nil {
+		if err = migrateTo(ctx, pool, storage, 25); err != nil {
 			t.Fatal(err)
 		}
 	}
