@@ -1,6 +1,6 @@
 # 示范版 API
 
-基础路径 `/api/v1`。浏览器通过 Vite 的 `/api` 代理访问 Go 服务，开发环境不依赖跨域 Cookie。JSON 响应中的作品结构与前端 `src/api.ts` 对应；本次未启用 OpenAPI 类型生成。
+基础路径 `/api/v1`。浏览器通过 Vite 的 `/api` 代理访问 Go 服务，开发环境不依赖跨域 Cookie。当前歌曲结构见本文；既有网页前端 `src/api.ts` 需要同步适配 schema 024 的歌曲 ID 协议。本次未启用 OpenAPI 类型生成。
 
 | 方法 | 路径 | 行为 |
 | --- | --- | --- |
@@ -17,8 +17,8 @@
 | GET | /charts?q=&course=&level=&order=default&page=1 | 返回 `{items,total,page,pageSize}`；每页 12 |
 | GET | /me/charts | 本人作品列表，查询参数与公开列表一致 |
 | POST | /charts | multipart：tja、audio、encoding（默认 utf-8）、description（可空）、categoryIds、difficultyMakers（可选 JSON）；首次创建 201，同请求重试 200 |
-| PUT | /charts/{id}/files | 作者或管理员整体替换 TJA／音频，删除全部旧版本、文件及成绩，返回 200 |
-| GET | /charts/{id} | 当前已发布版本详情 |
+| PUT | /charts/{id}/files | 作者或管理员整体替换 TJA／音频，删除旧文件及成绩，只保存当前资源，返回 200 |
+| GET | /charts/{id} | 当前已发布歌曲详情 |
 | PATCH | /charts/{id} | 作者或管理员修改默认英文及 ja/zh/ko 名称／副标题，返回更新后的作品 |
 | DELETE | /charts/{id} | 本人软删除；后续资源访问返回 404 |
 | GET | /charts/{id}/tja | 原始 TJA 字节，attachment |
@@ -195,7 +195,7 @@ Fanmade `users` 只保存 SSO 用户 ID。昵称、登录名、邮箱状态、�
 - 网站曲库列表、详情、上传响应新增可选 `coverHash`（WebP SHA-256）；无封面时省略。游戏 category/bootstrap 响应保持原协议，不新增此字段。
 - `GET /api/v1/charts/{id}/cover`：公开读取已发布且受支持歌曲的封面，返回 `image/webp` 二进制，支持 HEAD、Range、ETag / If-None-Match。未知、已下架歌曲或无封面返回 404。可加 `?v=<coverHash>`；过期 hash 返回 404。`Cache-Control: public, no-cache` 要求每次重新验证，替换后旧 URL 不再返回原图。
 - `PUT /api/v1/charts/{id}/cover`：浏览器网站会话、正确 Origin 与 `X-CSRF-Token` 必需；只有 owner 可写（管理员身份不越过此限制）。multipart 仅允许一个 `cover` 文件；规则与新投稿相同。返回 `{ "coverHash": "..." }`。失败保留原封面；成功在同一事务中 DELETE 旧封面行再 INSERT 新行，不保存历史图片、原 JPG/PNG 或磁盘文件。
-- `PUT /api/v1/charts/{id}/files` 保留封面，不接受 `cover` 字段；独立封面替换不改变歌曲版本、谱面、音频或成绩。删除歌曲同时删除封面行。
+- `PUT /api/v1/charts/{id}/files` 保留封面，不接受 `cover` 字段；独立封面替换不改变谱面、音频或成绩。删除歌曲同时删除封面行。
 - 错误：400 字段/扩展名无效或重复；401 未登录；403 非 owner / CSRF / Origin 无效；413 超大小；422 内容损坏、类型不符或像素超限；503 编码器/数据库不可用或上传繁忙。
 
 运行依赖新增 `cwebp`（WebP tools）；migration 019 使用 `chart_covers.webp bytea` 存储转换后的图片，数据库备份包含封面。
@@ -228,13 +228,13 @@ PublicUser 为明确的公开字段集合，与 `/me` 的认证 User 不同：
 | firstLoginAt | RFC3339 时间或 null | 上线后记录的首次成功登录，不是账号注册时间 |
 | lastActiveAt | RFC3339 时间或 null | 登录/成功认证请求的最近记录时间，约每分钟写一次 |
 | chartCount | integer | 当前公开且支持的作品数量 |
-| scoreCount | integer | 当前公开作品版本的已保存成绩条数 |
+| scoreCount | integer | 当前公开作品的已保存成绩条数 |
 
 不返回登录名、邮箱、邮箱验证状态、应用权限、语言偏好或认证凭证。旧用户未知时间不以迁移时间/上传时间填充。公开 GET 查询不更新被查看用户的活跃时间。
 
 profilesAvailable=false 表示本次昵称查询失败，统计仍返回；个别 ID 无对应公开昵称时也可能为 null。带 q 的搜索遇到 SSO 故障返回 503 SERVICE_UNAVAILABLE，不返回误导性的空结果。
 
-成绩数量从后端数据库聚合，包含每局保存的记录，并非去重后的最高分数、在线状态或历史总游玩次数。隐藏/删除作品及旧版本不计入；替换歌曲删除旧成绩后统计随之变化。
+成绩数量从后端数据库聚合，包含每局保存的记录，并非去重后的最高分数、在线状态或历史总游玩次数。隐藏/删除作品不计入；替换歌曲删除旧成绩后统计随之变化。
 
 ### GET /api/v1/charts?owner=<id>
 
@@ -270,7 +270,7 @@ profilesAvailable=false 表示本次昵称查询失败，统计仍返回；个�
 
 ### 游戏搜索
 
-`GET /api/v1/game/search?q=&course=&level=&order=default` 默认无需登录，一次返回完整有序结果 `{items,total}`，不含 page/pageSize。items 使用 Chart 结构，可继续通过详情及版本文件接口下载游玩；游戏不需要的封面与上传者昵称不补查（coverHash 省略、uploader 为空）。网页继续使用 `/api/v1/charts`，保持 `{items,total,page,pageSize}`、每页 12 条及原有展示信息。
+`GET /api/v1/game/search?q=&course=&level=&order=default` 默认无需登录，一次返回完整有序结果 `{items,total}`，不含 page/pageSize。items 使用 Chart 结构，可继续通过详情及当前资源接口下载游玩；游戏不需要的封面与上传者昵称不补查（coverHash 省略、uploader 为空）。网页继续使用 `/api/v1/charts`，保持 `{items,total,page,pageSize}`、每页 12 条及原有展示信息。
 
 - `q` 可省略或为空，最多 200 UTF-8 字节；仅匹配公开标题、副标题、所有多语言翻译及难度署名，不匹配上传者昵称。与 `/charts` 共用相同搜索规则，不调用 SSO 昵称搜索。
 - `course` 可省略，或为 Easy / Normal / Hard / Oni / Edit；其他值返回 400。
@@ -278,7 +278,7 @@ profilesAvailable=false 表示本次昵称查询失败，统计仍返回；个�
 - 游戏不发送 page；网页 page 从 1 开始，最大 10000。只返回已发布、受支持的常规谱面，隐藏、删除和混有不支持难度的作品不返回。
 - 两条接口在 `internal/httpapi/search.go` 共用参数校验、筛选和完成状态排序。游戏仅执行一次列表查询，total 取本次结果数量，避免重复 COUNT 和逐页查询。
 
-搜索 `order` 可省略，或设为 `default`（默认）、`unfc`（未全连优先）、`unperfect`（未全良优先）。仅非默认顺序验证当前会话：网站 Cookie、游戏 Bearer。未登录或会话失效时忽略顺序参数，返回默认顺序；身份服务故障返回 503。已登录时依据本人当前谱面版本、符合难度/星数条件的历史成绩，将尚未达成者排前，再按创建时间和 ID 倒序；网页最后分页，游戏一次返回全部结果。不删除已达成谱面。全连要求零 bad 且存在判定，全良额外要求零 ok。默认顺序不校验登录。
+搜索 `order` 可省略，或设为 `default`（默认）、`unfc`（未全连优先）、`unperfect`（未全良优先）。仅非默认顺序验证当前会话：网站 Cookie、游戏 Bearer。未登录或会话失效时忽略顺序参数，返回默认顺序；身份服务故障返回 503。已登录时依据本人当前歌曲、符合难度/星数条件的历史成绩，将尚未达成者排前，再按创建时间和 ID 倒序；网页最后分页，游戏一次返回全部结果。不删除已达成谱面。全连要求零 bad 且存在判定，全良额外要求零 ok。默认顺序不校验登录。
 
 游戏和两种后端须同步升级；本次按要求不保留旧分页响应的兼容分支。个人顺序每次完整搜索只校验一次会话，不缓存身份来绕过撤销。
 
