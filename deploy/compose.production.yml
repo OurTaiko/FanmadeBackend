@@ -8,13 +8,15 @@ services:
     env_file:
       - path: /etc/ourtaiko-fanmade/docker/api.env
         format: raw
+      - path: /etc/ourtaiko-fanmade/docker/storage.env
+        format: raw
     environment:
       LISTEN_ADDR: 0.0.0.0:8080
-      STORAGE_DIR: /data/files
-    volumes: ['files:/data/files']
+      STORAGE_DIR: /tmp/staging
+      STORAGE_BACKEND: s3
     ports: ['127.0.0.1:8080:8080']
     read_only: true
-    tmpfs: ['/tmp:rw,noexec,nosuid,size=256m']
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=1g']
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
     healthcheck:
@@ -27,7 +29,5 @@ services:
     logging:
       driver: json-file
       options: {max-size: 10m, max-file: '3'}
-volumes:
-  files: {external: true, name: ourtaiko-fanmade-files}
 networks:
   shared: {external: true, name: ourtaiko-shared}
