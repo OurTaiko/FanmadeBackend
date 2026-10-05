@@ -27,7 +27,7 @@ func (s *Server) resourceLinks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	c, e := readChart(tx.QueryRow(r.Context(), chartSelect+` WHERE c.id=$1 AND `+publishedChart, r.PathValue("id")))
+	c, e := s.readChart(tx.QueryRow(r.Context(), chartSelect+` WHERE c.id=$1 AND `+publishedChart, r.PathValue("id")))
 	if errors.Is(e, pgx.ErrNoRows) {
 		problem(w, 404, "CHART_NOT_FOUND", "作品不存在或已下架")
 		return
@@ -93,6 +93,18 @@ func (s *Server) resourceLinks(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	e = tx.QueryRow(r.Context(), `SELECT storage_key,sha256,byte_size FROM chart_resources WHERE kind='preview' AND chart_id=$1`, c.ID).Scan(&key, &digest, &size)
+	if e != nil && !errors.Is(e, pgx.ErrNoRows) {
+		internal(w, e)
+		return
+	}
+	if e == nil {
+		if e = add("preview", key, "preview.ogg", "audio/ogg", digest, size); e != nil {
+			internal(w, e)
+			return
+		}
+	}
+
 	if e = tx.Commit(r.Context()); e != nil {
 		internal(w, e)
 		return

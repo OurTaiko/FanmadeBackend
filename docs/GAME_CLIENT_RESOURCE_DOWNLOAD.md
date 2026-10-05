@@ -297,3 +297,9 @@ bootstrap 返回 courseKeyedDifficulties=true。歌曲级 isSingle 为 true/fals
 单人仍为 Easy/Normal/Hard/Oni/Edit；双人难度在基础名后加 _1p 或 _2p。成绩请求仍使用 difficulty 字段，例如 difficulty="Oni_2p"，无需另外传方位或块序号。排行榜与搜索参数也使用完整 course；成绩缓存键必须包含完整后缀，不能把 P1/P2 合并。服务端核验该歌曲确有这个难度。
 
 解析下载的 TJA 时，按 COURSE 和 #START P1/P2 将实际谱面匹配到完整 course；不要依赖 JSON 数组位置与 TJA 第几段相同。TJA 的 COURSE 本身仍为 Oni 等原格式。显示时可将后缀转换为“魔王 1P / 魔王 2P”。一份文件不会再同时含单人与双人块；替换上传仍清空该曲旧成绩，刷新在线成绩快照以移除旧条目。
+
+## 服务端试听片段（新增，网页仍播放整首文件）
+
+歌曲响应新增 `demoEnd`，缺省初始化为 `demoStart + 15`。片段生成完成后，歌曲列表和详情返回 `previewPath`，为包含 S3 配置前缀的桶内 key。私有桶下载仍需调用本节已有的 `/resources` 接口，读取可选 `resources.preview`（GET/HEAD URL、SHA-256、size、contentType=audio/ogg）。不要把 key 当作公开 URL，也不要给裁剪后的片段再次应用 DEMOSTART 偏移。
+
+上传者修改试听起止点后，服务端重新生成 `preview.ogg`、切换到新对象 key 并删除旧对象。刷新列表/清单可获得新资源；保存失败保留旧片段和时间。已有 `audio`、`audioPreview` 和整首文件缓存流程继续保留。本次网站不改用 `preview` 播放。

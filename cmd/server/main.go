@@ -91,6 +91,7 @@ func main() {
 	cleanupCtx, stopCleanup := context.WithCancel(context.Background())
 	defer stopCleanup()
 	go app.RunFileCleanup(cleanupCtx)
+	go app.RunPreviewBackfill(cleanupCtx)
 	srv := &http.Server{Addr: env("LISTEN_ADDR", "127.0.0.1:8080"), Handler: app.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 180 * time.Second, WriteTimeout: 240 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 * 1024}
 	go func() {
 		log.Printf("OurTaiko API listening on http://%s", srv.Addr)

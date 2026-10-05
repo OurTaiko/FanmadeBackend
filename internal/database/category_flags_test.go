@@ -70,7 +70,7 @@ func TestCategoryFlagsMigration(t *testing.T) {
 		t.Helper()
 		var value string
 		err := pool.QueryRow(ctx, `SELECT jsonb_build_array(
- (SELECT jsonb_agg(to_jsonb(c)-'category_flags' ORDER BY id) FROM charts c),
+ (SELECT jsonb_agg(to_jsonb(c)-'category_flags'-'demo_end' ORDER BY id) FROM charts c),
  (SELECT jsonb_agg(to_jsonb(r) ORDER BY chart_id,kind) FROM chart_resources r),
  (SELECT jsonb_agg(to_jsonb(s) ORDER BY id) FROM scores s),
  (SELECT jsonb_agg(to_jsonb(u) ORDER BY user_id,idempotency_key) FROM upload_requests u))::text`).Scan(&value)

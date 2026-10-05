@@ -92,7 +92,7 @@ func (s *Server) searchCharts(w http.ResponseWriter, r *http.Request, owner stri
 	defer rows.Close()
 	items := []Chart{}
 	for rows.Next() {
-		c, e := readChart(rows)
+		c, e := s.readChart(rows)
 		if e != nil {
 			internal(w, e)
 			return

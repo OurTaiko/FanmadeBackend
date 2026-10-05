@@ -254,7 +254,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Read resource rows in a fresh snapshot after any lock wait.
-		current, err := readChart(tx.QueryRow(r.Context(), chartSelect+` WHERE c.id=$1`, lockedID))
+		current, err := s.readChart(tx.QueryRow(r.Context(), chartSelect+` WHERE c.id=$1`, lockedID))
 		if err != nil {
 			internal(w, err)
 			return
@@ -281,6 +281,10 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 	duration, e := audio.Validate(r.Context(), af.path, af.name)
 	if e != nil {
 		problem(w, 422, "AUDIO_INVALID", "音频未通过完整性检查，请使用完整的单音轨 Ogg Vorbis 或 MP3 文件（最长 20 分钟）")
+		return
+	}
+	if !audio.ValidPreviewRange(meta.DemoStart, meta.DemoStart+15, duration) {
+		problem(w, 422, "PREVIEW_RANGE_INVALID", "DEMOSTART 必须位于音频范围内")
 		return
 	}
 	digestData, _ := json.Marshal([]string{tf.name, tf.sha, af.name, af.sha, encoding, fields["description"]})
@@ -346,7 +350,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, e = tx.Exec(r.Context(), `INSERT INTO charts(id,owner_id,description,title,subtitle,bpm,offset_seconds,demo_start,duration,encoding,wave_filename,title_translations,subtitle_translations,is_single,difficulties)
  VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
- ON CONFLICT(id) DO UPDATE SET title=EXCLUDED.title,subtitle=EXCLUDED.subtitle,bpm=EXCLUDED.bpm,offset_seconds=EXCLUDED.offset_seconds,demo_start=EXCLUDED.demo_start,duration=EXCLUDED.duration,encoding=EXCLUDED.encoding,wave_filename=EXCLUDED.wave_filename,title_translations=EXCLUDED.title_translations,subtitle_translations=EXCLUDED.subtitle_translations,is_single=EXCLUDED.is_single,difficulties=EXCLUDED.difficulties`, chartID, u.User.ID, fields["description"], meta.Title, meta.Subtitle, meta.BPM, meta.Offset, meta.DemoStart, duration, encoding, meta.Wave, meta.TitleTranslations, meta.SubtitleTranslations, meta.IsSingle, meta.Difficulties); e != nil {
+ ON CONFLICT(id) DO UPDATE SET title=EXCLUDED.title,subtitle=EXCLUDED.subtitle,bpm=EXCLUDED.bpm,offset_seconds=EXCLUDED.offset_seconds,demo_start=EXCLUDED.demo_start,demo_end=EXCLUDED.demo_end,duration=EXCLUDED.duration,encoding=EXCLUDED.encoding,wave_filename=EXCLUDED.wave_filename,title_translations=EXCLUDED.title_translations,subtitle_translations=EXCLUDED.subtitle_translations,is_single=EXCLUDED.is_single,difficulties=EXCLUDED.difficulties`, chartID, u.User.ID, fields["description"], meta.Title, meta.Subtitle, meta.BPM, meta.Offset, meta.DemoStart, duration, encoding, meta.Wave, meta.TitleTranslations, meta.SubtitleTranslations, meta.IsSingle, meta.Difficulties); e != nil {
 		internal(w, e)
 		return
 	}
@@ -360,6 +364,11 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if e = s.savePreview(r.Context(), tx, chartID, af.path, meta.DemoStart, meta.DemoStart+15, duration); e != nil {
+		internal(w, e)
+		return
+	}
+
 	if cf != nil {
 		if e = s.saveCover(r.Context(), tx, chartID, coverData); e != nil {
 			internal(w, e)

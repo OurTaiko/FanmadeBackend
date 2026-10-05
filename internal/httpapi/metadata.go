@@ -10,6 +10,7 @@ import (
 	"maps"
 	"mime"
 	"net/http"
+	"ourtaiko.dev/fanmade/api/internal/audio"
 	"ourtaiko.dev/fanmade/api/internal/tja"
 	"strings"
 	"unicode"
@@ -18,6 +19,8 @@ import (
 )
 
 type metadataPatch struct {
+	DemoStart            json.RawMessage `json:"demoStart"`
+	DemoEnd              json.RawMessage `json:"demoEnd"`
 	CategoryIDs          json.RawMessage `json:"categoryIds"`
 	Title                json.RawMessage `json:"title"`
 	Subtitle             json.RawMessage `json:"subtitle"`
@@ -77,7 +80,7 @@ func patchTranslations(raw json.RawMessage, dst *map[string]string, original map
 }
 
 func (p metadataPatch) apply(o *metadataTranslations, original metadataTranslations) bool {
-	if len(p.Title)+len(p.Subtitle)+len(p.TitleTranslations)+len(p.SubtitleTranslations)+len(p.CategoryIDs) == 0 {
+	if len(p.Title)+len(p.Subtitle)+len(p.TitleTranslations)+len(p.SubtitleTranslations)+len(p.CategoryIDs)+len(p.DemoStart)+len(p.DemoEnd) == 0 {
 		return false
 	}
 	// Legacy scalar writes are aliases for English only. Reads remain raw source
@@ -201,6 +204,39 @@ func (s *Server) editMetadata(w http.ResponseWriter, r *http.Request) {
 		problem(w, 422, "METADATA_INVALID", "需要有效的名称／副标题；每项最多 500 字节，名称不能为空，多语言仅支持 en、ja、zh、ko，null 恢复原值")
 		return
 	}
+	if len(patch.DemoStart)+len(patch.DemoEnd) > 0 {
+		c, e := s.readChart(tx.QueryRow(r.Context(), chartSelect+` WHERE c.id=$1`, r.PathValue("id")))
+		if e != nil {
+			internal(w, e)
+			return
+		}
+		start, end := c.DemoStart, c.DemoEnd
+		valid := true
+		for _, field := range []struct {
+			raw   json.RawMessage
+			value *float64
+		}{{patch.DemoStart, &start}, {patch.DemoEnd, &end}} {
+			if len(field.raw) > 0 && (bytes.Equal(bytes.TrimSpace(field.raw), []byte("null")) || json.Unmarshal(field.raw, field.value) != nil) {
+				valid = false
+			}
+		}
+		if !valid || !audio.ValidPreviewRange(start, end, c.Duration) {
+			problem(w, 422, "PREVIEW_RANGE_INVALID", "试听起点必须位于音频内，终点必须晚于起点且不超过 1215 秒；超出音频的部分会截到结尾")
+			return
+		}
+		if start != c.DemoStart || end != c.DemoEnd || c.PreviewPath == "" {
+			c.DemoStart, c.DemoEnd = start, end
+			if e = s.previewFromStoredAudio(r.Context(), tx, c); e != nil {
+				internal(w, e)
+				return
+			}
+			if _, e = tx.Exec(r.Context(), `UPDATE charts SET demo_start=$2,demo_end=$3,metadata_updated_at=now() WHERE id=$1`, c.ID, start, end); e != nil {
+				internal(w, e)
+				return
+			}
+		}
+	}
+
 	if len(patch.CategoryIDs) > 0 {
 		ids, e := categorySelection(patch.CategoryIDs)
 		if e != nil {
@@ -223,7 +259,7 @@ func (s *Server) editMetadata(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	chart, err := readChart(tx.QueryRow(r.Context(), chartSelect+` WHERE c.id=$1`, r.PathValue("id")))
+	chart, err := s.readChart(tx.QueryRow(r.Context(), chartSelect+` WHERE c.id=$1`, r.PathValue("id")))
 	if err != nil {
 		internal(w, err)
 		return

@@ -279,3 +279,15 @@ profilesAvailable=false 表示本次昵称查询失败，统计仍返回；个�
 单人 course 为 Easy、Normal、Hard、Oni、Edit；双人则为 Easy_1p/Easy_2p 等。TJA 原文件依然使用 COURSE:Oni 和 #START P1/P2，由解析器生成 API 后缀，不将 COURSE:Oni_1p 写入 TJA。
 
 列表及游戏 search 的 course 筛选接受 15 种规范值；成绩 difficulty 与排行榜 difficulty 接受相同值，仍兼容大小写与 ura 别名。响应不再包含 blockIndex、player、style、cloudScoreEligible。bootstrap 的 courseKeyedDifficulties=true 声明此协议。每首歌曲 JSON 内 course 唯一，双人两侧独立提交、缓存和排行。
+
+## 试听片段（schema 030）
+
+歌曲列表、详情和游戏目录新增 `demoEnd`（秒）及可选 `previewPath`（S3 桶内完整 key，包含配置前缀，不是公开 URL）。历史记录精确回填为 `demoStart + 15`；新上传默认同样规则。后台在启动时补生成未删除歌曲缺失的片段，失败每 5 分钟重试；补生成完成前省略 `previewPath`。
+
+上传者或管理员通过现有 `PATCH /api/v1/charts/{id}` 提交 `demoStart` / `demoEnd` 数字，可单独更新其中一项。保留现有登录、CSRF、所有权校验。要求 `0 <= demoStart < duration`，`demoStart < demoEnd <= 1215`；终点超过音频长度时片段截到 EOF（数据库保留指定终点）。非法值返回 422 `PREVIEW_RANGE_INVALID`，`null` 不表示恢复默认。
+
+后端从原 MP3/OGG 解码，输出 44.1 kHz 双声道 Vorbis q=2 的 `preview.ogg`，不复制原音频标签或封面。保存时同步生成并上传成功后才提交起止时间和资源；失败保留原记录。新对象写入 `previews/{songId}/{random}/preview.ogg`，事务切换引用后清理旧对象，避免旧链接缓存和并发覆盖。文件替换上传会重新按 TJA DEMOSTART 生成，DEMOEND 重置为 DEMOSTART+15。
+
+`GET /api/v1/charts/{id}/resources` 新增可选 `resources.preview`，字段与其他资源相同（独立 GET/HEAD 签名、SHA-256、字节数、`audio/ogg`）。私有桶应通过此清单获取下载链接，不应把 `previewPath` 当公开 URL。片段本身从 0 秒开始播放，不能再次 seek DEMOSTART。
+
+网站试听继续使用 `/charts/{id}/audio` 整首源文件；原 TJA、整首音频、ZIP 和成绩不因编辑试听范围而变化。现有 `audioPreview` 仍是整首音频的旧预览描述，与新 `previewPath` 独立。

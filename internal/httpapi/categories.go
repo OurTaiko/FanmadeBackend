@@ -141,7 +141,7 @@ func (s *Server) gameCategory(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	charts := []Chart{}
 	for rows.Next() {
-		c, err := readChart(rows)
+		c, err := s.readChart(rows)
 		if err != nil {
 			internal(w, err)
 			return

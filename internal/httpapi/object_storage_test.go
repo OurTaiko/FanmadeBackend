@@ -32,7 +32,7 @@ func verifyResourceLinks(t *testing.T, h http.Handler, chartID string, audio []b
 	if payload.ChartID != chartID {
 		t.Fatal("resource identity must be chart only")
 	}
-	if len(payload.Resources) != 3 {
+	if len(payload.Resources) != 4 {
 		t.Fatal("missing direct resources")
 	}
 	for kind, v := range payload.Resources {
