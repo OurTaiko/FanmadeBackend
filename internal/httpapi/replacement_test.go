@@ -89,6 +89,9 @@ func testChartReplacement(t *testing.T, remote bool) {
 	decode := func(w *httptest.ResponseRecorder, code int) Chart {
 		t.Helper()
 		status(w, code)
+		if strings.Contains(w.Body.String(), "versionId") {
+			t.Fatal("removed field exposed", w.Body.String())
+		}
 		var c Chart
 		if err := json.Unmarshal(w.Body.Bytes(), &c); err != nil {
 			t.Fatal(err)
@@ -102,19 +105,24 @@ func testChartReplacement(t *testing.T, remote bool) {
 		handler.ServeHTTP(w, r)
 		return w
 	}
-	score := func(c Chart, user string) *httptest.ResponseRecorder {
-		body := fmt.Sprintf(`{"songId":%q,"versionId":%q,"difficulty":"Hard","good":1,"ok":0,"bad":0,"score":100,"drumroll":0,"max_combo":1}`, c.ID, c.VersionID)
+	score := func(c Chart, user string, keys ...string) *httptest.ResponseRecorder {
+		body := fmt.Sprintf(`{"songId":%q,"difficulty":"Hard","good":1,"ok":0,"bad":0,"score":100,"drumroll":0,"max_combo":1}`, c.ID)
 		r := httptest.NewRequest("POST", "/api/v1/game/scores", strings.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")
 		r.Header.Set("Authorization", "Bearer "+tokens[user])
-		r.Header.Set("Idempotency-Key", ID())
+		key := ID()
+		if len(keys) > 0 {
+			key = keys[0]
+		}
+		r.Header.Set("Idempotency-Key", key)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, r)
 		return w
 	}
 	original := decode(request("d46774d30dd13b92d9e536808da468a4", "POST", "/api/v1/charts", ID(), source, "cbr.mp3", audio, nil), 201)
 	unrelated := decode(request("9b893bc6d9422c93536ff0df503b81e9", "POST", "/api/v1/charts", ID(), source, "cbr.mp3", audio, nil), 201)
-	status(score(original, "d46774d30dd13b92d9e536808da468a4"), 201)
+	originalScoreKey := ID()
+	status(score(original, "d46774d30dd13b92d9e536808da468a4", originalScoreKey), 201)
 	status(score(original, "9b893bc6d9422c93536ff0df503b81e9"), 201)
 	status(score(unrelated, "9b893bc6d9422c93536ff0df503b81e9"), 201)
 	original, err = app.chart(ctx, original.ID)
@@ -122,7 +130,7 @@ func testChartReplacement(t *testing.T, remote bool) {
 		t.Fatal(err)
 	}
 	path := "/api/v1/charts/" + original.ID + "/files"
-	fields := map[string]string{"expectedVersionId": original.VersionID, "confirmReset": "true", "description": "new description", "difficultyMakers": `[{"blockIndex":0,"maker":"A"},{"blockIndex":1,"maker":"B"}]`}
+	fields := map[string]string{"confirmReset": "true", "description": "new description", "difficultyMakers": `[{"blockIndex":0,"maker":"A"},{"blockIndex":1,"maker":"B"}]`}
 	count := func(sql string, args ...any) int {
 		t.Helper()
 		var n int
@@ -134,8 +142,8 @@ func testChartReplacement(t *testing.T, remote bool) {
 	unchanged := func() {
 		t.Helper()
 		c, err := app.chart(ctx, original.ID)
-		if err != nil || c.VersionID != original.VersionID || count(`SELECT count(*) FROM scores WHERE song_id=$1`, original.ID) != 2 {
-			t.Fatal("failed update changed original", c.VersionID, err)
+		if err != nil || c.TJAHash != original.TJAHash || count(`SELECT count(*) FROM scores WHERE song_id=$1`, original.ID) != 2 {
+			t.Fatal("failed update changed original", c.TJAHash, err)
 		}
 		if b, err := readObject(original.TJAKey); err != nil || string(b) != source {
 			t.Fatal("old TJA lost", err)
@@ -152,8 +160,7 @@ func testChartReplacement(t *testing.T, remote bool) {
 	}{
 		{"permission", "9b893bc6d9422c93536ff0df503b81e9", replacement, "", nil, fields, 403},
 		{"login", "anonymous", replacement, "", nil, fields, 401},
-		{"confirmation", "d46774d30dd13b92d9e536808da468a4", replacement, "", nil, map[string]string{"expectedVersionId": original.VersionID}, 400},
-		{"stale", "d46774d30dd13b92d9e536808da468a4", replacement, "", nil, map[string]string{"expectedVersionId": ID(), "confirmReset": "true"}, 409},
+		{"confirmation", "d46774d30dd13b92d9e536808da468a4", replacement, "", nil, map[string]string{}, 400},
 		{"invalid TJA", "d46774d30dd13b92d9e536808da468a4", "broken", "", nil, fields, 422},
 		{"invalid audio", "d46774d30dd13b92d9e536808da468a4", replacement, "cbr.mp3", []byte("broken"), fields, 422},
 		{"wrong makers", "d46774d30dd13b92d9e536808da468a4", source, "", nil, fields, 422},
@@ -168,20 +175,15 @@ func testChartReplacement(t *testing.T, remote bool) {
 	status(request("d46774d30dd13b92d9e536808da468a4", "PUT", path, ID(), replacement, "", nil, fields), 503)
 	unchanged()
 	mustExec(`DROP TRIGGER fail_replacement ON difficulties; DROP FUNCTION fail_replacement()`)
-	// Historical versions must be deleted as well, even if old imports shared audio.
-	history := ID()
-	mustExec(`INSERT INTO chart_versions(id,chart_id,version_number,title,subtitle,bpm,offset_seconds,demo_start,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version) SELECT $1,chart_id,2,title,subtitle,bpm,offset_seconds,demo_start,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version FROM chart_versions WHERE id=$2`, history, original.VersionID)
-	mustExec(`INSERT INTO difficulties(version_id,block_index,course,level,player,style,maker) VALUES($1,0,'Hard',5,'','Single','A')`, history)
-	mustExec(`INSERT INTO scores(id,user_id,song_id,version_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest) VALUES($1,'d46774d30dd13b92d9e536808da468a4',$2,$3,0,'Hard',1,0,0,100,0,1,repeat('a',64))`, ID(), original.ID, history)
 	key := ID()
 	updated := decode(request("d46774d30dd13b92d9e536808da468a4", "PUT", path, key, replacement, "", nil, fields), 200)
 	if remote {
 		verifyResourceLinks(t, handler, original.ID, audio)
 	}
-	if updated.ID != original.ID || updated.VersionID == original.VersionID || updated.Title != "Updated" || updated.Maker != "A | B" || updated.Description != "new description" || len(updated.Difficulties) != 2 || updated.AudioHash != original.AudioHash {
+	if updated.ID != original.ID || updated.TJAHash == original.TJAHash || updated.Title != "Updated" || updated.Maker != "A | B" || updated.Description != "new description" || len(updated.Difficulties) != 2 || updated.AudioHash != original.AudioHash {
 		t.Fatalf("bad updated chart: %+v", updated)
 	}
-	if count(`SELECT count(*) FROM scores WHERE song_id=$1`, original.ID) != 0 || count(`SELECT count(*) FROM chart_versions WHERE chart_id=$1`, original.ID) != 1 || count(`SELECT count(*) FROM difficulties WHERE version_id=ANY($1)`, []string{original.VersionID, history}) != 0 {
+	if count(`SELECT count(*) FROM scores WHERE song_id=$1`, original.ID) != 0 || count(`SELECT count(*) FROM chart_data WHERE chart_id=$1`, original.ID) != 1 || count(`SELECT count(*) FROM difficulties WHERE chart_id=$1`, original.ID) != 2 {
 		t.Fatal("old rows remain")
 	}
 	if count(`SELECT count(*) FROM scores WHERE song_id=$1`, unrelated.ID) != 1 || count(`SELECT count(*) FROM files`) != 4 {
@@ -192,10 +194,8 @@ func testChartReplacement(t *testing.T, remote bool) {
 			t.Fatal("old file remains", key, err)
 		}
 	}
-	for _, kind := range []string{"tja", "audio", "download"} {
-		status(get("/api/v1/charts/"+original.ID+"/versions/"+original.VersionID+"/"+kind), 404)
-	}
-	status(get("/api/v1/charts/"+updated.ID+"/versions/"+updated.VersionID+"/audio"), 200)
+
+	status(get("/api/v1/charts/"+updated.ID+"/audio"), 200)
 	bootstrap := get("/api/v1/game/bootstrap")
 	status(bootstrap, 200)
 	if !strings.Contains(bootstrap.Body.String(), `"scores":[]`) {
@@ -206,16 +206,20 @@ func testChartReplacement(t *testing.T, remote bool) {
 	if !strings.Contains(leaderboard.Body.String(), `"items":[]`) {
 		t.Fatal("leaderboard retained old scores")
 	}
-	status(score(original, "d46774d30dd13b92d9e536808da468a4"), 409)
+	removed := score(original, "d46774d30dd13b92d9e536808da468a4", originalScoreKey)
+	status(removed, 409)
+	if !strings.Contains(removed.Body.String(), "SCORE_REMOVED") {
+		t.Fatal(removed.Body.String())
+	}
 	status(score(updated, "d46774d30dd13b92d9e536808da468a4"), 201)
 	retry := decode(request("d46774d30dd13b92d9e536808da468a4", "PUT", path, key, replacement, "", nil, fields), 200)
-	if retry.VersionID != updated.VersionID || count(`SELECT count(*) FROM scores WHERE song_id=$1`, original.ID) != 1 {
+	if retry.ID != updated.ID || count(`SELECT count(*) FROM scores WHERE song_id=$1`, original.ID) != 1 {
 		t.Fatal("retry deleted the new score")
 	}
 	status(request("d46774d30dd13b92d9e536808da468a4", "PUT", path, key, source, "", nil, fields), 409)
-	status(request("d46774d30dd13b92d9e536808da468a4", "PUT", path, ID(), replacement, "", nil, fields), 409)
-	// Two valid updates from the same page: only one may replace the chart.
-	nextFields := map[string]string{"expectedVersionId": updated.VersionID, "confirmReset": "true"}
+	status(request("d46774d30dd13b92d9e536808da468a4", "PUT", path, ID(), replacement, "", nil, fields), 200)
+	// Independent replacement requests serialize; both may replace current files.
+	nextFields := map[string]string{"confirmReset": "true"}
 	nextSource := strings.Replace(replacement, "cbr.mp3", "next.mp3", 1)
 	var wg sync.WaitGroup
 	replies := make(chan *httptest.ResponseRecorder, 2)
@@ -238,7 +242,7 @@ func testChartReplacement(t *testing.T, remote bool) {
 			t.Fatal(w.Code, w.Body.String())
 		}
 	}
-	if successes != 1 || conflicts != 1 {
+	if successes != 2 || conflicts != 0 {
 		t.Fatal("concurrent replacement", successes, conflicts)
 	}
 	final, err := app.chart(ctx, original.ID)

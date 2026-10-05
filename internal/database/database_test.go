@@ -68,7 +68,7 @@ func TestCloudScoreMigration(t *testing.T) {
 	}
 	storage := t.TempDir()
 	// Missing originals must roll back the entire migration, not guess Single.
-	if err = Migrate(ctx, pool, storage); err == nil {
+	if err = migrateTo(ctx, pool, storage, 23); err == nil {
 		t.Fatal("expected missing file failure")
 	}
 	var migrated bool
@@ -81,7 +81,7 @@ func TestCloudScoreMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {
-		if err = Migrate(ctx, pool, storage); err != nil {
+		if err = migrateTo(ctx, pool, storage, 23); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -140,7 +140,7 @@ func TestCloudScoreMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {
-		if err = Migrate(ctx, pool, storage); err != nil {
+		if err = migrateTo(ctx, pool, storage, 23); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -158,7 +158,7 @@ func TestCloudScoreMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {
-		if err = Migrate(ctx, pool, storage); err != nil {
+		if err = migrateTo(ctx, pool, storage, 23); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -178,7 +178,7 @@ func TestCloudScoreMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {
-		if err = Migrate(ctx, pool, storage); err != nil {
+		if err = migrateTo(ctx, pool, storage, 23); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -192,7 +192,7 @@ func TestCloudScoreMigration(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err = Migrate(ctx, pool, storage); err != nil {
+	if err = migrateTo(ctx, pool, storage, 23); err != nil {
 		t.Fatal(err)
 	}
 	if err = pool.QueryRow(ctx, `SELECT clear_status FROM scores WHERE id='old-score'`).Scan(&clearStatus); err != nil || clearStatus != 3 {
@@ -226,7 +226,7 @@ func TestCloudScoreMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {
-		if err = Migrate(ctx, pool, storage); err != nil {
+		if err = migrateTo(ctx, pool, storage, 23); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -248,7 +248,7 @@ func TestCloudScoreMigration(t *testing.T) {
 		before[table] = rows
 	}
 	for i := 0; i < 2; i++ {
-		if err = Migrate(ctx, pool, storage); err != nil {
+		if err = migrateTo(ctx, pool, storage, 23); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -272,7 +272,7 @@ func TestCloudScoreMigration(t *testing.T) {
 	 DELETE FROM schema_migrations WHERE version=4`); err != nil {
 		t.Fatal(err)
 	}
-	if err = Migrate(ctx, pool, storage); err != nil {
+	if err = migrateTo(ctx, pool, storage, 23); err != nil {
 		t.Fatal(err)
 	}
 	var eligible bool

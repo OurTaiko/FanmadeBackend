@@ -58,7 +58,6 @@ func TestSubmitScore(t *testing.T) {
 	ctx := context.Background()
 	const song = "11111111111111111111111111111111"
 	const otherSong = "22222222222222222222222222222222"
-	const version = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const origin = "http://127.0.0.1:5173"
 	const csrf = "test-csrf"
 	const cookie = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -78,17 +77,16 @@ func TestSubmitScore(t *testing.T) {
 	defer tx.Rollback(ctx)
 	_, err = tx.Exec(ctx, `INSERT INTO files(id,storage_key,original_filename,sha256,byte_size,media_type) VALUES
  ('t','tja','test.tja',repeat('a',64),1,'application/octet-stream'),('a','ogg','test.ogg',repeat('b',64),1,'audio/ogg');
- INSERT INTO charts(id,owner_id,current_version_id) VALUES('11111111111111111111111111111111','89b6ef3a5cb57b6e04f74711d15a8a5f','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
- INSERT INTO chart_versions(id,chart_id,version_number,title,bpm,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version)
- VALUES('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','11111111111111111111111111111111',1,'Test',120,10,'utf-8','test.ogg','t','a','tja-upload-v2');
- INSERT INTO difficulties(version_id,block_index,course,level,player,style) VALUES
- ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',0,'Oni',5,'','Single'),
- ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',1,'Oni',5,'P1','Double'),
- ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',2,'Oni',5,'P2','Double'),
- ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',3,'Hard',5,'','Double'),
- ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',4,'Easy',5,'','Single'),
- ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',5,'Easy',5,'','Single'),
- ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',6,'Edit',5,'','Single');`)
+ INSERT INTO charts(id,owner_id) VALUES('11111111111111111111111111111111','89b6ef3a5cb57b6e04f74711d15a8a5f');
+ INSERT INTO chart_data(chart_id,title,bpm,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version) VALUES('11111111111111111111111111111111','Test',120,10,'utf-8','test.ogg','t','a','tja-upload-v2');
+ INSERT INTO difficulties(chart_id,block_index,course,level,player,style) VALUES
+ ('11111111111111111111111111111111',0,'Oni',5,'','Single'),
+ ('11111111111111111111111111111111',1,'Oni',5,'P1','Double'),
+ ('11111111111111111111111111111111',2,'Oni',5,'P2','Double'),
+ ('11111111111111111111111111111111',3,'Hard',5,'','Double'),
+ ('11111111111111111111111111111111',4,'Easy',5,'','Single'),
+ ('11111111111111111111111111111111',5,'Easy',5,'','Single'),
+ ('11111111111111111111111111111111',6,'Edit',5,'','Single');`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,17 +107,25 @@ func TestSubmitScore(t *testing.T) {
 		handler.ServeHTTP(w, r)
 		return w
 	}
-	gameBody := `{"songId":"` + song + `","versionId":"` + version + `","difficulty":"Oni","good":5,"ok":1,"bad":0,"score":6000,"drumroll":2,"max_combo":6}`
-	if w := native("POST", "/api/v1/game/scores", strings.Replace(gameBody, version, strings.Repeat("d", 32), 1)); w.Code != 409 || !strings.Contains(w.Body.String(), "CHART_VERSION_CHANGED") {
-		t.Fatal(w.Code, w.Body.String())
-	}
+	gameBody := `{"songId":"` + song + `","difficulty":"Oni","good":5,"ok":1,"bad":0,"score":6000,"drumroll":2,"max_combo":6}`
 	if w := native("POST", "/api/v1/game/scores", gameBody); w.Code != 201 || !strings.Contains(w.Body.String(), `"max_combo":6`) {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	if w := native("POST", "/api/v1/game/scores", gameBody); w.Code != 200 || !strings.Contains(w.Body.String(), `"max_combo":6`) {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	if w := native("GET", "/api/v1/game/bootstrap", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"good":5`) || !strings.Contains(w.Body.String(), `"max_combo":6`) {
+	// Pre-migration receipts hashed the removed field; retries now use song ID alone.
+	oldBody := strings.Replace(gameBody, `"difficulty"`, `"versionId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","difficulty"`, 1)
+	if _, err := pool.Exec(ctx, `UPDATE scores SET payload_digest=$1 WHERE idempotency_key='game-integration-score-1'`, hash(oldBody)); err != nil {
+		t.Fatal(err)
+	}
+	if w := native("POST", "/api/v1/game/scores", gameBody); w.Code != 200 || strings.Contains(w.Body.String(), "versionId") {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if w := native("POST", "/api/v1/game/scores", oldBody); w.Code != 400 {
+		t.Fatal("removed field accepted", w.Code, w.Body.String())
+	}
+	if w := native("GET", "/api/v1/game/bootstrap", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"songIdOnly":true`) || strings.Contains(w.Body.String(), "versionId") || !strings.Contains(w.Body.String(), `"good":5`) || !strings.Contains(w.Body.String(), `"max_combo":6`) {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	// Existing personal scores must never leak through anonymous bootstrap,
@@ -273,7 +279,7 @@ func TestSubmitScore(t *testing.T) {
 	if first.ClearStatus != 1 || !strings.Contains(w.Body.String(), `"ClearStatus":1`) {
 		t.Fatal("browser upload lost clear status", w.Body.String())
 	}
-	if first.UserID != "89b6ef3a5cb57b6e04f74711d15a8a5f" || first.VersionID != version || first.BlockIndex != 0 || first.Good != 300 || first.OK != 10 || first.Bad != 2 || first.Score != 900000 || first.Drumroll != 50 || first.MaxCombo != 250 || first.SubmittedAt.IsZero() {
+	if first.UserID != "89b6ef3a5cb57b6e04f74711d15a8a5f" || first.BlockIndex != 0 || first.Good != 300 || first.OK != 10 || first.Bad != 2 || first.Score != 900000 || first.Drumroll != 50 || first.MaxCombo != 250 || first.SubmittedAt.IsZero() {
 		t.Fatalf("bad receipt: %+v", first)
 	}
 	stored, err := readScore(pool.QueryRow(ctx, `SELECT `+scoreColumns+` FROM scores WHERE id=$1`, first.ID))
@@ -328,7 +334,7 @@ func TestSubmitScore(t *testing.T) {
 		t.Fatalf("concurrency: %d created %d IDs", created, len(ids))
 	}
 	// A receipt survives a rename and retries still return it after unpublishing.
-	if _, err = pool.Exec(ctx, `UPDATE chart_versions SET title='Renamed' WHERE id=$1`, version); err != nil {
+	if _, err = pool.Exec(ctx, `UPDATE chart_data SET title='Renamed' WHERE chart_id=$1`, song); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `UPDATE charts SET status='deleted' WHERE id=$1`, song); err != nil {

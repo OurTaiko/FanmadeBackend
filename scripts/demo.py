@@ -105,7 +105,7 @@ def smoke():
   assert status == 409 and conflict['code'] == 'IDEMPOTENCY_CONFLICT'
   assert len(chart['difficulties']) == 5 and chart['ownerId'] == user['id']
   assert all(d['style'] == 'Single' and d['cloudScoreEligible'] is True for d in chart['difficulties'])
-  suffix=f"/charts/{chart['id']}/versions/{chart['versionId']}"
+  suffix=f"/charts/{chart['id']}"
   status, archive, _ = client.call('GET',suffix+'/download'); assert status == 200
   z=zipfile.ZipFile(io.BytesIO(archive)); original=ESE/rel
   assert z.read(original.name) == original.read_bytes()
@@ -134,7 +134,7 @@ def smoke():
   assert status == 200 and detail['difficulties'] == blocks
   status, listed, _ = client.call('GET', '/me/charts')
   assert status == 200 and next(c for c in listed['items'] if c['id'] == mixed['id'])['difficulties'] == blocks
-  status, archive, _ = client.call('GET', f"/charts/{mixed['id']}/versions/{mixed['versionId']}/download")
+  status, archive, _ = client.call('GET', f"/charts/{mixed['id']}/download")
   assert status == 200
   original = ESE / SAMPLES[2]
   with zipfile.ZipFile(io.BytesIO(archive)) as z:

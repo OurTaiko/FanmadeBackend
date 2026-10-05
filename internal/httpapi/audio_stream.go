@@ -29,7 +29,7 @@ func audioPreview(c Chart) *AudioPreview {
 		start = 0
 	}
 	return &AudioPreview{
-		URL:             "/api/v1/charts/" + url.PathEscape(c.ID) + "/versions/" + url.PathEscape(c.VersionID) + "/audio",
+		URL:             "/api/v1/charts/" + url.PathEscape(c.ID) + "/audio",
 		ContentType:     audio.MediaType(c.AudioName),
 		StartSeconds:    start,
 		DurationSeconds: math.Min(15, c.Duration-start),
@@ -40,20 +40,16 @@ func audioPreview(c Chart) *AudioPreview {
 // not call chart(): SSO nickname lookups and cover/difficulty payloads would
 // delay every seek and make public playback depend on unrelated services.
 func (s *Server) streamAudio(w http.ResponseWriter, r *http.Request) {
-	var version, key, name, digest, originalName string
-	err := s.DB.QueryRow(r.Context(), `SELECT v.id,af.storage_key,v.wave_filename,af.sha256,af.original_filename
- FROM charts c JOIN chart_versions v ON v.id=c.current_version_id JOIN files af ON af.id=v.audio_file_id
- WHERE c.id=$1 AND `+publishedChart, r.PathValue("id")).Scan(&version, &key, &name, &digest, &originalName)
+	var key, name, digest, originalName string
+	err := s.DB.QueryRow(r.Context(), `SELECT af.storage_key,v.wave_filename,af.sha256,af.original_filename
+ FROM charts c JOIN chart_data v ON v.chart_id=c.id JOIN files af ON af.id=v.audio_file_id
+ WHERE c.id=$1 AND `+publishedChart, r.PathValue("id")).Scan(&key, &name, &digest, &originalName)
 	if errors.Is(err, pgx.ErrNoRows) {
 		problem(w, 404, "CHART_NOT_FOUND", "作品不存在或已删除")
 		return
 	}
 	if err != nil {
 		internal(w, err)
-		return
-	}
-	if version != r.PathValue("version") {
-		problem(w, 404, "VERSION_NOT_FOUND", "版本不存在")
 		return
 	}
 	f, err := s.Config.Objects.Open(r.Context(), key)

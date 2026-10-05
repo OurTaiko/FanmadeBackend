@@ -31,8 +31,8 @@ func (s *Server) beginUpload(w http.ResponseWriter, r *http.Request, user, key, 
 		internal(w, err)
 		return nil, false
 	}
-	var chartID, previousDigest, version string
-	err = tx.QueryRow(r.Context(), `SELECT chart_id,payload_digest,version_id FROM upload_requests WHERE user_id=$1 AND idempotency_key=$2`, user, key).Scan(&chartID, &previousDigest, &version)
+	var chartID, previousDigest, tjaHash, audioHash string
+	err = tx.QueryRow(r.Context(), `SELECT chart_id,payload_digest,tja_sha256,audio_sha256 FROM upload_requests WHERE user_id=$1 AND idempotency_key=$2`, user, key).Scan(&chartID, &previousDigest, &tjaHash, &audioHash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		proceed = true
 		return tx, true
@@ -54,8 +54,8 @@ func (s *Server) beginUpload(w http.ResponseWriter, r *http.Request, user, key, 
 		internal(w, err)
 		return nil, false
 	}
-	if version != "" && version != c.VersionID {
-		problem(w, 409, "CHART_VERSION_CHANGED", "该次上传已被后续更新替换，请重新打开歌曲页面")
+	if tjaHash != c.TJAHash || audioHash != c.AudioHash {
+		problem(w, 409, "CHART_FILES_CHANGED", "该次上传已被后续更新替换，请重新打开歌曲页面")
 		return nil, false
 	}
 	items := []Chart{c}
@@ -69,7 +69,7 @@ func (s *Server) beginUpload(w http.ResponseWriter, r *http.Request, user, key, 
 	return nil, false
 }
 
-// Copy retained audio into the new version; the original object is still retired.
+// Copy retained audio into the replacement; the original object is still retired.
 // The caller holds the chart lock so a concurrent replacement cannot remove it.
 func (s *Server) copyAudio(ctx context.Context, c *Chart, dir string) (*stagedFile, error) {
 	in, err := s.Config.Objects.Open(ctx, c.AudioKey)
@@ -94,26 +94,30 @@ func (s *Server) copyAudio(ctx context.Context, c *Chart, dir string) (*stagedFi
 	return f, nil
 }
 
-func retireChart(ctx context.Context, tx pgx.Tx, chartID, versionID, description string) error {
-	// The deferred current-version FK permits replacing the version atomically.
-	if _, err := tx.Exec(ctx, `UPDATE charts SET current_version_id=$2,description=$3,title_override=NULL,subtitle_override=NULL,title_translation_overrides='{}',subtitle_translation_overrides='{}',metadata_updated_at=now() WHERE id=$1`, chartID, versionID, description); err != nil {
-		return err
+func retireChart(ctx context.Context, tx pgx.Tx, chartID, description string) ([]string, error) {
+	var ids []string
+	if err := tx.QueryRow(ctx, `SELECT ARRAY[tja_file_id,audio_file_id] FROM chart_data WHERE chart_id=$1`, chartID).Scan(&ids); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO retired_score_requests(user_id,idempotency_key) SELECT user_id,idempotency_key FROM scores WHERE song_id=$1 AND idempotency_key IS NOT NULL ON CONFLICT DO NOTHING`, chartID); err != nil {
+		return nil, err
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM scores WHERE song_id=$1`, chartID); err != nil {
-		return err
+		return nil, err
 	}
-	var ids []string
-	if err := tx.QueryRow(ctx, `SELECT ARRAY(SELECT tja_file_id FROM chart_versions WHERE chart_id=$1 UNION SELECT audio_file_id FROM chart_versions WHERE chart_id=$1)`, chartID).Scan(&ids); err != nil {
-		return err
+	if _, err := tx.Exec(ctx, `DELETE FROM difficulties WHERE chart_id=$1`, chartID); err != nil {
+		return nil, err
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM chart_versions WHERE chart_id=$1`, chartID); err != nil {
-		return err
+	if _, err := tx.Exec(ctx, `DELETE FROM chart_archives WHERE chart_id=$1`, chartID); err != nil {
+		return nil, err
 	}
-	// Protect any shared file references from earlier imports.
+	_, err := tx.Exec(ctx, `UPDATE charts SET description=$2,title_override=NULL,subtitle_override=NULL,title_translation_overrides='{}',subtitle_translation_overrides='{}',metadata_updated_at=now() WHERE id=$1`, chartID, description)
+	return ids, err
+}
+
+func retireUnusedFiles(ctx context.Context, tx pgx.Tx, ids []string) error {
 	_, err := tx.Exec(ctx, `WITH removed AS (
-  DELETE FROM files f WHERE id=ANY($1) AND NOT EXISTS (
-   SELECT 1 FROM chart_versions v WHERE v.tja_file_id=f.id OR v.audio_file_id=f.id
-  ) RETURNING storage_key
+ DELETE FROM files f WHERE id=ANY($1) AND NOT EXISTS(SELECT 1 FROM chart_data d WHERE d.tja_file_id=f.id OR d.audio_file_id=f.id) RETURNING storage_key
  ) INSERT INTO retired_files(storage_key) SELECT storage_key FROM removed ON CONFLICT DO NOTHING`, ids)
 	return err
 }

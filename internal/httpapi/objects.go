@@ -21,17 +21,17 @@ func (s *Server) storeFile(ctx context.Context, key, path string, size int64, me
 	defer f.Close()
 	return s.Config.Objects.Put(ctx, key, f, size, media, digest)
 }
-func (s *Server) saveArchive(ctx context.Context, tx pgx.Tx, version, tjaPath, audioPath, tjaName, audioName, dir string) error {
+func (s *Server) saveArchive(ctx context.Context, tx pgx.Tx, chartID, tjaPath, audioPath, tjaName, audioName, dir string) error {
 	file, size, digest, e := objectstore.Archive(dir, tjaPath, audioPath, tjaName, audioName)
 	if e != nil {
 		return e
 	}
 	defer os.Remove(file)
-	key := "archives/" + version + "/download.zip"
+	key := "archives/" + chartID + "/" + ID() + "/download.zip"
 	if e = s.storeFile(ctx, key, file, size, "application/zip", digest); e != nil {
 		return e
 	}
-	_, e = tx.Exec(ctx, `INSERT INTO chart_archives(version_id,storage_key,sha256,byte_size) VALUES($1,$2,$3,$4)`, version, key, digest, size)
+	_, e = tx.Exec(ctx, `INSERT INTO chart_archives(chart_id,storage_key,sha256,byte_size) VALUES($1,$2,$3,$4)`, chartID, key, digest, size)
 	return e
 }
 func (s *Server) reconcilePending(ctx context.Context) error {

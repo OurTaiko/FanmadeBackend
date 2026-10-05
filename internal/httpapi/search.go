@@ -61,21 +61,21 @@ func (s *Server) searchCharts(w http.ResponseWriter, r *http.Request, owner stri
 			return
 		}
 	}
-	where := ` WHERE ` + publishedChart + ` AND ($1='' OR COALESCE(c.title_override,v.title) ILIKE '%'||$1||'%' OR COALESCE(c.subtitle_override,v.subtitle) ILIKE '%'||$1||'%' OR EXISTS(SELECT 1 FROM difficulties dm WHERE dm.version_id=v.id AND dm.maker ILIKE '%'||$1||'%')
+	where := ` WHERE ` + publishedChart + ` AND ($1='' OR COALESCE(c.title_override,v.title) ILIKE '%'||$1||'%' OR COALESCE(c.subtitle_override,v.subtitle) ILIKE '%'||$1||'%' OR EXISTS(SELECT 1 FROM difficulties dm WHERE dm.chart_id=c.id AND dm.maker ILIKE '%'||$1||'%')
 	 OR EXISTS(SELECT 1 FROM jsonb_each_text(v.title_translations || c.title_translation_overrides) t WHERE t.value ILIKE '%'||$1||'%')
-	 OR EXISTS(SELECT 1 FROM jsonb_each_text(v.subtitle_translations || c.subtitle_translation_overrides) t WHERE t.value ILIKE '%'||$1||'%')) AND ($2='' OR c.owner_id=$2) AND EXISTS(SELECT 1 FROM difficulties d WHERE d.version_id=v.id AND ($3='' OR d.course=$3) AND ($4::int=-1 OR d.level=$4))`
+	 OR EXISTS(SELECT 1 FROM jsonb_each_text(v.subtitle_translations || c.subtitle_translation_overrides) t WHERE t.value ILIKE '%'||$1||'%')) AND ($2='' OR c.owner_id=$2) AND EXISTS(SELECT 1 FROM difficulties d WHERE d.chart_id=c.id AND ($3='' OR d.course=$3) AND ($4::int=-1 OR d.level=$4))`
 	var total int
 	if !all {
-		if e := s.DB.QueryRow(r.Context(), `SELECT count(*) FROM charts c JOIN chart_versions v ON v.id=c.current_version_id JOIN users u ON u.id=c.owner_id`+where, q, owner, course, level).Scan(&total); e != nil {
+		if e := s.DB.QueryRow(r.Context(), `SELECT count(*) FROM charts c JOIN chart_data v ON v.chart_id=c.id JOIN users u ON u.id=c.owner_id`+where, q, owner, course, level).Scan(&total); e != nil {
 			internal(w, e)
 			return
 		}
 	}
 	// Prioritize a chart when any matching difficulty has no qualifying score
-	// for this user and current version. Guests keep the default stable order.
+	// for this user and song. Guests keep the default stable order.
 	ordering := ` ORDER BY ($5::text<>'' AND EXISTS(
-	 SELECT 1 FROM difficulties d WHERE d.version_id=v.id AND ($3='' OR d.course=$3) AND ($4::int=-1 OR d.level=$4)
-	 AND NOT EXISTS(SELECT 1 FROM scores sc WHERE sc.user_id=$5 AND sc.song_id=c.id AND sc.version_id=v.id
+	 SELECT 1 FROM difficulties d WHERE d.chart_id=c.id AND ($3='' OR d.course=$3) AND ($4::int=-1 OR d.level=$4)
+	 AND NOT EXISTS(SELECT 1 FROM scores sc WHERE sc.user_id=$5 AND sc.song_id=c.id
 	 AND sc.block_index=d.block_index AND sc.difficulty=d.course AND sc.bad=0 AND (sc.good>0 OR sc.ok>0)
 	 AND ($6::text='unfc' OR sc.ok=0)))) DESC, c.created_at DESC,c.id DESC`
 	args := []any{q, owner, course, level, userID, order}

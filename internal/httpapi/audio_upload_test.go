@@ -77,10 +77,10 @@ func testAudioUploadAndDownload(t *testing.T, remote bool) {
 				media = "audio/ogg"
 			}
 			var storedMedia string
-			if err := pool.QueryRow(ctx, `SELECT f.media_type FROM files f JOIN chart_versions v ON v.audio_file_id=f.id WHERE v.id=$1`, chart.VersionID).Scan(&storedMedia); err != nil || storedMedia != media {
+			if err := pool.QueryRow(ctx, `SELECT f.media_type FROM files f JOIN chart_data v ON v.audio_file_id=f.id WHERE v.chart_id=$1`, chart.ID).Scan(&storedMedia); err != nil || storedMedia != media {
 				t.Fatal("incorrect stored MIME", storedMedia, err)
 			}
-			base := "/api/v1/charts/" + chart.ID + "/versions/" + chart.VersionID + "/"
+			base := "/api/v1/charts/" + chart.ID + "/"
 			get := func(kind, rangeValue string) *httptest.ResponseRecorder {
 				r := httptest.NewRequest("GET", base+kind, nil)
 				r.Header.Set("Range", rangeValue)

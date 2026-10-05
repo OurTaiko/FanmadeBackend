@@ -63,7 +63,7 @@ func (s *Server) resourceLinks(w http.ResponseWriter, r *http.Request) {
 	}
 	var key, digest string
 	var size int64
-	if e = s.DB.QueryRow(r.Context(), `SELECT storage_key,sha256,byte_size FROM chart_archives WHERE version_id=$1`, c.VersionID).Scan(&key, &digest, &size); e != nil {
+	if e = s.DB.QueryRow(r.Context(), `SELECT storage_key,sha256,byte_size FROM chart_archives WHERE chart_id=$1`, c.ID).Scan(&key, &digest, &size); e != nil {
 		internal(w, e)
 		return
 	}

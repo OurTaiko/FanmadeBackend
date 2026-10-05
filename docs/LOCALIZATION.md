@@ -15,7 +15,7 @@
 
 ## 入库与返回
 
-默认英文仍使用 `chart_versions.title`、`subtitle`，保持原有接口兼容。新增 `title_translations` 和 `subtitle_translations` 两个 JSONB 列，键为 ja/zh/ko。接口返回 `titleTranslations` 与 `subtitleTranslations`，不含 en，默认英文从 title/subtitle 读取。列表、详情、上传与修改成功响应均包含这些字段。
+默认英文仍使用 `chart_data.title`、`subtitle`，保持原有接口兼容。新增 `title_translations` 和 `subtitle_translations` 两个 JSONB 列，键为 ja/zh/ko。接口返回 `titleTranslations` 与 `subtitleTranslations`，不含 en，默认英文从 title/subtitle 读取。列表、详情、上传与修改成功响应均包含这些字段。
 
 迁移 006 读取所有已有版本对应的原始 TJA，事务回填新增字段，不改原始文件、默认标题、文件哈希、版本 ID 或成绩；缺失文件或解析失败时回滚并指出版本，需要恢复配套资源再执行。原 validation_version 仍记录当次上传的校验版本。
 
@@ -46,7 +46,7 @@
 
 修改内容存于 charts 的覆盖字段，与文件版本的原始解析结果分开。修改在事务中锁定作品并合并，因此并发修改不同字段不会因整体覆盖而丢失；同字段最终以最后执行的修改为准。metadata_updated_at 记录最后成功编辑时间，目前没有历史编辑审计列表。
 
-列表、详情和搜索使用修改后的名称及副标题（含各语言），不修改 versionId、难度块、文件哈希和成绩。原始 TJA／ZIP 下载仍保持上传时的字节：网站改名不会自动改变模拟器从 TJA 内读取到的名称。游戏若要显示网站修改后的名称，应读取 API 元数据；修改原始谱面文件需要未来的资源替换版本流程。
+列表、详情和搜索使用修改后的名称及副标题（含各语言），不修改歌曲 ID、难度块、文件哈希和成绩。原始 TJA／ZIP 下载仍保持上传时的字节：网站改名不会自动改变模拟器从 TJA 内读取到的名称。游戏若要显示网站修改后的名称，应读取 API 元数据；修改原始谱面文件需要资源替换接口。
 
 前端已实现“歌曲详情 → 编辑信息”弹窗，仅作者或管理员显示按钮，提供默认英文及日／中／韩名称、副标题和按语言恢复原值。保存后详情即时更新；取消／Escape 不保存；失败保留输入。展示语言切换仍为后续功能。
 

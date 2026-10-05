@@ -16,7 +16,6 @@ import (
 // Pointers distinguish required zero-valued counts from missing/null fields.
 type scoreSubmission struct {
 	SongID     string          `json:"songId"`
-	VersionID  string          `json:"versionId,omitempty"`
 	Difficulty string          `json:"difficulty"`
 	Good       *int64          `json:"good"`
 	OK         *int64          `json:"ok"`
@@ -33,7 +32,6 @@ type Score struct {
 	ID          string    `json:"id"`
 	UserID      string    `json:"userId"`
 	SongID      string    `json:"songId"`
-	VersionID   string    `json:"versionId"`
 	BlockIndex  int       `json:"blockIndex"`
 	Difficulty  string    `json:"difficulty"`
 	Good        int64     `json:"good"`
@@ -49,7 +47,7 @@ type Score struct {
 var songIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
 func (v *scoreSubmission) valid() bool {
-	if !songIDPattern.MatchString(v.SongID) || (v.VersionID != "" && !songIDPattern.MatchString(v.VersionID)) {
+	if !songIDPattern.MatchString(v.SongID) {
 		return false
 	}
 	courses := map[string]string{"easy": "Easy", "normal": "Normal", "hard": "Hard", "oni": "Oni", "edit": "Edit", "ura": "Edit"}
@@ -66,11 +64,11 @@ func (v *scoreSubmission) valid() bool {
 	return v.Score != nil && *v.Score >= 0 && *v.Score <= 9007199254740991 && v.ClearStatus >= 0 && v.ClearStatus <= 3
 }
 
-const scoreColumns = `id,user_id,song_id,version_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,clear_status,submitted_at`
+const scoreColumns = `id,user_id,song_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,clear_status,submitted_at`
 
 func readScore(row pgx.Row) (Score, error) {
 	var v Score
-	err := row.Scan(&v.ID, &v.UserID, &v.SongID, &v.VersionID, &v.BlockIndex, &v.Difficulty, &v.Good, &v.OK, &v.Bad, &v.Score, &v.Drumroll, &v.MaxCombo, &v.ClearStatus, &v.SubmittedAt)
+	err := row.Scan(&v.ID, &v.UserID, &v.SongID, &v.BlockIndex, &v.Difficulty, &v.Good, &v.OK, &v.Bad, &v.Score, &v.Drumroll, &v.MaxCombo, &v.ClearStatus, &v.SubmittedAt)
 	return v, err
 }
 
@@ -101,7 +99,7 @@ func (s *Server) submitScore(w http.ResponseWriter, r *http.Request) {
 		problem(w, 400, "REQUEST_INVALID", "请求只能包含一个 JSON 对象")
 		return
 	}
-	if !input.valid() || (isGameRequest(r) && input.VersionID == "") {
+	if !input.valid() {
 		problem(w, 422, "SCORE_INVALID", "需要有效的歌曲 ID、难度和全部六项非负整数；计数（含最大连击）上限 2147483647，分数上限 9007199254740991；ClearStatus 必须为 0–3")
 		return
 	}
@@ -119,17 +117,45 @@ func (s *Server) submitScore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
+	// Serialize submissions against resource replacement on the same song.
+	var song string
+	err = tx.QueryRow(r.Context(), `SELECT id FROM charts c WHERE c.id=$1 FOR SHARE`, input.SongID).Scan(&song)
+	if errors.Is(err, pgx.ErrNoRows) {
+		problem(w, 404, "CHART_NOT_FOUND", "歌曲不存在或已下架")
+		return
+	}
+	if err != nil {
+		internal(w, err)
+		return
+	}
 	if key != "" {
 		if _, err = tx.Exec(r.Context(), `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "score:"+u.User.ID+":"+key); err != nil {
 			internal(w, err)
+			return
+		}
+		var retired bool
+		if err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM retired_score_requests WHERE user_id=$1 AND idempotency_key=$2)`, u.User.ID, key).Scan(&retired); err != nil {
+			internal(w, err)
+			return
+		}
+		if retired {
+			problem(w, 409, "SCORE_REMOVED", "歌曲文件已替换，此成绩已清除")
 			return
 		}
 		var oldDigest string
 		err = tx.QueryRow(r.Context(), `SELECT payload_digest FROM scores WHERE user_id=$1 AND idempotency_key=$2`, u.User.ID, key).Scan(&oldDigest)
 		if err == nil {
 			if oldDigest != digest {
-				problem(w, 409, "IDEMPOTENCY_CONFLICT", "此请求标识已用于不同成绩")
-				return
+				var same bool
+				err = tx.QueryRow(r.Context(), `SELECT jsonb_strip_nulls(jsonb_build_object('songId',song_id,'difficulty',difficulty,'good',good,'ok',ok,'bad',bad,'score',score,'drumroll',drumroll,'max_combo',max_combo,'replay_data',replay_data,'ClearStatus',NULLIF(clear_status,0)))=$3::jsonb FROM scores WHERE user_id=$1 AND idempotency_key=$2`, u.User.ID, key, string(payload)).Scan(&same)
+				if err != nil {
+					internal(w, err)
+					return
+				}
+				if !same {
+					problem(w, 409, "IDEMPOTENCY_CONFLICT", "此请求标识已用于不同成绩")
+					return
+				}
 			}
 			result, err := readScore(tx.QueryRow(r.Context(), `SELECT `+scoreColumns+` FROM scores WHERE user_id=$1 AND idempotency_key=$2`, u.User.ID, key))
 			if err != nil {
@@ -144,22 +170,16 @@ func (s *Server) submitScore(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Hold the published version stable until the score has been committed.
-	var version string
-	err = tx.QueryRow(r.Context(), `SELECT current_version_id FROM charts c WHERE c.id=$1 AND `+publishedChart+` FOR SHARE`, input.SongID).Scan(&version)
-	if errors.Is(err, pgx.ErrNoRows) {
-		problem(w, 404, "CHART_NOT_FOUND", "歌曲不存在或已下架")
-		return
-	}
-	if err != nil {
+	var published bool
+	if err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM charts c WHERE c.id=$1 AND `+publishedChart+`)`, input.SongID).Scan(&published); err != nil {
 		internal(w, err)
 		return
 	}
-	if input.VersionID != "" && input.VersionID != version {
-		problem(w, 409, "CHART_VERSION_CHANGED", "谱面版本已更新，请刷新曲库后游玩；本次成绩不会归到新版本")
+	if !published {
+		problem(w, 404, "CHART_NOT_FOUND", "歌曲不存在或已下架")
 		return
 	}
-	rows, err := tx.Query(r.Context(), `SELECT block_index,cloud_score_eligible FROM difficulties WHERE version_id=$1 AND course=$2 ORDER BY block_index FOR SHARE`, version, input.Difficulty)
+	rows, err := tx.Query(r.Context(), `SELECT block_index,cloud_score_eligible FROM difficulties WHERE chart_id=$1 AND course=$2 ORDER BY block_index FOR SHARE`, input.SongID, input.Difficulty)
 	if err != nil {
 		internal(w, err)
 		return
@@ -198,9 +218,9 @@ func (s *Server) submitScore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := readScore(tx.QueryRow(r.Context(), `INSERT INTO scores
-	 (id,user_id,song_id,version_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,idempotency_key,payload_digest,replay_data,clear_status)
-	 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NULLIF($13,''),$14,$15,$16) RETURNING `+scoreColumns,
-		ID(), u.User.ID, input.SongID, version, block, input.Difficulty, *input.Good, *input.OK, *input.Bad, *input.Score, *input.Drumroll, *input.MaxCombo, key, digest, input.ReplayData, input.ClearStatus))
+	 (id,user_id,song_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,idempotency_key,payload_digest,replay_data,clear_status)
+	 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NULLIF($12,''),$13,$14,$15) RETURNING `+scoreColumns,
+		ID(), u.User.ID, input.SongID, block, input.Difficulty, *input.Good, *input.OK, *input.Bad, *input.Score, *input.Drumroll, *input.MaxCombo, key, digest, input.ReplayData, input.ClearStatus))
 	if err != nil {
 		internal(w, err)
 		return

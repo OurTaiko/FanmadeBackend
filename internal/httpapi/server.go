@@ -124,8 +124,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/v1/charts/{id}", s.editMetadata)
 	mux.HandleFunc("PUT /api/v1/charts/{id}/files", s.upload)
 	mux.HandleFunc("DELETE /api/v1/charts/{id}", s.remove)
-	mux.HandleFunc("GET /api/v1/charts/{id}/versions/{version}/{kind}", s.download)
-	mux.HandleFunc("GET /api/v1/charts/{id}/versions/{version}/audio", s.streamAudio)
+	mux.HandleFunc("GET /api/v1/charts/{id}/{kind}", s.download)
+	mux.HandleFunc("GET /api/v1/charts/{id}/audio", s.streamAudio)
 	mux.HandleFunc("GET /api/v1/charts/{id}/resources", s.resourceLinks)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Request-ID", ID())

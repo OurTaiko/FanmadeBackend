@@ -197,7 +197,7 @@ func run() error {
 			}
 		}
 		for _, v := range archives {
-			if _, e = tx.Exec(ctx, `INSERT INTO chart_archives(version_id,storage_key,sha256,byte_size) VALUES($1,$2,$3,$4) ON CONFLICT(version_id) DO UPDATE SET storage_key=EXCLUDED.storage_key,sha256=EXCLUDED.sha256,byte_size=EXCLUDED.byte_size`, v.ID, v.Key, v.SHA, v.Size); e != nil {
+			if _, e = tx.Exec(ctx, `INSERT INTO chart_archives(chart_id,storage_key,sha256,byte_size) VALUES($1,$2,$3,$4) ON CONFLICT(chart_id) DO UPDATE SET storage_key=EXCLUDED.storage_key,sha256=EXCLUDED.sha256,byte_size=EXCLUDED.byte_size`, v.ID, v.Key, v.SHA, v.Size); e != nil {
 				return e
 			}
 		}
@@ -208,7 +208,17 @@ func run() error {
 	return json.NewEncoder(os.Stdout).Encode(map[string]any{"files": len(files), "covers": len(covers), "archives": len(archives), "uploaded": m.copied, "verified": m.verified, "verifiedBytes": m.bytes, "activated": *activate, "applied": *apply})
 }
 func copyArchives(ctx context.Context, db *pgxpool.Pool, m *migrator, source string) ([]entry, error) {
-	rows, e := db.Query(ctx, `SELECT v.id,tf.storage_key,af.storage_key,tf.original_filename,v.wave_filename FROM chart_versions v JOIN files tf ON tf.id=v.tja_file_id JOIN files af ON af.id=v.audio_file_id ORDER BY v.id`)
+	// Read-only inventory also accepts pre-024 snapshots; compatibility is
+	// confined to migration tooling, never the running API.
+	var currentSchema bool
+	if e := db.QueryRow(ctx, `SELECT to_regclass('chart_data') IS NOT NULL`).Scan(&currentSchema); e != nil {
+		return nil, e
+	}
+	sourceQuery := `SELECT v.chart_id,tf.storage_key,af.storage_key,tf.original_filename,v.wave_filename FROM chart_data v JOIN files tf ON tf.id=v.tja_file_id JOIN files af ON af.id=v.audio_file_id ORDER BY v.chart_id`
+	if !currentSchema {
+		sourceQuery = `SELECT c.id,tf.storage_key,af.storage_key,tf.original_filename,v.wave_filename FROM charts c JOIN chart_versions v ON v.id=c.current_version_id JOIN files tf ON tf.id=v.tja_file_id JOIN files af ON af.id=v.audio_file_id ORDER BY c.id`
+	}
+	rows, e := db.Query(ctx, sourceQuery)
 	if e != nil {
 		return nil, e
 	}

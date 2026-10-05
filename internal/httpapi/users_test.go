@@ -163,7 +163,7 @@ func TestUserDirectoryPublicScopeAndStatistics(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// Two published versions, one hidden and one deleted: only current public
+	// Two published charts, one hidden and one deleted: only current public
 	// charts/scores count. Joins must not multiply either statistic.
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -171,21 +171,21 @@ func TestUserDirectoryPublicScopeAndStatistics(t *testing.T) {
 	}
 	defer tx.Rollback(ctx)
 	for i, status := range []string{"published", "published", "hidden", "deleted"} {
-		song, version := fmt.Sprintf("%032x", i+200), fmt.Sprintf("%032x", i+300)
+		song := fmt.Sprintf("%032x", i+200)
 		if _, err = tx.Exec(ctx, `INSERT INTO files(id,storage_key,original_filename,sha256,byte_size,media_type) VALUES($1,$1,'fixture',repeat('a',64),1,'test')`, song); err != nil {
 			t.Fatal(err)
 		}
-		if _, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id,current_version_id,status) VALUES($1,$2,$3,$4)`, song, ids[0], version, status); err != nil {
+		if _, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id,status) VALUES($1,$2,$3)`, song, ids[0], status); err != nil {
 			t.Fatal(err)
 		}
-		if _, err = tx.Exec(ctx, `INSERT INTO chart_versions(id,chart_id,version_number,title,bpm,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version) VALUES($1,$2,1,'Public chart',120,10,'utf-8','fixture',$2,$2,'test')`, version, song); err != nil {
+		if _, err = tx.Exec(ctx, `INSERT INTO chart_data(chart_id,title,bpm,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version) VALUES($1,'Public chart',120,10,'utf-8','fixture',$1,$1,'test')`, song); err != nil {
 			t.Fatal(err)
 		}
-		if _, err = tx.Exec(ctx, `INSERT INTO difficulties(version_id,block_index,course,level,style) VALUES($1,0,'Oni',1,'Single')`, version); err != nil {
+		if _, err = tx.Exec(ctx, `INSERT INTO difficulties(chart_id,block_index,course,level,style) VALUES($1,0,'Oni',1,'Single')`, song); err != nil {
 			t.Fatal(err)
 		}
 		for j := 0; j < 2; j++ {
-			if _, err = tx.Exec(ctx, `INSERT INTO scores(id,user_id,song_id,version_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest) VALUES($1,$2,$3,$4,0,'Oni',1,0,0,1000,0,1,repeat('a',64))`, ID(), ids[0], song, version); err != nil {
+			if _, err = tx.Exec(ctx, `INSERT INTO scores(id,user_id,song_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest) VALUES($1,$2,$3,0,'Oni',1,0,0,1000,0,1,repeat('a',64))`, ID(), ids[0], song); err != nil {
 				t.Fatal(err)
 			}
 		}

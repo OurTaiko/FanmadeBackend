@@ -107,7 +107,7 @@ func TestDifficultyMakersFlow(t *testing.T) {
 		}
 	}
 	var count int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM difficulties WHERE version_id=$1 AND maker IN ('A','B')`, c.VersionID).Scan(&count); err != nil || count != 3 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM difficulties WHERE chart_id=$1 AND maker IN ('A','B')`, c.ID).Scan(&count); err != nil || count != 3 {
 		t.Fatal(count, err)
 	}
 }

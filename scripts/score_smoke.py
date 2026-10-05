@@ -19,7 +19,7 @@ def main():
         status, score, _ = client.call('POST', '/scores', payload, headers)
         assert status == 201, (status, score)
         assert all(score[k] == value for k, value in payload.items())
-        assert score['userId'] == user['id'] and score['versionId'] == chart['versionId']
+        assert score['userId'] == user['id'] and score['songId'] == chart['id']
         target = next(d for d in chart['difficulties'] if d['blockIndex'] == score['blockIndex'])
         assert target['style'] == 'Single' and target['cloudScoreEligible']
         status, repeated, _ = client.call('POST', '/scores', payload, headers)

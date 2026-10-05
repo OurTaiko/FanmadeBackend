@@ -132,7 +132,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 			f.sha = hex.EncodeToString(h.Sum(nil))
 			files[field] = f
 		} else {
-			if (field != "encoding" && field != "description" && field != "categoryIds" && field != "difficultyMakers" && !(existing != nil && (field == "expectedVersionId" || field == "confirmReset"))) || name != "" {
+			if (field != "encoding" && field != "description" && field != "categoryIds" && field != "difficultyMakers" && !(existing != nil && field == "confirmReset")) || name != "" {
 				problem(w, 400, "UPLOAD_FILES_INVALID", "包含不支持的上传字段")
 				return
 			}
@@ -176,7 +176,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cf := files["cover"]
-	delete(files, "cover") // Covers belong to charts, independently of chart versions.
+	delete(files, "cover") // Covers belong to charts, independently of TJA/audio replacements.
 	var coverData []byte
 	if cf != nil {
 		raw, err := os.ReadFile(cf.path)
@@ -226,8 +226,8 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 	var tx pgx.Tx
 	var replacementDigest string
 	if existing != nil {
-		if fields["confirmReset"] != "true" || fields["expectedVersionId"] == "" {
-			problem(w, 400, "REPLACEMENT_CONFIRMATION_REQUIRED", "替换需要当前版本标识，并确认删除全部旧文件和旧成绩")
+		if fields["confirmReset"] != "true" {
+			problem(w, 400, "REPLACEMENT_CONFIRMATION_REQUIRED", "替换需要确认删除旧文件和旧成绩")
 			return
 		}
 		// Hash only submitted data: a retry must work after the old audio was deleted.
@@ -246,20 +246,25 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer tx.Rollback(r.Context())
-		var current string
-		e = tx.QueryRow(r.Context(), `SELECT current_version_id FROM charts c WHERE c.id=$1 AND `+publishedChart+` FOR UPDATE`, existing.ID).Scan(&current)
-		if errors.Is(e, pgx.ErrNoRows) {
+		// Reload while holding the song lock so retained audio always belongs to
+		// the files currently being replaced, even after a concurrent upload.
+		var lockedID string
+		err := tx.QueryRow(r.Context(), `SELECT c.id FROM charts c WHERE c.id=$1 AND `+publishedChart+` FOR UPDATE OF c`, existing.ID).Scan(&lockedID)
+		if errors.Is(err, pgx.ErrNoRows) {
 			problem(w, 404, "CHART_NOT_FOUND", "歌曲不存在或已下架")
 			return
 		}
-		if e != nil {
-			internal(w, e)
+		if err != nil {
+			internal(w, err)
 			return
 		}
-		if current != fields["expectedVersionId"] || current != existing.VersionID {
-			problem(w, 409, "CHART_VERSION_CHANGED", "歌曲已被更新，请重新打开更新页面后选择文件")
+		// Read resource rows in a fresh snapshot after any lock wait.
+		current, err := readChart(tx.QueryRow(r.Context(), chartSelect+` WHERE c.id=$1`, lockedID))
+		if err != nil {
+			internal(w, err)
 			return
 		}
+		existing = &current
 		if af == nil {
 			af, e = s.copyAudio(r.Context(), existing, dir)
 			if e != nil {
@@ -311,7 +316,8 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		}
 		defer tx.Rollback(r.Context())
 	}
-	chartID, versionID := ID(), ID()
+	chartID := ID()
+	var retiredIDs []string
 	if existing != nil {
 		chartID = existing.ID
 	}
@@ -328,7 +334,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	for field, f := range files {
-		f.key = filepath.ToSlash(filepath.Join("objects", versionID, field))
+		f.key = filepath.ToSlash(filepath.Join("objects", chartID, f.id, field))
 		media := "application/octet-stream"
 		if field == "audio" {
 			media = audio.MediaType(f.name)
@@ -349,9 +355,9 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if existing == nil {
-		_, e = tx.Exec(r.Context(), `INSERT INTO charts(id,owner_id,description,current_version_id) VALUES($1,$2,$3,$4)`, chartID, u.User.ID, fields["description"], versionID)
+		_, e = tx.Exec(r.Context(), `INSERT INTO charts(id,owner_id,description) VALUES($1,$2,$3)`, chartID, u.User.ID, fields["description"])
 	} else {
-		e = retireChart(r.Context(), tx, chartID, versionID, fields["description"])
+		retiredIDs, e = retireChart(r.Context(), tx, chartID, fields["description"])
 	}
 	if e != nil {
 		internal(w, e)
@@ -367,27 +373,31 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		internal(w, e)
 		return
 	}
-	if _, e = tx.Exec(r.Context(), `INSERT INTO chart_versions(id,chart_id,version_number,title,subtitle,bpm,offset_seconds,demo_start,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version) VALUES($1,$2,1,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, versionID, chartID, meta.Title, meta.Subtitle, meta.BPM, meta.Offset, meta.DemoStart, duration, encoding, meta.Wave, tf.id, af.id, tja.Version); e != nil {
+	if _, e = tx.Exec(r.Context(), `INSERT INTO chart_data(chart_id,title,subtitle,bpm,offset_seconds,demo_start,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT(chart_id) DO UPDATE SET title=EXCLUDED.title,subtitle=EXCLUDED.subtitle,bpm=EXCLUDED.bpm,offset_seconds=EXCLUDED.offset_seconds,demo_start=EXCLUDED.demo_start,duration=EXCLUDED.duration,encoding=EXCLUDED.encoding,wave_filename=EXCLUDED.wave_filename,tja_file_id=EXCLUDED.tja_file_id,audio_file_id=EXCLUDED.audio_file_id,validation_version=EXCLUDED.validation_version`, chartID, meta.Title, meta.Subtitle, meta.BPM, meta.Offset, meta.DemoStart, duration, encoding, meta.Wave, tf.id, af.id, tja.Version); e != nil {
 		internal(w, e)
 		return
 	}
 	if s.remoteStorage() {
-		if e = s.saveArchive(r.Context(), tx, versionID, tf.path, af.path, tf.name, meta.Wave, dir); e != nil {
+		if e = s.saveArchive(r.Context(), tx, chartID, tf.path, af.path, tf.name, meta.Wave, dir); e != nil {
 			internal(w, e)
 			return
 		}
 	}
-	if _, e = tx.Exec(r.Context(), `UPDATE chart_versions SET title_translations=$2,subtitle_translations=$3 WHERE id=$1`, versionID, meta.TitleTranslations, meta.SubtitleTranslations); e != nil {
+	if _, e = tx.Exec(r.Context(), `UPDATE chart_data SET title_translations=$2,subtitle_translations=$3 WHERE chart_id=$1`, chartID, meta.TitleTranslations, meta.SubtitleTranslations); e != nil {
 		internal(w, e)
 		return
 	}
 	for _, d := range meta.Difficulties {
-		if _, e = tx.Exec(r.Context(), `INSERT INTO difficulties(version_id,block_index,course,level,player,style,maker) VALUES($1,$2,$3,$4,$5,$6,$7)`, versionID, d.BlockIndex, d.Course, d.Level, d.Player, d.Style, d.Maker); e != nil {
+		if _, e = tx.Exec(r.Context(), `INSERT INTO difficulties(chart_id,block_index,course,level,player,style,maker) VALUES($1,$2,$3,$4,$5,$6,$7)`, chartID, d.BlockIndex, d.Course, d.Level, d.Player, d.Style, d.Maker); e != nil {
 			internal(w, e)
 			return
 		}
 	}
-	if _, e = tx.Exec(r.Context(), `INSERT INTO upload_requests(user_id,idempotency_key,payload_digest,chart_id,version_id) VALUES($1,$2,$3,$4,$5)`, u.User.ID, key, digest, chartID, versionID); e != nil {
+	if _, e = tx.Exec(r.Context(), `INSERT INTO upload_requests(user_id,idempotency_key,payload_digest,chart_id,tja_sha256,audio_sha256) VALUES($1,$2,$3,$4,$5,$6)`, u.User.ID, key, digest, chartID, tf.sha, af.sha); e != nil {
+		internal(w, e)
+		return
+	}
+	if e = retireUnusedFiles(r.Context(), tx, retiredIDs); e != nil {
 		internal(w, e)
 		return
 	}

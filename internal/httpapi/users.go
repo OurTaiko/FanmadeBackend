@@ -32,7 +32,7 @@ type UserDirectory struct {
 
 const publicUserColumns = `u.id,u.first_login_at,u.last_active_at,
  (SELECT count(*) FROM charts c WHERE c.owner_id=u.id AND ` + publishedChart + `),
- (SELECT count(*) FROM scores sc JOIN charts c ON c.id=sc.song_id AND c.current_version_id=sc.version_id
+ (SELECT count(*) FROM scores sc JOIN charts c ON c.id=sc.song_id
  WHERE sc.user_id=u.id AND ` + publishedChart + `)`
 
 type UserSpace struct {

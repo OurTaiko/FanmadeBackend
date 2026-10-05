@@ -77,12 +77,12 @@ func TestUploadStoresCanonicalUTF8(t *testing.T) {
 				t.Fatal("noncanonical metadata", chart.Encoding, chart.Title)
 			}
 			var size int64
-			if err := pool.QueryRow(ctx, `SELECT f.byte_size FROM files f JOIN chart_versions v ON v.tja_file_id=f.id WHERE v.id=$1`, chart.VersionID).Scan(&size); err != nil || size != int64(len(canonical)) {
+			if err := pool.QueryRow(ctx, `SELECT f.byte_size FROM files f JOIN chart_data v ON v.tja_file_id=f.id WHERE v.chart_id=$1`, chart.ID).Scan(&size); err != nil || size != int64(len(canonical)) {
 				t.Fatal("incorrect normalized byte size", size, err)
 			}
 			for _, kind := range []string{"tja", "download"} {
 				w = httptest.NewRecorder()
-				handler.ServeHTTP(w, httptest.NewRequest("GET", "/api/v1/charts/"+chart.ID+"/versions/"+chart.VersionID+"/"+kind, nil))
+				handler.ServeHTTP(w, httptest.NewRequest("GET", "/api/v1/charts/"+chart.ID+"/"+kind, nil))
 				if w.Code != 200 {
 					t.Fatal(w.Code)
 				}

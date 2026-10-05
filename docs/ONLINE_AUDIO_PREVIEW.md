@@ -4,7 +4,7 @@
 
 ## 现状与参考实现
 
-Fanmade 原有 `/api/v1/charts/{id}/versions/{version}/audio` 已使用 `http.ServeContent`，具备 Range 能力。因此不能把“游戏没有预览”归因于后端完全不支持流。
+Fanmade 原有 `/api/v1/charts/{id}/audio` 已使用 `http.ServeContent`，具备 Range 能力。因此不能把“游戏没有预览”归因于后端完全不支持流。
 
 当前游戏 `SongSelectScene.UpdatePreview` 只在 `board.Song.music != null` 时播放，没有网络预览分支。`FanmadeClient.PrepareAsync` 下载完整音频并校验 SHA-256 后才准备游玩，不适合作为选曲试听入口。
 
@@ -26,7 +26,7 @@ Fanmade 原有 `/api/v1/charts/{id}/versions/{version}/audio` 已使用 `http.Se
 ```json
 {
   "audioPreview": {
-    "url": "/api/v1/charts/<id>/versions/<versionId>/audio",
+    "url": "/api/v1/charts/<id>/audio",
     "contentType": "audio/mpeg",
     "startSeconds": 42.5,
     "durationSeconds": 15
@@ -53,7 +53,6 @@ Fanmade 原有 `/api/v1/charts/{id}/versions/{version}/audio` 已使用 `http.Se
 | Range 与匹配的 If-Range ETag | 206 |
 | If-Range 不匹配 | 200 完整文件；客户端不能直接追加到旧分段 |
 | 歌曲下架、删除或不受支持 | 404 CHART_NOT_FOUND，即使附带旧 ETag 也不能得到 304 |
-| 当前歌曲的旧 versionId | 404 VERSION_NOT_FOUND |
 | 数据库不可用、文件丢失或不可读 | 503 SERVICE_UNAVAILABLE；不能把 JSON 错误体送入音频解码器 |
 
 成功响应有 `Accept-Ranges: bytes`、强 ETag 和 `Cache-Control: public, no-cache, no-transform`。允许缓存但复用前需重验证；这不等于 no-store。`X-Accel-Buffering: no` 提示代理及时转发。Range 与条件请求由 [Go ServeContent](https://pkg.go.dev/net/http#ServeContent) 处理。
@@ -70,20 +69,20 @@ Fanmade 原有 `/api/v1/charts/{id}/versions/{version}/audio` 已使用 `http.Se
 | `Runtime/Online/FanmadeClient.cs` | 增加独立预览入口；先复用已校验的本地音频，否则打开在线 URL。预览不调用 PrepareAsync、不下载 TJA，不长期占用正式下载的 Transport 锁。 |
 | 新增 `Runtime/Online/OnlineAudioPreview.cs` | 持有请求、取消源、歌曲键、generation 和解码资源，负责缓冲、超时、停止与释放。 |
 | `Runtime/Scenes/SongSelectScene.cs` | 在本地 music 分支之外接入在线预览；稳定停留后加载，准备好且仍是当前选曲才淡出 BGM。 |
-| `Runtime/Online/OnlineManager.cs` | 对外提供预览能力与状态；试听成功不能把歌曲设置为整曲 Ready，不能绕过正式游玩前的版本／哈希检查。 |
+| `Runtime/Online/OnlineManager.cs` | 对外提供预览能力与状态；试听成功不能把歌曲设置为整曲 Ready，不能绕过正式游玩前的文件哈希检查。 |
 
 ESE 是独立后端，本次未改动它。客户端必须逐服务器探测能力，不能因为 Fanmade 支持就假设所有服务器都支持。
 
 ### 选曲与取消流程
 
 1. 复用展开动画和停留逻辑；建议稳定停留约 500–1000 ms 后才创建请求，避免滚轮浏览下载一串歌曲。
-2. 以 `(服务器, chartId, versionId, audioHash)` 识别预览。选择变更先增加 generation 并取消旧请求；异步结果回主线程后再次比较 generation。
+2. 以 `(服务器, chartId, audioHash)` 识别预览。选择变更先增加 generation 并取消旧请求；异步结果回主线程后再次比较 generation。
 3. 等待解码资源及足够缓冲，期间继续播放 BGM。真正开始试听后才淡出 BGM；失败不阻塞选曲和进入歌曲。
 4. 窗口结束后淡出；只有已缓存窗口且支持 seek 时才循环，不支持时不反复重连下载整首。
 5. 切歌、关闭歌曲框、进入加载场景、离开场景、组件禁用或销毁时，都应取消并释放临时资源。加载中也要清理，不能把当前 StopPreview 的 `!previewStarted` 早退作为唯一清理入口。
 6. 停止后沿用 BGM 恢复时序。旧任务的 finally 只能清理自己拥有的资源，不能停止新任务正在使用的缓存 sample。
 
-缓存应有容量和生命周期上限。试听分段不能写成已验证的完整 `audio.mp3`／`audio.ogg`；开始游戏仍走 PrepareAsync，刷新版本并验证完整 TJA／音频哈希。
+缓存应有容量和生命周期上限。试听分段不能写成已验证的完整 `audio.mp3`／`audio.ogg`；开始游戏仍走 PrepareAsync，刷新详情并验证完整 TJA／音频哈希。
 
 ### Unity 渐进播放与试听起点
 
@@ -98,7 +97,7 @@ ESE 是独立后端，本次未改动它。客户端必须逐服务器探测能�
 ### 兼容与错误处理
 
 - 能力字段缺失或版本未知时保留已有本地试听；不要强行解析未知协议。旧服务器可能支持 Range，但不代表声明了本版能力。
-- 404 后重新获取详情一次；版本变化时只为当前选曲重试，下架时停止。
+- 404 后重新获取详情一次；哈希变化时只为当前选曲重试，下架时停止。
 - 416 后丢弃不匹配分段并重新 HEAD／GET。200 与 206 分开处理，禁止拼接两份完整文件。
 - 网络断开、503 或解码失败恢复 BGM，重试有上限；切歌取消不弹错误窗。
 - 公开音频请求不发送账号 token，不因预览失败触发重新登录。浏览器跨域／WebGL CORS 不在本次扩展范围。
@@ -128,6 +127,8 @@ curl -sS -D - -H 'Range: bytes=0-3' "$AUDIO_URL" -o /tmp/fanmade-preview-first4.
 
 第二个请求应为 206、Content-Length 为 4、Content-Range 总长度等于 audioSize。再用带引号的 ETag 检查 If-None-Match 得到 304，匹配 If-Range 得到 206，不匹配得到完整 200。
 
-游戏端验收覆盖：MP3／OGG 冷热缓存、弱网下整首下载完成前起播、靠近末尾及越界 DEMOSTART、连续切歌无串音、加载中离开场景、取消后资源释放、BGM 恢复、旧版本 404、旧服务器兼容、预览后正式下载仍通过完整哈希校验。Unity Editor 和目标真机分别记录首声音延迟、起播时已下载字节数和选曲内存趋势。
+游戏端验收覆盖：MP3／OGG 冷热缓存、弱网下整首下载完成前起播、靠近末尾及越界 DEMOSTART、连续切歌无串音、加载中离开场景、取消后资源释放、BGM 恢复、删除后的资源 404、旧服务器兼容、预览后正式下载仍通过完整哈希校验。Unity Editor 和目标真机分别记录首声音延迟、起播时已下载字节数和选曲内存趋势。
 
 2026-10-03 已经通过实际 HTTPS／代理链验证 MP3 与 OGG 的 HEAD、前缀／后缀／开放范围、ETag、If-Range、416 与旧版本 404；26 首公开歌曲均返回预览元数据。后端测试及上线验证不代表游戏试听已通过，完成游戏端接入和真机验证后才能关闭在线预览功能事项。
+
+当前 schema 024 不再使用歌曲版本 ID，旧路径已经移除。S3 直连预览和成绩适配请以 [游戏端资源直连接入说明](GAME_CLIENT_RESOURCE_DOWNLOAD.md) 为准；上面的 2026-10-03 记录仅描述当时上线验证。

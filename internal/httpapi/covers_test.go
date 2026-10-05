@@ -230,7 +230,7 @@ func testCoverLifecycle(t *testing.T, useWebP, remote bool) {
 		t.Fatal("serving old cover")
 	}
 	detail := decode(get("/api/v1/charts/"+original.ID, ""))
-	if detail.CoverHash != result.CoverHash || detail.VersionID != original.VersionID || detail.AudioHash != original.AudioHash || detail.TJAHash != original.TJAHash {
+	if detail.CoverHash != result.CoverHash || detail.ID != original.ID || detail.AudioHash != original.AudioHash || detail.TJAHash != original.TJAHash {
 		t.Fatal("changed chart resources")
 	}
 	w = get("/api/v1/charts", "")
@@ -243,7 +243,7 @@ func testCoverLifecycle(t *testing.T, useWebP, remote bool) {
 	if strings.Contains(w.Body.String(), "coverHash") {
 		t.Fatal("changed game response")
 	}
-	replacement := []part{parts[0], {"expectedVersionId", "", []byte(original.VersionID)}, {"confirmReset", "", []byte("true")}}
+	replacement := []part{parts[0], {"confirmReset", "", []byte("true")}}
 	w = send("PUT", "/api/v1/charts/"+original.ID+"/files", "owner", "csrf", ID(), replacement...)
 	status(w, 200)
 	if decode(w).CoverHash != result.CoverHash {

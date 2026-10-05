@@ -23,7 +23,6 @@ type Chart struct {
 	ID           string        `json:"id"`
 	OwnerID      string        `json:"ownerId"`
 	Uploader     string        `json:"uploader"`
-	VersionID    string        `json:"versionId"`
 	Description  string        `json:"description"`
 	CreatedAt    time.Time     `json:"createdAt"`
 	Duration     float64       `json:"duration"`
@@ -41,17 +40,17 @@ type Chart struct {
 // Mixed files are unsupported as a whole; never expose their regular blocks alone.
 const supportedCoursesSQL = "('Easy','Normal','Hard','Oni','Edit')"
 const publishedChart = `c.status='published' AND NOT EXISTS (SELECT 1 FROM difficulties excluded
- WHERE excluded.version_id=c.current_version_id AND excluded.course NOT IN ` + supportedCoursesSQL + `)`
+ WHERE excluded.chart_id=c.id AND excluded.course NOT IN ` + supportedCoursesSQL + `)`
 
-const chartSelect = `SELECT c.id,c.owner_id,''::text,v.id,c.description,c.created_at,v.duration,v.encoding,tf.original_filename,af.original_filename,tf.sha256,af.sha256,af.byte_size,tf.storage_key,af.storage_key,COALESCE(c.title_override,v.title),COALESCE(c.subtitle_override,v.subtitle),v.bpm,v.offset_seconds,v.demo_start,v.wave_filename,v.title_translations || c.title_translation_overrides,v.subtitle_translations || c.subtitle_translation_overrides,
- COALESCE((SELECT jsonb_agg(jsonb_build_object('maker',d.maker,'course',d.course,'level',d.level,'blockIndex',d.block_index,'player',d.player,'style',d.style,'cloudScoreEligible',d.cloud_score_eligible) ORDER BY d.block_index) FROM difficulties d WHERE d.version_id=v.id),'[]'::jsonb),
+const chartSelect = `SELECT c.id,c.owner_id,''::text,c.description,c.created_at,v.duration,v.encoding,tf.original_filename,af.original_filename,tf.sha256,af.sha256,af.byte_size,tf.storage_key,af.storage_key,COALESCE(c.title_override,v.title),COALESCE(c.subtitle_override,v.subtitle),v.bpm,v.offset_seconds,v.demo_start,v.wave_filename,v.title_translations || c.title_translation_overrides,v.subtitle_translations || c.subtitle_translation_overrides,
+ COALESCE((SELECT jsonb_agg(jsonb_build_object('maker',d.maker,'course',d.course,'level',d.level,'blockIndex',d.block_index,'player',d.player,'style',d.style,'cloudScoreEligible',d.cloud_score_eligible) ORDER BY d.block_index) FROM difficulties d WHERE d.chart_id=c.id),'[]'::jsonb),
  ARRAY(SELECT cc.category_id FROM chart_categories cc WHERE cc.chart_id=c.id ORDER BY cc.category_id)
- FROM charts c JOIN chart_versions v ON v.id=c.current_version_id JOIN files tf ON tf.id=v.tja_file_id JOIN files af ON af.id=v.audio_file_id `
+ FROM charts c JOIN chart_data v ON v.chart_id=c.id JOIN files tf ON tf.id=v.tja_file_id JOIN files af ON af.id=v.audio_file_id `
 
 func readChart(row pgx.Row) (Chart, error) {
 	var c Chart
 	var difficulties []byte
-	e := row.Scan(&c.ID, &c.OwnerID, &c.Uploader, &c.VersionID, &c.Description, &c.CreatedAt, &c.Duration, &c.Encoding, &c.TJAName, &c.AudioName, &c.TJAHash, &c.AudioHash, &c.AudioSize, &c.TJAKey, &c.AudioKey, &c.Title, &c.Subtitle, &c.BPM, &c.Offset, &c.DemoStart, &c.Wave, &c.TitleTranslations, &c.SubtitleTranslations, &difficulties, &c.CategoryIDs)
+	e := row.Scan(&c.ID, &c.OwnerID, &c.Uploader, &c.Description, &c.CreatedAt, &c.Duration, &c.Encoding, &c.TJAName, &c.AudioName, &c.TJAHash, &c.AudioHash, &c.AudioSize, &c.TJAKey, &c.AudioKey, &c.Title, &c.Subtitle, &c.BPM, &c.Offset, &c.DemoStart, &c.Wave, &c.TitleTranslations, &c.SubtitleTranslations, &difficulties, &c.CategoryIDs)
 	if e == nil {
 		e = json.Unmarshal(difficulties, &c.Difficulties)
 		c.Maker = difficultyMakers(c.Difficulties)
@@ -136,15 +135,11 @@ func (s *Server) download(w http.ResponseWriter, r *http.Request) {
 		internal(w, e)
 		return
 	}
-	if c.VersionID != r.PathValue("version") {
-		problem(w, 404, "VERSION_NOT_FOUND", "版本不存在")
-		return
-	}
 	kind := r.PathValue("kind")
 	if kind == "download" {
 		if s.remoteStorage() {
 			var key, digest string
-			if e = s.DB.QueryRow(r.Context(), `SELECT storage_key,sha256 FROM chart_archives WHERE version_id=$1`, c.VersionID).Scan(&key, &digest); e != nil {
+			if e = s.DB.QueryRow(r.Context(), `SELECT storage_key,sha256 FROM chart_archives WHERE chart_id=$1`, c.ID).Scan(&key, &digest); e != nil {
 				internal(w, e)
 				return
 			}

@@ -17,7 +17,6 @@ type leaderboardEntry struct {
 
 type leaderboardResponse struct {
 	SongID     string             `json:"songId"`
-	VersionID  string             `json:"versionId"`
 	Difficulty string             `json:"difficulty"`
 	Supported  bool               `json:"supported"`
 	Items      []leaderboardEntry `json:"items"`
@@ -47,7 +46,7 @@ func (s *Server) leaderboard(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// One snapshot keeps the selected version, count, ranks and page consistent.
+	// One snapshot keeps the chart, count, ranks and page consistent.
 	tx, err := s.DB.BeginTx(r.Context(), pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		internal(w, err)
@@ -55,7 +54,7 @@ func (s *Server) leaderboard(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	result := leaderboardResponse{SongID: r.PathValue("id"), Page: page, PageSize: 20, Items: []leaderboardEntry{}}
-	err = tx.QueryRow(r.Context(), `SELECT current_version_id FROM charts c WHERE c.id=$1 AND `+publishedChart, result.SongID).Scan(&result.VersionID)
+	err = tx.QueryRow(r.Context(), `SELECT id FROM charts c WHERE c.id=$1 AND `+publishedChart, result.SongID).Scan(&result.SongID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		problem(w, 404, "CHART_NOT_FOUND", "歌曲不存在或已下架")
 		return
@@ -64,13 +63,9 @@ func (s *Server) leaderboard(w http.ResponseWriter, r *http.Request) {
 		internal(w, err)
 		return
 	}
-	if version := query.Get("versionId"); version != "" && version != result.VersionID {
-		problem(w, 409, "CHART_VERSION_CHANGED", "谱面版本已更新，请刷新歌曲详情")
-		return
-	}
 	if course == "" {
-		err = tx.QueryRow(r.Context(), `SELECT course FROM difficulties WHERE version_id=$1
-		 ORDER BY CASE course WHEN 'Oni' THEN 0 WHEN 'Edit' THEN 1 WHEN 'Hard' THEN 2 WHEN 'Normal' THEN 3 WHEN 'Easy' THEN 4 ELSE 5 END,block_index LIMIT 1`, result.VersionID).Scan(&course)
+		err = tx.QueryRow(r.Context(), `SELECT course FROM difficulties WHERE chart_id=$1
+		 ORDER BY CASE course WHEN 'Oni' THEN 0 WHEN 'Edit' THEN 1 WHEN 'Hard' THEN 2 WHEN 'Normal' THEN 3 WHEN 'Easy' THEN 4 ELSE 5 END,block_index LIMIT 1`, result.SongID).Scan(&course)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			internal(w, err)
 			return
@@ -79,7 +74,7 @@ func (s *Server) leaderboard(w http.ResponseWriter, r *http.Request) {
 	result.Difficulty = course
 	var count, eligible, block int
 	err = tx.QueryRow(r.Context(), `SELECT count(*),count(*) FILTER (WHERE cloud_score_eligible),COALESCE(min(block_index) FILTER (WHERE cloud_score_eligible),0)
-	 FROM difficulties WHERE version_id=$1 AND course=$2`, result.VersionID, course).Scan(&count, &eligible, &block)
+	 FROM difficulties WHERE chart_id=$1 AND course=$2`, result.SongID, course).Scan(&count, &eligible, &block)
 	if err != nil {
 		internal(w, err)
 		return
@@ -94,28 +89,28 @@ func (s *Server) leaderboard(w http.ResponseWriter, r *http.Request) {
 	}
 	result.Supported = eligible == 1
 	if result.Supported {
-		err = tx.QueryRow(r.Context(), `SELECT count(DISTINCT user_id) FROM scores WHERE song_id=$1 AND version_id=$2 AND difficulty=$3 AND block_index=$4`, result.SongID, result.VersionID, course, block).Scan(&result.Total)
+		err = tx.QueryRow(r.Context(), `SELECT count(DISTINCT user_id) FROM scores WHERE song_id=$1 AND difficulty=$2 AND block_index=$3`, result.SongID, course, block).Scan(&result.Total)
 		if err != nil {
 			internal(w, err)
 			return
 		}
 		rows, err := tx.Query(r.Context(), `WITH best AS (
 		 SELECT DISTINCT ON (user_id) * FROM scores
-		 WHERE song_id=$1 AND version_id=$2 AND difficulty=$3 AND block_index=$4
+		 WHERE song_id=$1 AND difficulty=$2 AND block_index=$3
 		 ORDER BY user_id,score DESC,submitted_at,id
 		), ranked AS (
 		 SELECT best.*,rank() OVER (ORDER BY score DESC) AS place FROM best
 		)
-		SELECT r.id,r.user_id,r.song_id,r.version_id,r.block_index,r.difficulty,r.good,r.ok,r.bad,r.score,r.drumroll,r.max_combo,r.clear_status,r.submitted_at,''::text,r.place
+		SELECT r.id,r.user_id,r.song_id,r.block_index,r.difficulty,r.good,r.ok,r.bad,r.score,r.drumroll,r.max_combo,r.clear_status,r.submitted_at,''::text,r.place
 		FROM ranked r
-		ORDER BY r.score DESC,r.submitted_at,r.id LIMIT $5 OFFSET $6`, result.SongID, result.VersionID, course, block, result.PageSize, (page-1)*result.PageSize)
+		ORDER BY r.score DESC,r.submitted_at,r.id LIMIT $4 OFFSET $5`, result.SongID, course, block, result.PageSize, (page-1)*result.PageSize)
 		if err != nil {
 			internal(w, err)
 			return
 		}
 		for rows.Next() {
 			var v leaderboardEntry
-			if err = rows.Scan(&v.ID, &v.UserID, &v.SongID, &v.VersionID, &v.BlockIndex, &v.Difficulty, &v.Good, &v.OK, &v.Bad, &v.Score.Score, &v.Drumroll, &v.MaxCombo, &v.ClearStatus, &v.SubmittedAt, &v.Nickname, &v.Rank); err != nil {
+			if err = rows.Scan(&v.ID, &v.UserID, &v.SongID, &v.BlockIndex, &v.Difficulty, &v.Good, &v.OK, &v.Bad, &v.Score.Score, &v.Drumroll, &v.MaxCombo, &v.ClearStatus, &v.SubmittedAt, &v.Nickname, &v.Rank); err != nil {
 				rows.Close()
 				internal(w, err)
 				return

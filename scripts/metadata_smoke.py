@@ -46,7 +46,7 @@ def main():
         assert status == 200, (status, updated)
         assert updated['title'] == 'Edited English' and updated['subtitle'] == ''
         assert updated['titleTranslations']['zh'] == marker and updated['subtitleTranslations']['ko'] == '부제'
-        for k in ['id', 'versionId', 'tjaHash', 'audioHash', 'difficulties']:
+        for k in ['id', 'tjaHash', 'audioHash', 'difficulties']:
             assert updated[k] == chart[k], k
         status, detail, _ = owner.call('GET', path)
         assert status == 200 and detail == updated
@@ -55,7 +55,7 @@ def main():
             assert status == 200 and result['total'] == 1 and result['items'][0]['id'] == chart['id']
         status, repeated, _ = owner.call('POST', '/scores', payload, key)
         assert status == 200 and repeated == score
-        status, archive, _ = owner.call('GET', path + '/versions/' + chart['versionId'] + '/download')
+        status, archive, _ = owner.call('GET', path + '/download')
         assert status == 200
         with zipfile.ZipFile(io.BytesIO(archive)) as z:
             assert z.read(original.name) == original.read_bytes()

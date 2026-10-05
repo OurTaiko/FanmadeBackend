@@ -75,6 +75,9 @@ var scoreClearStatusSchema string
 //go:embed 023_object_storage.sql
 var objectStorageSchema string
 
+//go:embed 024_current_chart_resources.sql
+var currentChartSchema string
+
 func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	pool, err := pgxpool.New(ctx, url)
 	if err != nil {
@@ -89,6 +92,11 @@ func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 
 // Migrate applies the initial schema once, atomically, with a transaction lock.
 func Migrate(ctx context.Context, pool *pgxpool.Pool, storage string) error {
+	return migrateTo(ctx, pool, storage, 24)
+}
+
+// The historical target supports testing upgrades before the schema flattening.
+func migrateTo(ctx context.Context, pool *pgxpool.Pool, storage string, target int) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -351,6 +359,19 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, storage string) error {
 		}
 		if _, err = tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES(23)`); err != nil {
 			return err
+		}
+	}
+	if target >= 24 {
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=24)`).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			if _, err = tx.Exec(ctx, currentChartSchema); err != nil {
+				return fmt.Errorf("migration 024: %w", err)
+			}
+			if _, err = tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES(24)`); err != nil {
+				return err
+			}
 		}
 	}
 	return tx.Commit(ctx)

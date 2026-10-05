@@ -174,7 +174,7 @@ func TestCategoriesFlow(t *testing.T) {
 		t.Fatal("guest chart detail", guest)
 	}
 	for _, kind := range []string{"tja", "audio"} {
-		w := call("GET", "/api/v1/charts/"+c.ID+"/versions/"+c.VersionID+"/"+kind, "", "")
+		w := call("GET", "/api/v1/charts/"+c.ID+"/"+kind, "", "")
 		if w.Code != 200 || w.Body.Len() == 0 {
 			t.Fatal("guest download", kind, w.Code, w.Body.String())
 		}
@@ -194,11 +194,11 @@ func TestCategoriesFlow(t *testing.T) {
 		t.Fatal("partial invalid patch")
 	}
 	// An existing score must remain attached to the same chart/version after reclassification.
-	if _, err = pool.Exec(ctx, `INSERT INTO scores(id,user_id,song_id,version_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest) VALUES('score','89b6ef3a5cb57b6e04f74711d15a8a5f',$1,$2,0,'Oni',1,0,0,1000,0,1,repeat('a',64))`, c.ID, c.VersionID); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO scores(id,user_id,song_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest) VALUES('score','89b6ef3a5cb57b6e04f74711d15a8a5f',$1,0,'Oni',1,0,0,1000,0,1,repeat('a',64))`, c.ID); err != nil {
 		t.Fatal(err)
 	}
 	after = decodeChart(call("PATCH", path, `{"categoryIds":["classic","virtual-singer"]}`, token), 200)
-	if after.VersionID != c.VersionID || after.TJAHash != c.TJAHash || after.AudioHash != c.AudioHash {
+	if after.ID != c.ID || after.TJAHash != c.TJAHash || after.AudioHash != c.AudioHash {
 		t.Fatal("classification changed content identity")
 	}
 	if len(categoryCharts("game")) != 0 || len(categoryCharts("pop")) != 0 || len(categoryCharts("anime")) != 0 || len(categoryCharts("classic")) != 1 {
@@ -212,7 +212,7 @@ func TestCategoriesFlow(t *testing.T) {
 	if !reflect.DeepEqual(after.CategoryIDs, []string{"anime"}) || len(categoryCharts("anime")) != 1 || len(categoryCharts("classic")) != 0 {
 		t.Fatal("editing into Anime failed", after.CategoryIDs)
 	}
-	if after.VersionID != c.VersionID || after.TJAHash != c.TJAHash || after.AudioHash != c.AudioHash {
+	if after.ID != c.ID || after.TJAHash != c.TJAHash || after.AudioHash != c.AudioHash {
 		t.Fatal("Anime classification changed content identity")
 	}
 	after = decodeChart(call("PATCH", path, `{"categoryIds":[]}`, token), 200)
@@ -220,7 +220,7 @@ func TestCategoriesFlow(t *testing.T) {
 		t.Fatal("empty PATCH default")
 	}
 	var points int
-	if err = pool.QueryRow(ctx, `SELECT score FROM scores WHERE id='score' AND song_id=$1 AND version_id=$2`, c.ID, c.VersionID).Scan(&points); err != nil || points != 1000 {
+	if err = pool.QueryRow(ctx, `SELECT score FROM scores WHERE id='score' AND song_id=$1`, c.ID).Scan(&points); err != nil || points != 1000 {
 		t.Fatal("lost score", err)
 	}
 	if w = call("DELETE", path, "", token); w.Code != 200 {

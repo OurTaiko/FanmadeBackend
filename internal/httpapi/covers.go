@@ -82,7 +82,7 @@ func (s *Server) getCover(w http.ResponseWriter, r *http.Request) {
 		internal(w, err)
 		return
 	}
-	if version := r.URL.Query().Get("v"); version != "" && version != digest {
+	if requestedHash := r.URL.Query().Get("v"); requestedHash != "" && requestedHash != digest {
 		problem(w, 404, "COVER_NOT_FOUND", "该封面已被替换")
 		return
 	}

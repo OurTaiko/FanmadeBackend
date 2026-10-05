@@ -23,16 +23,15 @@ func TestPublicGameSearch(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		id, version := fmt.Sprintf("%032d", i), fmt.Sprintf("%032d", i+100)
-		_, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id,current_version_id) VALUES($1,'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',$2);
-  `, id, version)
+		id := fmt.Sprintf("%032d", i)
+		_, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id) VALUES($1,'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee');
+  `, id)
 		if err == nil {
-			_, err = tx.Exec(ctx, `INSERT INTO chart_versions(id,chart_id,version_number,title,bpm,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version,title_translations)
-  VALUES($2,$1,1,'Search Song',120,10,'utf-8','test.ogg','t','a','tja-upload-v2','{"ja":"検索曲"}');`, id, version)
+			_, err = tx.Exec(ctx, `INSERT INTO chart_data(chart_id,title,bpm,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version,title_translations) VALUES($1,'Search Song',120,10,'utf-8','test.ogg','t','a','tja-upload-v2','{"ja":"検索曲"}');`, id)
 		}
 		if err == nil {
-			_, err = tx.Exec(ctx, `INSERT INTO difficulties(version_id,block_index,course,level,player,style,maker) VALUES
-  ($1,0,'Easy',3,'','Single','Composer'),($1,1,'Oni',8,'','Single','Artist');`, version)
+			_, err = tx.Exec(ctx, `INSERT INTO difficulties(chart_id,block_index,course,level,player,style,maker) VALUES
+  ($1,0,'Easy',3,'','Single','Composer'),($1,1,'Oni',8,'','Single','Artist');`, id)
 		}
 		if err != nil {
 			tx.Rollback(ctx)
@@ -97,8 +96,7 @@ func TestPublicGameSearch(t *testing.T) {
 		if i == 1 {
 			okCount = 1
 		}
-		_, err := pool.Exec(ctx, `INSERT INTO scores(id,user_id,song_id,version_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest)
-		 VALUES($1,'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',$2,$3,1,'Oni',10,$4,0,1000,0,10,repeat('a',64))`, fmt.Sprint("completed", i), fmt.Sprintf("%032d", i), fmt.Sprintf("%032d", i+100), okCount)
+		_, err := pool.Exec(ctx, `INSERT INTO scores(id,user_id,song_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest) VALUES($1,'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',$2,1,'Oni',10,$3,0,1000,0,10,repeat('a',64))`, fmt.Sprint("completed", i), fmt.Sprintf("%032d", i), okCount)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -58,10 +58,9 @@ func TestScoreReplayCompatibility(t *testing.T) {
 	ctx := context.Background()
 	const user = "89b6ef3a5cb57b6e04f74711d15a8a5f"
 	const song = "11111111111111111111111111111111"
-	const version = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const token = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 	const origin = "http://localhost:5173"
-	const base = `{"songId":"` + song + `","versionId":"` + version + `","difficulty":"Oni","good":10,"ok":0,"bad":0,"score":10000,"drumroll":0,"max_combo":10}`
+	const base = `{"songId":"` + song + `","difficulty":"Oni","good":10,"ok":0,"bad":0,"score":10000,"drumroll":0,"max_combo":10}`
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -73,10 +72,9 @@ func TestScoreReplayCompatibility(t *testing.T) {
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO files(id,storage_key,original_filename,sha256,byte_size,media_type)
  VALUES('t','t','test.tja',repeat('a',64),1,'text/plain'),('a','a','test.ogg',repeat('b',64),1,'audio/ogg');
- INSERT INTO charts(id,owner_id,current_version_id) VALUES('11111111111111111111111111111111','89b6ef3a5cb57b6e04f74711d15a8a5f','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
- INSERT INTO chart_versions(id,chart_id,version_number,title,bpm,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version)
- VALUES('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','11111111111111111111111111111111',1,'Recording fixture',120,10,'utf-8','test.ogg','t','a','test');
- INSERT INTO difficulties(version_id,block_index,course,level,player,style) VALUES('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',0,'Oni',5,'','Single');`)
+ INSERT INTO charts(id,owner_id) VALUES('11111111111111111111111111111111','89b6ef3a5cb57b6e04f74711d15a8a5f');
+ INSERT INTO chart_data(chart_id,title,bpm,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version) VALUES('11111111111111111111111111111111','Recording fixture',120,10,'utf-8','test.ogg','t','a','test');
+ INSERT INTO difficulties(chart_id,block_index,course,level,player,style) VALUES('11111111111111111111111111111111',0,'Oni',5,'','Single');`)
 	if err != nil {
 		t.Fatal(err)
 	}

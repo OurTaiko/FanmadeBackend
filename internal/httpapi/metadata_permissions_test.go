@@ -29,8 +29,8 @@ func TestMetadataAuthorOrAdmin(t *testing.T) {
 	}
 	defer tx.Rollback(ctx)
 	_, err = tx.Exec(ctx, `INSERT INTO files(id,storage_key,original_filename,sha256,byte_size,media_type) VALUES('t','t','t.tja',repeat('a',64),1,'application/octet-stream'),('a','a','a.ogg',repeat('b',64),1,'audio/ogg');
- INSERT INTO charts(id,owner_id,current_version_id) VALUES('chart','d46774d30dd13b92d9e536808da468a4','v');
- INSERT INTO chart_versions(id,chart_id,version_number,title,bpm,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version) VALUES('v','chart',1,'Original',120,10,'utf-8','a.ogg','t','a','test');`)
+ INSERT INTO charts(id,owner_id) VALUES('chart','d46774d30dd13b92d9e536808da468a4');
+ INSERT INTO chart_data(chart_id,title,bpm,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version) VALUES('chart','Original',120,10,'utf-8','a.ogg','t','a','test');`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestMetadataAuthorOrAdmin(t *testing.T) {
 	if editedResponse.Code != http.StatusOK || json.Unmarshal(editedResponse.Body.Bytes(), &edited) != nil {
 		t.Fatalf("metadata edit failed: %s", editedResponse.Body.String())
 	}
-	if edited.TitleTranslations["zh"] != "新译名" || edited.CoverHash != coverHash || edited.VersionID != "v" || edited.TJAHash != strings.Repeat("a", 64) || edited.AudioHash != strings.Repeat("b", 64) {
+	if edited.TitleTranslations["zh"] != "新译名" || edited.CoverHash != coverHash || edited.TJAHash != strings.Repeat("a", 64) || edited.AudioHash != strings.Repeat("b", 64) {
 		t.Fatalf("metadata response lost cover or changed resources: %+v", edited)
 	}
 	detailResponse := httptest.NewRecorder()

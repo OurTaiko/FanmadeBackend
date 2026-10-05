@@ -26,9 +26,9 @@ func TestAudioPreviewWindow(t *testing.T) {
 		{120, 120, 0, 15}, {120, -1, 0, 15}, {120, math.NaN(), 0, 15},
 		{120, math.Inf(1), 0, 15},
 	} {
-		c := Chart{ID: "song", VersionID: "version", AudioName: "track.mp3", Duration: tc.duration, Metadata: tja.Metadata{DemoStart: tc.start}}
+		c := Chart{ID: "song", AudioName: "track.mp3", Duration: tc.duration, Metadata: tja.Metadata{DemoStart: tc.start}}
 		p := audioPreview(c)
-		if p == nil || p.StartSeconds != tc.wantStart || p.DurationSeconds != tc.wantLength || p.ContentType != "audio/mpeg" || p.URL != "/api/v1/charts/song/versions/version/audio" {
+		if p == nil || p.StartSeconds != tc.wantStart || p.DurationSeconds != tc.wantLength || p.ContentType != "audio/mpeg" || p.URL != "/api/v1/charts/song/audio" {
 			t.Fatalf("window %+v: %+v", tc, p)
 		}
 	}
@@ -76,7 +76,7 @@ func testAudioStreamHTTP(t *testing.T, remote bool) {
 			if remote {
 				teststore.Seed(t, cfg.Objects.(*objectstore.S3), filename, data)
 			}
-			song, version, audioID, tjaID := ID(), ID(), ID(), ID()
+			song, audioID, tjaID := ID(), ID(), ID()
 			digest := hash(string(data))
 			mustExec(`INSERT INTO files(id,storage_key,original_filename,sha256,byte_size,media_type) VALUES($1,$2,$2,$3,$4,'audio/test'),($5,$5,'a.tja',repeat('a',64),1,'application/octet-stream')`, audioID, filename, digest, len(data), tjaID)
 			tx, err := pool.Begin(ctx)
@@ -84,17 +84,17 @@ func testAudioStreamHTTP(t *testing.T, remote bool) {
 				t.Fatal(err)
 			}
 			defer tx.Rollback(ctx)
-			if _, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id,current_version_id) VALUES($1,'89b6ef3a5cb57b6e04f74711d15a8a5f',$2)`, song, version); err != nil {
+			if _, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id) VALUES($1,'89b6ef3a5cb57b6e04f74711d15a8a5f')`, song); err != nil {
 				t.Fatal(err)
 			}
-			if _, err = tx.Exec(ctx, `INSERT INTO chart_versions(id,chart_id,version_number,title,bpm,duration,demo_start,encoding,wave_filename,tja_file_id,audio_file_id,validation_version) VALUES($1,$2,1,'Stream',120,120,30,'utf-8',$3,$4,$5,'test')`, version, song, filename, tjaID, audioID); err != nil {
+			if _, err = tx.Exec(ctx, `INSERT INTO chart_data(chart_id,title,bpm,duration,demo_start,encoding,wave_filename,tja_file_id,audio_file_id,validation_version) VALUES($1,'Stream',120,120,30,'utf-8',$2,$3,$4,'test')`, song, filename, tjaID, audioID); err != nil {
 				t.Fatal(err)
 			}
 			if err = tx.Commit(ctx); err != nil {
 				t.Fatal(err)
 			}
-			mustExec(`INSERT INTO difficulties(version_id,block_index,course,level,player,style) VALUES($1,0,'Oni',5,'','Single')`, version)
-			path := "/api/v1/charts/" + song + "/versions/" + version + "/audio"
+			mustExec(`INSERT INTO difficulties(chart_id,block_index,course,level,player,style) VALUES($1,0,'Oni',5,'','Single')`, song)
+			path := "/api/v1/charts/" + song + "/audio"
 			etag := `"` + digest + `"`
 			media := "audio/mpeg"
 			if filename == "vorbis.ogg" {
@@ -183,15 +183,11 @@ func testAudioStreamHTTP(t *testing.T, remote bool) {
 			if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &bootstrap) != nil || bootstrap.AudioPreviewVersion != 1 {
 				t.Fatal("missing capability", w.Code, w.Body.String())
 			}
-			w = call("GET", strings.Replace(path, version, ID(), 1), nil)
-			if w.Code != 404 || !strings.Contains(w.Body.String(), "VERSION_NOT_FOUND") {
-				t.Fatal("stale version", w.Code)
-			}
-			mustExec(`UPDATE difficulties SET course='Tower' WHERE version_id=$1`, version)
+			mustExec(`UPDATE difficulties SET course='Tower' WHERE chart_id=$1`, song)
 			if w = call("GET", path, nil); w.Code != 404 {
 				t.Fatal("unsupported chart served", w.Code)
 			}
-			mustExec(`UPDATE difficulties SET course='Oni' WHERE version_id=$1`, version)
+			mustExec(`UPDATE difficulties SET course='Oni' WHERE chart_id=$1`, song)
 			mustExec(`UPDATE charts SET status='deleted' WHERE id=$1`, song)
 			if w = call("GET", path, map[string]string{"If-None-Match": etag}); w.Code != 404 {
 				t.Fatal("deleted chart served/revalidated", w.Code)

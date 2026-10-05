@@ -21,9 +21,9 @@
 | GET | /charts/{id} | 当前已发布版本详情 |
 | PATCH | /charts/{id} | 作者或管理员修改默认英文及 ja/zh/ko 名称／副标题，返回更新后的作品 |
 | DELETE | /charts/{id} | 本人软删除；后续资源访问返回 404 |
-| GET | /charts/{id}/versions/{version}/tja | 原始 TJA 字节，attachment |
-| GET / HEAD | /charts/{id}/versions/{version}/audio | 原始 OGG 或 MP3 流，支持 Range、ETag、If-Range；Content-Type 分别为 audio/ogg、audio/mpeg |
-| GET | /charts/{id}/versions/{version}/download | ZIP，含原始 TJA 与按 WAVE 原值命名的音频 |
+| GET | /charts/{id}/tja | 原始 TJA 字节，attachment |
+| GET / HEAD | /charts/{id}/audio | 原始 OGG 或 MP3 流，支持 Range、ETag、If-Range；Content-Type 分别为 audio/ogg、audio/mpeg |
+| GET | /charts/{id}/download | ZIP，含原始 TJA 与按 WAVE 原值命名的音频 |
 
 `GET /healthz` 为进程状态，`GET /readyz` 额外检查数据库连接。
 
@@ -83,13 +83,13 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
 }
 ```
 
-示例 songId 需替换为作品 API 返回的 `id`，不是文件哈希或 versionId。八个基础字段全部必填，`max_combo` 为最大连击：good 为良、ok 为可、bad 为不可、score 为总分、drumroll 为连打数。六个数字不接受 null、字符串或小数；计数为 0–2147483647，总分为 0–9007199254740991（JSON/JavaScript 安全整数范围）。`max_combo` 为必填的 0–2147483647 整数；省略或 null 返回 422，非整数返回 400，负数或越界值返回 422。这些是存储边界，不是玩法理论上限。难度仅接受 Easy、Normal、Hard、Oni、Edit，不区分大小写、忽略首尾空白；Ura 归一为 Edit。
+示例 songId 需替换为作品 API 返回的 `id`，不是文件哈希。八个基础字段全部必填，`max_combo` 为最大连击：good 为良、ok 为可、bad 为不可、score 为总分、drumroll 为连打数。六个数字不接受 null、字符串或小数；计数为 0–2147483647，总分为 0–9007199254740991（JSON/JavaScript 安全整数范围）。`max_combo` 为必填的 0–2147483647 整数；省略或 null 返回 422，非整数返回 400，负数或越界值返回 422。这些是存储边界，不是玩法理论上限。难度仅接受 Easy、Normal、Hard、Oni、Edit，不区分大小写、忽略首尾空白；Ura 归一为 Edit。
 
 `ClearStatus` 为可选整数，取值 `0`（无皇冠／状态未知）、`1`（普通通关）、`2`（全连）、`3`（全良）。字段名大小写按此示例；省略或 `null` 按 `0` 保存，兼容旧客户端。负数或大于 3 返回 `422 SCORE_INVALID`；字符串、小数、布尔值返回 `400 REQUEST_INVALID`。服务端保存上报状态，不根据分数、不可数量或回放推断通关。
 
-后端锁定当前已发布版本，按难度寻找唯一有资格的单人块。同一难度含一个 Single 和若干 Double 时只选 Single；只有 Double 时拒绝。重复 Single 已在新上传时拦截，成绩接口仍对历史异常数据返回歧义错误。浏览器请求省略 versionId 时按提交时的当前版本归属；原生游戏接口要求 versionId 并校验版本一致。服务端保存客户端上报值，未根据游玩过程重算成绩。
+后端锁定当前已发布歌曲，按难度寻找唯一有资格的单人块。同一难度含一个 Single 和若干 Double 时只选 Single；只有 Double 时拒绝。重复 Single 已在新上传时拦截，成绩接口仍对历史异常数据返回歧义错误。浏览器和原生游戏接口都只按 songId 归属，不接收歌曲版本字段。服务端保存客户端上报值，未根据游玩过程重算成绩。
 
-成功返回 201，响应包含上述八个基础成绩字段（difficulty 已归一化）和 `ClearStatus`（即使为 0 也返回），以及服务端生成的 `id`、`userId`、`versionId`、`blockIndex` 和 `submittedAt`（UTC RFC3339）。每次新提交保留一条游玩记录，不覆盖最高分；排行榜读取时选出每人的最高分记录。歌曲更名或软删除不删除已保存成绩；下架后拒绝新成绩。
+成功返回 201，响应包含上述八个基础成绩字段（difficulty 已归一化）和 `ClearStatus`（即使为 0 也返回），以及服务端生成的 `id`、`userId`、`blockIndex` 和 `submittedAt`（UTC RFC3339）。每次新提交保留一条游玩记录，不覆盖最高分；排行榜读取时选出每人的最高分记录。歌曲更名或软删除不删除已保存成绩；下架后拒绝新成绩。
 
 可选请求头 `Idempotency-Key` 为 16–80 位字母、数字或短横线，推荐每局生成 UUID 并在网络重试时复用。相同用户、相同 key、相同归一化载荷返回原成绩及 200；同 key 不同载荷返回 409。不同用户的 key 互不影响；省略 key 时每次请求都是新游玩。已成功提交的幂等重试即使歌曲后来下架也返回原回执，不重新选择版本或写入成绩。
 
@@ -115,7 +115,7 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
 
 `PATCH /api/v1/charts/{id}` 只接受四个字段：title、subtitle、titleTranslations、subtitleTranslations。登录上传者可以部分修改，缺省字段保持不变；null 恢复原文件值，副标题空字符串表示清空。JSON 请求需要现有 Cookie、Origin 与 X-CSRF-Token；成功 200 返回更新后的完整作品。返回 401 未登录、403 无所有权／CSRF／来源不正确、404 不存在或已下架、400 请求格式或未知字段错误、415 非 JSON、422 `METADATA_INVALID` 内容／语言／长度不合法。完整请求示例、逐语言恢复规则和存储边界见 [多语言与管理说明](LOCALIZATION.md)。
 
-编辑仅改变网站展示与搜索，下载仍是原始 TJA，已保存成绩和 versionId 不变。前端详情页已提供作者／管理员可见的编辑弹窗。
+编辑仅改变网站展示与搜索，下载仍是原始 TJA，已保存成绩和歌曲 ID 不变。前端详情页已提供作者／管理员可见的编辑弹窗。
 
 用户对象新增 `isAdmin` 布尔值，来自数据库。PATCH 编辑权限为作者或管理员，其余登录用户返回 403；匿名返回 401。管理员同样要求 Origin 与 CSRF。角色不能在注册或编辑请求中指定，管理方式见 [管理员说明](ADMIN.md)。
 
@@ -124,23 +124,23 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
 原生客户端使用独立 Bearer 会话，不发送浏览器的 Origin、Cookie 或 CSRF token。浏览器接口保留原有 Origin/CSRF 校验；两类 token 不能互换。所有非 GET 请求仍有每 IP 每分钟 40 次限制。公网部署使用 HTTPS。
 
 - `POST /api/v1/game/login`：JSON `{ "username": "...", "password": "..." }`，返回 `user`、`accessToken`、`expiresIn`（604800 秒）。无 Set-Cookie。后续原生请求使用 `Authorization: Bearer <accessToken>`。
-- `GET /api/v1/game/bootstrap`：返回 `{ "user": {...}, "categories": [{ "id": "game", "title": "Game", "genre": "GAME", "chartCount": 1 }, ...], "chartCount": 1, "scores": [...] }`，在同一个 PostgreSQL repeatable-read 快照中读取分类、各分类数量、服务器去重数量和当前用户的历史成绩，不返回全部谱面内容。`GET /api/v1/game/categories/{categoryId}/charts` 按需返回分类内谱面；详情见 [分类协议](CATEGORIES.md)。历史版本成绩保留；当前难度展示最佳成绩时按 songId/versionId/difficulty 筛选。
-- 原始文件继续使用 `GET /api/v1/charts/{id}/versions/{version}/{tja|audio}`。加载前重新获取 `GET /api/v1/charts/{id}` 核对 versionId 与哈希，文件下载后必须核对 SHA-256。
-- `POST /api/v1/game/scores`：八项成绩字段（含必填 `max_combo`）加**必填** `versionId`，并使用每次游玩固定的 `Idempotency-Key`。字段示例：`{"songId":"<32 hex>","versionId":"<32 hex>","difficulty":"Oni","good":300,"ok":10,"bad":2,"score":900000,"drumroll":50,"max_combo":250}`。DOUBLE 仍不支持云端成绩。版本变化返回 `409 CHART_VERSION_CHANGED`，不将旧成绩写到新版本。临时失败重试时保持请求体和 key 不变。
+- `GET /api/v1/game/bootstrap`：返回 `{ "user": {...}, "categories": [{ "id": "game", "title": "Game", "genre": "GAME", "chartCount": 1 }, ...], "chartCount": 1, "scores": [...] }`，在同一个 PostgreSQL repeatable-read 快照中读取分类、各分类数量、服务器去重数量和当前用户的历史成绩，不返回全部谱面内容。`GET /api/v1/game/categories/{categoryId}/charts` 按需返回分类内谱面；详情见 [分类协议](CATEGORIES.md)。`songIdOnly: true` 声明本文的歌曲 ID 协议；最佳成绩按服务器/账号/songId/difficulty 筛选。重新获取 bootstrap 时替换该服务器账号的在线成绩快照，不能只追加，因为替换资源会清空旧成绩。
+- 当前原始文件使用 `GET /api/v1/charts/{id}/{tja|audio|download}`。S3 直连使用 `GET /api/v1/charts/{id}/resources`；清单返回各资源的 SHA-256、大小和临时 GET/HEAD URL。加载前核对详情和清单哈希，完整下载后核对实际 SHA-256。
+- `POST /api/v1/game/scores`：八项基础成绩字段（含必填 `max_combo`），建议每次游玩使用固定的 `Idempotency-Key`。示例：`{"songId":"<32 hex>","difficulty":"Oni","good":300,"ok":10,"bad":2,"score":900000,"drumroll":50,"max_combo":250,"ClearStatus":1}`。DOUBLE 仍不支持云端成绩。临时失败重试保持载荷和 key 不变。已接收的成绩若被资源替换删除，再用原 key 重试返回 `409 SCORE_REMOVED`，客户端停止重试。
 
-`POST /api/v1/scores` 接受可选 `versionId`，但同样要求 `max_combo`。上传也接受可选 `ClearStatus`（0–3）。提交回执、`game/bootstrap` 中的成绩以及排行榜记录都必须包含 `max_combo` 和 `ClearStatus`。原生会话由 SSO GameSession 持有，按业务客户端隔离；Fanmade 只保存浏览器会话，迁移版本为 018。
+`POST /api/v1/scores` 与原生接口使用相同成绩字段。两者均不接收 `versionId`（未知 JSON 字段返回 400），也不在回执、bootstrap、排行榜中返回它。`ClearStatus` 可选 0–3，省略为 0；回执和成绩列表总是返回 `max_combo`、`ClearStatus`。SSO 会话行为不变。客户端在待上传记录中保存游玩时的 TJA/audio 哈希，上传前核对当前哈希；不匹配或旧队列缺少可信哈希时不自动上传。服务端没有歌曲版本或游玩快照标识，无法识别从未接收过的离线旧成绩；哈希检查与提交之间也有竞态，不承诺严格排除旧内容成绩。完整实现要求见 [游戏接入文档](GAME_CLIENT_RESOURCE_DOWNLOAD.md)。
 
 游客无需登录即可使用 `game/bootstrap`、`game/categories/{categoryId}/charts`、谱面详情和文件下载。bootstrap 无 Authorization 时返回相同的公开分类与数量，但 `user: null`、`scores: []`，不查询个人成绩，浏览器 Cookie 不会改变游客身份。携带 Bearer token 时仍严格校验原生会话；无效或过期 token 返回 401，客户端可重新登录。`POST /api/v1/game/scores` 仍必须携带有效原生 Bearer token，游客返回 401。游戏端需同步升级，才能移除旧版的账号必填限制；无需新增数据库迁移。
 # 谱面排行榜
 
-`GET /api/v1/charts/{id}/leaderboard?difficulty=Oni&page=1&versionId=<当前版本>` 公开读取，无需登录。
+`GET /api/v1/charts/{id}/leaderboard?difficulty=Oni&page=1` 公开读取，无需登录。
 
 - 未传难度时按 Oni → Edit → Hard → Normal → Easy 回退，其余难度按谱面块顺序选择。接受难度大小写和 `ura` 别名。
-- 仅统计当前发布版本的单人谱；每位用户取总分最高的一次，同一用户同分时取最早提交记录。良／可／不可／连打／最大连击均来自该次游玩，不单独拼接历史最大连击。
+- 仅统计当前已发布歌曲的单人谱；每位用户取总分最高的一次，同一用户同分时取最早提交记录。良／可／不可／连打／最大连击均来自该次游玩，不单独拼接历史最大连击。
 - 按总分降序，同分并列（如 1、1、3），同分行按提交时间及成绩 ID 稳定排序。每页 20 人，页码为 1–10000；`total` 为上榜人数。
-- 返回 `{songId, versionId, difficulty, supported, items, total, page, pageSize}`；`items` 中包含成绩字段以及 `nickname`、`rank`，不暴露邮箱或认证信息。
-- DOUBLE 难度返回 `supported: false` 与空列表。不存在的歌曲／难度返回 404，旧版本参数返回 409 `CHART_VERSION_CHANGED`，有歧义的单人难度返回 409。
-- 修改展示标题和副标题不影响成绩；谱面版本更新后新旧成绩分开统计。原始成绩记录保留。
+- 返回 `{songId, difficulty, supported, items, total, page, pageSize}`；`items` 中包含成绩字段以及 `nickname`、`rank`，不暴露邮箱或认证信息。
+- DOUBLE 难度返回 `supported: false` 与空列表。不存在的歌曲／难度返回 404，有歧义的单人难度返回 409。
+- 修改展示标题和副标题不影响成绩；替换资源会清空该歌曲全部成绩。
 
 邮箱验证和邮件配置统一由 OurTaikoSSO 管理，见 [SSO 接入](SSO.md)。
 
@@ -165,30 +165,27 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
 
 ## 整体替换歌曲与谱面
 
-`PUT /charts/{id}/files` 使用与上传相同的 multipart、会话、CSRF、Origin、Idempotency-Key 校验，只允许上传者或管理员操作。歌曲 ID、上传者和创建时间保留；成功后生成全新的 `versionId`，只保留新版本。
+`PUT /charts/{id}/files` 使用与上传相同的 multipart、会话、CSRF、Origin、Idempotency-Key 校验，只允许上传者或管理员操作。歌曲 ID、上传者和创建时间保留，只保存一份当前资源。
 
-字段：
+- `tja` 必填，包含希望保留的全部难度，按普通上传规则校验。
+- `audio` 可选，省略时沿用当前音频内容（复制后删除旧对象）；新 TJA 的 WAVE 必须匹配音频文件名。
+- `confirmReset` 必须为字符串 `true`，确认清空该曲全体玩家旧成绩，否则返回 400 `REPLACEMENT_CONFIRMATION_REQUIRED`。
+- `encoding`、`description`、`categoryIds`、`difficultyMakers` 与新上传含义相同。未提供封面时保留原封面。不要提交已删除的 `expectedVersionId` 字段。
 
-- `tja`：必填，包含本次希望保留的全部难度；按普通上传规则重新校验。
-- `audio`：可选。省略时复制当前音频到新版本，仍删除旧音频对象；新 TJA 的 WAVE 必须与沿用的音频文件名匹配。提供时按普通上传规则校验新音频。
-- `expectedVersionId`：必填，更新页面加载时的版本 ID。版本已变化返回 409 `CHART_VERSION_CHANGED`，不会再次删除数据。
-- `confirmReset`：必须为字符串 `true`，表示已确认清空全体玩家的旧成绩；缺失返回 400 `REPLACEMENT_CONFIRMATION_REQUIRED`。
-- `encoding`、`description`、`categoryIds`、`difficultyMakers`：与新上传含义相同。前端回显并提交原说明和分类；新难度的制作者默认取新 TJA 的 MAKER。
+新资源校验、保存成功后，在同一数据库事务中更新 `chart_data`、替换难度并清空该曲全部成绩。A 更新为 A+B 时 A 的旧成绩也清空。名称及翻译覆盖值重置，说明和分类取本次提交值。仅 PATCH 展示信息或修改封面不清空成绩。
 
-新文件校验通过后，在同一数据库事务中切换当前版本、删除该歌曲的**全部成绩和历史版本**（包括难度记录）、移除旧文件元数据，并保存新版本。A 更新为 A+B 时，A 的旧成绩也全部清空。名称、副标题及多语言覆盖值清空，使用新 TJA 内容；说明和分类取本次提交值。仅 PATCH 编辑展示信息时仍保留版本与成绩。
+旧文件及 ZIP 在数据库提交后删除；失败进入持久队列，启动及每 30 秒重试。先保存新文件再删旧文件，失败不会丢掉当前可用资源。独立上传请求按歌曲串行执行，后成功的请求成为当前资源，不提供历史文件选择。
 
-旧文件删除任务与事务一起落库，提交后立即执行；若文件系统暂时不可用或进程退出，服务器启动时及每 30 秒重试。旧文件资源接口从版本切换起立即返回 404。普通软删除接口的行为不变。迁移 015 只增加请求版本标识和文件删除队列，部署本身不删除歌曲或成绩。
+请求收据保存歌曲、结果文件哈希和载荷摘要。同 key 同载荷重试且文件哈希仍匹配时返回现有作品，不再次清空成绩；载荷变化返回 `IDEMPOTENCY_CONFLICT`，结果文件已经变化返回 `CHART_FILES_CHANGED`，均为 409。重发同一次请求必须保留 key；换 key 表示一次新的替换，即使字节相同也会重新清空成绩。
 
-请求收据保留歌曲、结果版本和载荷摘要，以支持网络失败后的安全重试，不保留旧谱面或旧成绩。相同键和载荷重试返回首次保存的当前版本，**不会再次清空新成绩**；载荷不同或该结果已被后续更新替换时返回 409。并发更新只有一个可以基于同一个 `expectedVersionId` 成功。
-
-游戏端无需额外删除逻辑：刷新曲库得到新 `versionId` 后，旧版本的成绩缓存不再匹配；重新获取 `/game/bootstrap` 不会返回已删除成绩。旧版本的在途成绩提交返回 409，不会计入新版本。
+迁移 024 删除歌曲版本表及所有业务版本 ID 列，保留当前资源和现有当前歌曲成绩。若数据库还存在非当前文件的历史成绩，迁移拒绝并回滚，需先人工核对，不能偷偷把它们重标为当前成绩。数据库升级本身不会重置 ClearStatus。
 
 
 ## 用户名、昵称与个人资料
 
 Fanmade `users` 只保存 SSO 用户 ID。昵称、登录名、邮箱状态、本站管理员角色来自受服务凭证保护的 SSO 接口；每次鉴权都实时确认会话。公开谱面和排行榜批量读取昵称，不返回登录名。SSO 不可用时公开数据继续返回，昵称显示“未知用户”；涉及身份或搜索昵称的请求返回 503，不使用旧身份绕过鉴权。
 
-网站用 OIDC，YataiDON 仍用原 `/game/login`、`/game/bootstrap`、`/game/scores`，请求与响应字段不变。原生登录由 Fanmade 转接 SSO，游戏令牌由 SSO 签发、按应用隔离；Fanmade 不存密码或游戏令牌。旧会话在迁移时失效，需要重新登录。网站会话最长一小时，过期后重新通过 SSO 登录；本版不使用刷新令牌。
+网站用 OIDC，YataiDON 仍用原 `/game/login`、`/game/bootstrap`、`/game/scores`，登录行为不变，成绩字段以本文为准。原生登录由 Fanmade 转接 SSO，游戏令牌由 SSO 签发、按应用隔离；Fanmade 不存密码或游戏令牌。旧会话在迁移时失效，需要重新登录。网站会话最长一小时，过期后重新通过 SSO 登录；本版不使用刷新令牌。
 
 详见 [SSO 接入与迁移](SSO.md)。
 

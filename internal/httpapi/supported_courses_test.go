@@ -10,18 +10,16 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"ourtaiko.dev/fanmade/api/internal/database"
 )
 
-func TestSupportedCoursesMigrationAndAPI(t *testing.T) {
+func TestSupportedCoursesAPI(t *testing.T) {
 	pool := scoreTestDB(t)
 	ctx := context.Background()
 	// Recreate the previous schema to exercise migration of real legacy records.
 	_, err := pool.Exec(ctx, `ALTER TABLE difficulties DROP CONSTRAINT difficulties_course_check;
  ALTER TABLE difficulties ADD CONSTRAINT difficulties_course_check CHECK(course IN ('Easy','Normal','Hard','Oni','Edit','Tower','Dan'));
  ALTER TABLE scores DROP CONSTRAINT scores_difficulty_check;
- DELETE FROM schema_migrations WHERE version=12;
+
  INSERT INTO users(id,username,password_hash) VALUES('89b6ef3a5cb57b6e04f74711d15a8a5f','tester','unused');
  INSERT INTO files(id,storage_key,original_filename,sha256,byte_size,media_type) VALUES
  ('t','chart.tja','chart.tja',repeat('a',64),1,'application/octet-stream'),('a','music.ogg','music.ogg',repeat('b',64),1,'audio/ogg');`)
@@ -29,7 +27,6 @@ func TestSupportedCoursesMigrationAndAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	ids := []string{strings.Repeat("1", 32), strings.Repeat("2", 32), strings.Repeat("3", 32), strings.Repeat("4", 32)}
-	versions := []string{strings.Repeat("a", 32), strings.Repeat("b", 32), strings.Repeat("c", 32), strings.Repeat("d", 32)}
 	courses := []string{"Oni", "Tower", "Dan", "Oni"}
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -37,46 +34,35 @@ func TestSupportedCoursesMigrationAndAPI(t *testing.T) {
 	}
 	defer tx.Rollback(ctx)
 	for i, id := range ids {
-		_, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id,current_version_id) VALUES($1,'89b6ef3a5cb57b6e04f74711d15a8a5f',$2)`, id, versions[i])
+		_, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id) VALUES($1,'89b6ef3a5cb57b6e04f74711d15a8a5f')`, id)
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = tx.Exec(ctx, `INSERT INTO chart_versions(id,chart_id,version_number,title,bpm,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version)
-  VALUES($1,$2,1,$3,120,10,'utf-8','music.ogg','t','a','tja-upload-v4')`, versions[i], id, "Chart "+courses[i])
+		_, err = tx.Exec(ctx, `INSERT INTO chart_data(chart_id,title,bpm,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version) VALUES($1,$2,120,10,'utf-8','music.ogg','t','a','tja-upload-v4')`, id, "Chart "+courses[i])
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = tx.Exec(ctx, `INSERT INTO difficulties(version_id,block_index,course,level,player,style) VALUES($1,0,$2,5,'','Single')`, versions[i], courses[i])
+		_, err = tx.Exec(ctx, `INSERT INTO difficulties(chart_id,block_index,course,level,player,style) VALUES($1,0,$2,5,'','Single')`, id, courses[i])
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = tx.Exec(ctx, `INSERT INTO scores(id,user_id,song_id,version_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest)
-  VALUES($1,'89b6ef3a5cb57b6e04f74711d15a8a5f',$2,$3,0,$4,10,0,0,10000,0,10,repeat('f',64))`, fmt.Sprintf("score%d", i), id, versions[i], courses[i])
+		_, err = tx.Exec(ctx, `INSERT INTO scores(id,user_id,song_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest) VALUES($1,'89b6ef3a5cb57b6e04f74711d15a8a5f',$2,0,$3,10,0,0,10000,0,10,repeat('f',64))`, fmt.Sprintf("score%d", i), id, courses[i])
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO difficulties(version_id,block_index,course,level,player,style) VALUES($1,1,'Dan',5,'','Single')`, versions[3])
-	if err != nil {
-		t.Fatal(err)
-	}
-	// An unsupported historical version must not hide the valid current version.
-	_, err = tx.Exec(ctx, `INSERT INTO chart_versions(id,chart_id,version_number,title,bpm,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version)
- VALUES('old-version',$1,2,'Old tower',120,10,'utf-8','music.ogg','t','a','tja-upload-v4');`, ids[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = tx.Exec(ctx, `INSERT INTO difficulties(version_id,block_index,course,level,player,style) VALUES('old-version',0,'Tower',5,'','Single')`)
+	_, err = tx.Exec(ctx, `INSERT INTO difficulties(chart_id,block_index,course,level,player,style) VALUES($1,1,'Dan',5,'','Single')`, ids[3])
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err = tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	for n := 0; n < 2; n++ {
-		if err = database.Migrate(ctx, pool, t.TempDir()); err != nil {
-			t.Fatal(err)
-		}
+	if _, err = pool.Exec(ctx, `UPDATE charts c SET status='hidden' WHERE EXISTS(SELECT 1 FROM difficulties d WHERE d.chart_id=c.id AND d.course NOT IN ('Easy','Normal','Hard','Oni','Edit'));
+ALTER TABLE difficulties DROP CONSTRAINT difficulties_course_check;
+ALTER TABLE difficulties ADD CONSTRAINT difficulties_course_check CHECK(course IN ('Easy','Normal','Hard','Oni','Edit')) NOT VALID;
+ALTER TABLE scores ADD CONSTRAINT scores_difficulty_check CHECK(difficulty IN ('Easy','Normal','Hard','Oni','Edit')) NOT VALID;`); err != nil {
+		t.Fatal(err)
 	}
 	for i, id := range ids {
 		var status string
@@ -97,12 +83,11 @@ func TestSupportedCoursesMigrationAndAPI(t *testing.T) {
 		t.Fatal("migration removed scores")
 	}
 	for _, course := range []string{"Tower", "Dan"} {
-		if _, err = pool.Exec(ctx, `INSERT INTO difficulties(version_id,block_index,course,level,player,style) VALUES($1,9,$2,5,'','Single')`, versions[0], course); err == nil {
+		if _, err = pool.Exec(ctx, `INSERT INTO difficulties(chart_id,block_index,course,level,player,style) VALUES($1,9,$2,5,'','Single')`, ids[0], course); err == nil {
 			t.Fatal("database accepted unsupported course", course)
 		}
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO scores(id,user_id,song_id,version_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest)
- VALUES('new-tower','89b6ef3a5cb57b6e04f74711d15a8a5f',$1,$2,0,'Tower',10,0,0,10000,0,10,repeat('f',64))`, ids[1], versions[1]); err == nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO scores(id,user_id,song_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest) VALUES('new-tower','89b6ef3a5cb57b6e04f74711d15a8a5f',$1,0,'Tower',10,0,0,10000,0,10,repeat('f',64))`, ids[1]); err == nil {
 		t.Fatal("database accepted unsupported score")
 	}
 	// Even if a record is manually republished, API readers must not expose it.
@@ -147,7 +132,7 @@ func TestSupportedCoursesMigrationAndAPI(t *testing.T) {
 	for _, course := range []string{"Tower", "Dan", "5", "6"} {
 		call("GET", "/api/v1/charts?course="+course, "", 400)
 		call("GET", "/api/v1/charts/"+ids[0]+"/leaderboard?difficulty="+course, "", 400)
-		body := fmt.Sprintf(`{"songId":%q,"versionId":%q,"difficulty":%q,"good":10,"ok":0,"bad":0,"score":10000,"drumroll":0,"max_combo":10}`, ids[0], versions[0], course)
+		body := fmt.Sprintf(`{"songId":%q,"difficulty":%q,"good":10,"ok":0,"bad":0,"score":10000,"drumroll":0,"max_combo":10}`, ids[0], course)
 		call("POST", "/api/v1/scores", body, 422)
 		call("POST", "/api/v1/game/scores", body, 422)
 	}
@@ -156,7 +141,7 @@ func TestSupportedCoursesMigrationAndAPI(t *testing.T) {
 		call("GET", path, "", 404)
 		call("GET", path+"/leaderboard", "", 404)
 		for _, kind := range []string{"tja", "audio", "download"} {
-			call("GET", path+"/versions/"+versions[i]+"/"+kind, "", 404)
+			call("GET", path+"/"+kind, "", 404)
 		}
 		call("PATCH", path, `{"title":"Rename"}`, 404)
 	}
