@@ -20,9 +20,7 @@ func TestSupportedCoursesAPI(t *testing.T) {
  ALTER TABLE difficulties ADD CONSTRAINT difficulties_course_check CHECK(course IN ('Easy','Normal','Hard','Oni','Edit','Tower','Dan'));
  ALTER TABLE scores DROP CONSTRAINT scores_difficulty_check;
 
- INSERT INTO users(id,username,password_hash) VALUES('89b6ef3a5cb57b6e04f74711d15a8a5f','tester','unused');
- INSERT INTO files(id,storage_key,original_filename,sha256,byte_size,media_type) VALUES
- ('t','chart.tja','chart.tja',repeat('a',64),1,'application/octet-stream'),('a','music.ogg','music.ogg',repeat('b',64),1,'audio/ogg');`)
+ INSERT INTO users(id,username,password_hash) VALUES('89b6ef3a5cb57b6e04f74711d15a8a5f','tester','unused');`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,11 +32,11 @@ func TestSupportedCoursesAPI(t *testing.T) {
 	}
 	defer tx.Rollback(ctx)
 	for i, id := range ids {
-		_, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id) VALUES($1,'89b6ef3a5cb57b6e04f74711d15a8a5f')`, id)
+		_, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id,title,bpm,duration,encoding,wave_filename) VALUES($1,'89b6ef3a5cb57b6e04f74711d15a8a5f',$2,120,10,'utf-8','music.ogg')`, id, "Chart "+courses[i])
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = tx.Exec(ctx, `INSERT INTO chart_data(chart_id,title,bpm,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version) VALUES($1,$2,120,10,'utf-8','music.ogg','t','a','tja-upload-v4')`, id, "Chart "+courses[i])
+		_, err = tx.Exec(ctx, `INSERT INTO chart_resources(chart_id,kind,storage_key,original_filename,sha256,byte_size,media_type) VALUES($1,'tja','chart.tja','chart.tja',repeat('a',64),1,'application/octet-stream'),($1,'audio','music.ogg','music.ogg',repeat('b',64),1,'audio/ogg')`, id)
 		if err != nil {
 			t.Fatal(err)
 		}

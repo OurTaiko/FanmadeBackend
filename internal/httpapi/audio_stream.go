@@ -41,8 +41,8 @@ func audioPreview(c Chart) *AudioPreview {
 // delay every seek and make public playback depend on unrelated services.
 func (s *Server) streamAudio(w http.ResponseWriter, r *http.Request) {
 	var key, name, digest, originalName string
-	err := s.DB.QueryRow(r.Context(), `SELECT af.storage_key,v.wave_filename,af.sha256,af.original_filename
- FROM charts c JOIN chart_data v ON v.chart_id=c.id JOIN files af ON af.id=v.audio_file_id
+	err := s.DB.QueryRow(r.Context(), `SELECT af.storage_key,c.wave_filename,af.sha256,af.original_filename
+ FROM charts c JOIN chart_resources af ON af.chart_id=c.id AND af.kind='audio'
  WHERE c.id=$1 AND `+publishedChart, r.PathValue("id")).Scan(&key, &name, &digest, &originalName)
 	if errors.Is(err, pgx.ErrNoRows) {
 		problem(w, 404, "CHART_NOT_FOUND", "作品不存在或已删除")

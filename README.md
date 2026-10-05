@@ -123,4 +123,4 @@ DOUBLE 谱面不记录云端成绩，但仍可上传与下载。后端按块解�
 网站 owner 可通过 `PUT /api/v1/charts/{id}/cover` 单独替换封面；读取使用 `GET /api/v1/charts/{id}/cover`。
 封面不会进入游戏曲库响应或下载包，也不会重置成绩。详情见 [封面 API](docs/API.md#网站歌曲封面)。
 
-当前歌曲 ID 协议及 S3 游戏客户端接入见 [游戏端实施文档](docs/GAME_CLIENT_RESOURCE_DOWNLOAD.md)。新协议用文件 SHA-256 判断缓存更新；迁移旧数据库需保留备份，schema 024 回退必须恢复匹配的数据库和程序。
+当前歌曲 ID 协议及 S3 游戏客户端接入见 [游戏端实施文档](docs/GAME_CLIENT_RESOURCE_DOWNLOAD.md)。新协议用文件 SHA-256 判断缓存更新；迁移旧数据库需保留备份，schema 025/026 回退必须恢复匹配的数据库和程序。当前数据库仅有 7 张 public 业务表；歌曲信息集中在 charts，四类资源统一在 chart_resources，认证和维护表分别位于 auth/internal。详见 [数据库结构](docs/DATABASE.md)。

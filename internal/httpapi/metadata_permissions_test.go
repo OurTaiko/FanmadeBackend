@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -28,16 +30,16 @@ func TestMetadataAuthorOrAdmin(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback(ctx)
-	_, err = tx.Exec(ctx, `INSERT INTO files(id,storage_key,original_filename,sha256,byte_size,media_type) VALUES('t','t','t.tja',repeat('a',64),1,'application/octet-stream'),('a','a','a.ogg',repeat('b',64),1,'audio/ogg');
- INSERT INTO charts(id,owner_id) VALUES('chart','d46774d30dd13b92d9e536808da468a4');
- INSERT INTO chart_data(chart_id,title,bpm,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version) VALUES('chart','Original',120,10,'utf-8','a.ogg','t','a','test');`)
+	_, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id,title,bpm,duration,encoding,wave_filename) VALUES('chart','d46774d30dd13b92d9e536808da468a4','Original',120,10,'utf-8','a.ogg');
+ INSERT INTO chart_resources(chart_id,kind,storage_key,original_filename,sha256,byte_size,media_type) VALUES('chart','tja','t','t.tja',repeat('a',64),1,'application/octet-stream'),('chart','audio','a','a.ogg',repeat('b',64),1,'audio/ogg');`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err = tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	handler := testServer(t, pool, Config{Origin: "http://127.0.0.1:5173"}).Handler()
+	storage := t.TempDir()
+	handler := testServer(t, pool, Config{Storage: storage, Origin: "http://127.0.0.1:5173"}).Handler()
 	call := func(actor, csrf, body string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("PATCH", "/api/v1/charts/chart", strings.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")
@@ -76,7 +78,10 @@ func TestMetadataAuthorOrAdmin(t *testing.T) {
 	// regardless of upload/audio validation and return the same hash as GET.
 	coverBytes := []byte("existing cover fixture")
 	coverHash := hash(string(coverBytes))
-	if _, err = pool.Exec(ctx, `INSERT INTO chart_covers(id,chart_id,webp,sha256) VALUES('cover','chart',$1,$2)`, coverBytes, coverHash); err != nil {
+	if err = os.WriteFile(filepath.Join(storage, "cover.webp"), coverBytes, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO chart_resources(chart_id,kind,storage_key,original_filename,sha256,byte_size,media_type) VALUES('chart','cover','cover.webp','cover.webp',$2,octet_length($1::bytea),'image/webp')`, coverBytes, coverHash); err != nil {
 		t.Fatal(err)
 	}
 	editedResponse := call("d46774d30dd13b92d9e536808da468a4", "csrf", `{"titleTranslations":{"zh":"新译名"}}`)

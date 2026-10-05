@@ -26,6 +26,9 @@ func MigrateSSO(ctx context.Context, pool *pgxpool.Pool, check func(context.Cont
 		return e
 	}
 	if applied {
+		if e = groupSchemas(ctx, tx); e != nil {
+			return e
+		}
 		return tx.Commit(ctx)
 	}
 	if _, e = tx.Exec(ctx, `LOCK TABLE users IN ACCESS EXCLUSIVE MODE`); e != nil {
@@ -61,6 +64,9 @@ func MigrateSSO(ctx context.Context, pool *pgxpool.Pool, check func(context.Cont
 		return e
 	}
 	if _, e = tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES(18)`); e != nil {
+		return e
+	}
+	if e = groupSchemas(ctx, tx); e != nil {
 		return e
 	}
 	return tx.Commit(ctx)

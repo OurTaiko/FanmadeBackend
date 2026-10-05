@@ -26,7 +26,7 @@ func (s *Server) coverHashes(ctx context.Context, charts []Chart) error {
 		ids[i] = c.ID
 		positions[c.ID] = i
 	}
-	rows, err := s.DB.Query(ctx, `SELECT chart_id,sha256 FROM chart_covers WHERE chart_id=ANY($1)`, ids)
+	rows, err := s.DB.Query(ctx, `SELECT chart_id,sha256 FROM chart_resources WHERE kind='cover' AND chart_id=ANY($1)`, ids)
 	if err != nil {
 		return err
 	}
@@ -42,38 +42,24 @@ func (s *Server) coverHashes(ctx context.Context, charts []Chart) error {
 }
 
 func (s *Server) saveCover(ctx context.Context, tx pgx.Tx, chartID string, data []byte) error {
-	id := ID()
-	var key *string
-	var size *int64
-	if s.remoteStorage() {
-		objectKey := "covers/" + id + "/cover.webp"
-		n := int64(len(data))
-		key = &objectKey
-		size = &n
-		if _, err := s.DB.Exec(ctx, `INSERT INTO pending_objects(storage_key) VALUES($1)`, objectKey); err != nil {
-			return err
-		}
-		if err := s.Config.Objects.Put(ctx, objectKey, bytes.NewReader(data), n, "image/webp", hash(string(data))); err != nil {
-			return err
-		}
-	}
+	key := "covers/" + ID() + "/cover.webp"
 	digest := hash(string(data))
-	if key != nil {
-		data = nil
-	}
-
-	if _, err := tx.Exec(ctx, `DELETE FROM chart_covers WHERE chart_id=$1`, chartID); err != nil {
+	if _, err := s.DB.Exec(ctx, `INSERT INTO pending_objects(storage_key) VALUES($1)`, key); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, `INSERT INTO chart_covers(id,chart_id,webp,sha256,storage_key,byte_size) VALUES($1,$2,$3,$4,$5,$6)`, id, chartID, data, digest, key, size)
+	if err := s.Config.Objects.Put(ctx, key, bytes.NewReader(data), int64(len(data)), "image/webp", digest); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM chart_resources WHERE chart_id=$1 AND kind='cover'`, chartID); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO chart_resources(chart_id,kind,storage_key,original_filename,sha256,byte_size,media_type) VALUES($1,'cover',$2,'cover.webp',$3,$4,'image/webp')`, chartID, key, digest, len(data))
 	return err
 }
 
 func (s *Server) getCover(w http.ResponseWriter, r *http.Request) {
-	var data []byte
-	var digest string
-	var key *string
-	err := s.DB.QueryRow(r.Context(), `SELECT cv.webp,cv.sha256,cv.storage_key FROM chart_covers cv JOIN charts c ON c.id=cv.chart_id WHERE c.id=$1 AND `+publishedChart, r.PathValue("id")).Scan(&data, &digest, &key)
+	var digest, key string
+	err := s.DB.QueryRow(r.Context(), `SELECT cv.sha256,cv.storage_key FROM chart_resources cv JOIN charts c ON c.id=cv.chart_id WHERE cv.kind='cover' AND c.id=$1 AND `+publishedChart, r.PathValue("id")).Scan(&digest, &key)
 	if errors.Is(err, pgx.ErrNoRows) {
 		problem(w, 404, "COVER_NOT_FOUND", "封面不存在")
 		return
@@ -88,20 +74,15 @@ func (s *Server) getCover(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "image/webp")
 	w.Header().Set("Content-Disposition", `inline; filename="cover.webp"`)
-	// Revalidate even hash URLs: replaced/deleted images must not stay addressable.
 	w.Header().Set("Cache-Control", "public, no-cache")
 	w.Header().Set("ETag", `"`+digest+`"`)
-	if key != nil {
-		f, err := s.Config.Objects.Open(r.Context(), *key)
-		if err != nil {
-			internal(w, err)
-			return
-		}
-		defer f.Close()
-		http.ServeContent(w, r, "cover.webp", time.Time{}, f)
+	f, err := s.Config.Objects.Open(r.Context(), key)
+	if err != nil {
+		internal(w, err)
 		return
 	}
-	http.ServeContent(w, r, "cover.webp", time.Time{}, bytes.NewReader(data))
+	defer f.Close()
+	http.ServeContent(w, r, "cover.webp", time.Time{}, f)
 }
 
 func encodeCover(w http.ResponseWriter, r *http.Request, name string, data []byte) ([]byte, bool) {

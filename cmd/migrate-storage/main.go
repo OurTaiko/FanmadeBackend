@@ -121,7 +121,15 @@ func run() error {
 		return e
 	}
 	m := migrator{ctx: ctx, store: store, apply: *apply}
-	rows, e := db.Query(ctx, `SELECT id,storage_key,original_filename,media_type,sha256,byte_size FROM files ORDER BY storage_key`)
+	var simplified bool
+	if e = db.QueryRow(ctx, `SELECT to_regclass('chart_resources') IS NOT NULL`).Scan(&simplified); e != nil {
+		return e
+	}
+	inventory := `SELECT id,storage_key,original_filename,media_type,sha256,byte_size FROM files ORDER BY storage_key`
+	if simplified {
+		inventory = `SELECT chart_id,storage_key,original_filename,media_type,sha256,byte_size FROM chart_resources WHERE kind<>'archive' ORDER BY storage_key`
+	}
+	rows, e := db.Query(ctx, inventory)
 	if e != nil {
 		return e
 	}
@@ -151,7 +159,11 @@ func run() error {
 			return e
 		}
 	}
-	rows, e = db.Query(ctx, `SELECT id,webp,sha256 FROM chart_covers ORDER BY id`)
+	coversQuery := `SELECT id,webp,sha256 FROM chart_covers ORDER BY id`
+	if simplified {
+		coversQuery = `SELECT NULL::text,NULL::bytea,NULL::text WHERE false`
+	}
+	rows, e = db.Query(ctx, coversQuery)
 	if e != nil {
 		return e
 	}
@@ -191,13 +203,8 @@ func run() error {
 			return e
 		}
 		defer tx.Rollback(ctx)
-		for _, v := range covers {
-			if _, e = tx.Exec(ctx, `UPDATE chart_covers SET storage_key=$2,byte_size=$3 WHERE id=$1 AND sha256=$4`, v.ID, v.Key, v.Size, v.SHA); e != nil {
-				return e
-			}
-		}
 		for _, v := range archives {
-			if _, e = tx.Exec(ctx, `INSERT INTO chart_archives(chart_id,storage_key,sha256,byte_size) VALUES($1,$2,$3,$4) ON CONFLICT(chart_id) DO UPDATE SET storage_key=EXCLUDED.storage_key,sha256=EXCLUDED.sha256,byte_size=EXCLUDED.byte_size`, v.ID, v.Key, v.SHA, v.Size); e != nil {
+			if _, e = tx.Exec(ctx, `INSERT INTO chart_resources(chart_id,kind,storage_key,original_filename,sha256,byte_size,media_type) VALUES($1,'archive',$2,'download.zip',$3,$4,'application/zip') ON CONFLICT(chart_id,kind) DO UPDATE SET storage_key=EXCLUDED.storage_key,sha256=EXCLUDED.sha256,byte_size=EXCLUDED.byte_size`, v.ID, v.Key, v.SHA, v.Size); e != nil {
 				return e
 			}
 		}
@@ -217,6 +224,13 @@ func copyArchives(ctx context.Context, db *pgxpool.Pool, m *migrator, source str
 	sourceQuery := `SELECT v.chart_id,tf.storage_key,af.storage_key,tf.original_filename,v.wave_filename FROM chart_data v JOIN files tf ON tf.id=v.tja_file_id JOIN files af ON af.id=v.audio_file_id ORDER BY v.chart_id`
 	if !currentSchema {
 		sourceQuery = `SELECT c.id,tf.storage_key,af.storage_key,tf.original_filename,v.wave_filename FROM charts c JOIN chart_versions v ON v.id=c.current_version_id JOIN files tf ON tf.id=v.tja_file_id JOIN files af ON af.id=v.audio_file_id ORDER BY c.id`
+	}
+	var simplified bool
+	if e := db.QueryRow(ctx, `SELECT to_regclass('chart_resources') IS NOT NULL`).Scan(&simplified); e != nil {
+		return nil, e
+	}
+	if simplified {
+		sourceQuery = `SELECT c.id,tf.storage_key,af.storage_key,tf.original_filename,c.wave_filename FROM charts c JOIN chart_resources tf ON tf.chart_id=c.id AND tf.kind='tja' JOIN chart_resources af ON af.chart_id=c.id AND af.kind='audio' ORDER BY c.id`
 	}
 	rows, e := db.Query(ctx, sourceQuery)
 	if e != nil {

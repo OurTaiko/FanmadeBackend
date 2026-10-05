@@ -70,10 +70,9 @@ func TestScoreReplayCompatibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO files(id,storage_key,original_filename,sha256,byte_size,media_type)
- VALUES('t','t','test.tja',repeat('a',64),1,'text/plain'),('a','a','test.ogg',repeat('b',64),1,'audio/ogg');
- INSERT INTO charts(id,owner_id) VALUES('11111111111111111111111111111111','89b6ef3a5cb57b6e04f74711d15a8a5f');
- INSERT INTO chart_data(chart_id,title,bpm,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version) VALUES('11111111111111111111111111111111','Recording fixture',120,10,'utf-8','test.ogg','t','a','test');
+	_, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id,title,bpm,duration,encoding,wave_filename) VALUES('11111111111111111111111111111111','89b6ef3a5cb57b6e04f74711d15a8a5f','Recording fixture',120,10,'utf-8','test.ogg');
+ INSERT INTO chart_resources(chart_id,kind,storage_key,original_filename,sha256,byte_size,media_type) VALUES
+ ('11111111111111111111111111111111','tja','tja','test.tja',repeat('a',64),1,'application/octet-stream'),('11111111111111111111111111111111','audio','ogg','test.ogg',repeat('b',64),1,'audio/ogg');
  INSERT INTO difficulties(chart_id,block_index,course,level,player,style) VALUES('11111111111111111111111111111111',0,'Oni',5,'','Single');`)
 	if err != nil {
 		t.Fatal(err)

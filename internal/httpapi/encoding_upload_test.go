@@ -77,7 +77,7 @@ func TestUploadStoresCanonicalUTF8(t *testing.T) {
 				t.Fatal("noncanonical metadata", chart.Encoding, chart.Title)
 			}
 			var size int64
-			if err := pool.QueryRow(ctx, `SELECT f.byte_size FROM files f JOIN chart_data v ON v.tja_file_id=f.id WHERE v.chart_id=$1`, chart.ID).Scan(&size); err != nil || size != int64(len(canonical)) {
+			if err := pool.QueryRow(ctx, `SELECT byte_size FROM chart_resources WHERE chart_id=$1 AND kind='tja'`, chart.ID).Scan(&size); err != nil || size != int64(len(canonical)) {
 				t.Fatal("incorrect normalized byte size", size, err)
 			}
 			for _, kind := range []string{"tja", "download"} {

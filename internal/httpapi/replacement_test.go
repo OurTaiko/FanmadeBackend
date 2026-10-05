@@ -183,10 +183,10 @@ func testChartReplacement(t *testing.T, remote bool) {
 	if updated.ID != original.ID || updated.TJAHash == original.TJAHash || updated.Title != "Updated" || updated.Maker != "A | B" || updated.Description != "new description" || len(updated.Difficulties) != 2 || updated.AudioHash != original.AudioHash {
 		t.Fatalf("bad updated chart: %+v", updated)
 	}
-	if count(`SELECT count(*) FROM scores WHERE song_id=$1`, original.ID) != 0 || count(`SELECT count(*) FROM chart_data WHERE chart_id=$1`, original.ID) != 1 || count(`SELECT count(*) FROM difficulties WHERE chart_id=$1`, original.ID) != 2 {
+	if count(`SELECT count(*) FROM scores WHERE song_id=$1`, original.ID) != 0 || count(`SELECT count(*) FROM charts WHERE id=$1`, original.ID) != 1 || count(`SELECT count(*) FROM difficulties WHERE chart_id=$1`, original.ID) != 2 {
 		t.Fatal("old rows remain")
 	}
-	if count(`SELECT count(*) FROM scores WHERE song_id=$1`, unrelated.ID) != 1 || count(`SELECT count(*) FROM files`) != 4 {
+	if count(`SELECT count(*) FROM scores WHERE song_id=$1`, unrelated.ID) != 1 || count(`SELECT count(*) FROM chart_resources WHERE kind IN ('tja','audio')`) != 4 {
 		t.Fatal("unrelated data changed or old file rows remain")
 	}
 	for _, key := range []string{original.TJAKey, original.AudioKey} {
@@ -250,7 +250,7 @@ func testChartReplacement(t *testing.T, remote bool) {
 		t.Fatal("admin replacement", final, err)
 	}
 	status(request("d46774d30dd13b92d9e536808da468a4", "PUT", path, key, replacement, "", nil, fields), 409)
-	if count(`SELECT count(*) FROM retired_files`) != 0 || count(`SELECT count(*) FROM files`) != 4 {
+	if count(`SELECT count(*) FROM retired_files`) != 0 || count(`SELECT count(*) FROM chart_resources WHERE kind IN ('tja','audio')`) != 4 {
 		t.Fatal("cleanup incomplete")
 	}
 }

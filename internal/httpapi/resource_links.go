@@ -49,7 +49,7 @@ func (s *Server) resourceLinks(w http.ResponseWriter, r *http.Request) {
 		return nil
 	}
 	var tjaSize int64
-	if e = s.DB.QueryRow(r.Context(), `SELECT byte_size FROM files WHERE storage_key=$1`, c.TJAKey).Scan(&tjaSize); e != nil {
+	if e = s.DB.QueryRow(r.Context(), `SELECT byte_size FROM chart_resources WHERE chart_id=$1 AND kind='tja'`, c.ID).Scan(&tjaSize); e != nil {
 		internal(w, e)
 		return
 	}
@@ -63,7 +63,7 @@ func (s *Server) resourceLinks(w http.ResponseWriter, r *http.Request) {
 	}
 	var key, digest string
 	var size int64
-	if e = s.DB.QueryRow(r.Context(), `SELECT storage_key,sha256,byte_size FROM chart_archives WHERE chart_id=$1`, c.ID).Scan(&key, &digest, &size); e != nil {
+	if e = s.DB.QueryRow(r.Context(), `SELECT storage_key,sha256,byte_size FROM chart_resources WHERE kind='archive' AND chart_id=$1`, c.ID).Scan(&key, &digest, &size); e != nil {
 		internal(w, e)
 		return
 	}
@@ -74,7 +74,7 @@ func (s *Server) resourceLinks(w http.ResponseWriter, r *http.Request) {
 	var coverKey *string
 	var coverHash string
 	var coverSize *int64
-	e = s.DB.QueryRow(r.Context(), `SELECT storage_key,sha256,byte_size FROM chart_covers WHERE chart_id=$1`, c.ID).Scan(&coverKey, &coverHash, &coverSize)
+	e = s.DB.QueryRow(r.Context(), `SELECT storage_key,sha256,byte_size FROM chart_resources WHERE kind='cover' AND chart_id=$1`, c.ID).Scan(&coverKey, &coverHash, &coverSize)
 	if e != nil && !errors.Is(e, pgx.ErrNoRows) {
 		internal(w, e)
 		return

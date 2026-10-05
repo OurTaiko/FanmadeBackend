@@ -70,7 +70,7 @@ ALTER TABLE difficulties ADD CONSTRAINT difficulties_course_check CHECK(course I
 UPDATE charts SET status='hidden' WHERE id='c';
 COMMIT;`)
 	// A migration may not silently attach old-content scores to current files.
-	if err = Migrate(ctx, pool, storage); err == nil || !strings.Contains(err.Error(), "historical score") {
+	if err = migrateTo(ctx, pool, storage, 24); err == nil || !strings.Contains(err.Error(), "historical score") {
 		t.Fatalf("unsafe migration: %v", err)
 	}
 	var partial bool
@@ -83,7 +83,7 @@ COMMIT;`)
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {
-		if err = Migrate(ctx, pool, storage); err != nil {
+		if err = migrateTo(ctx, pool, storage, 24); err != nil {
 			t.Fatal(err)
 		}
 	}

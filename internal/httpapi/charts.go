@@ -42,10 +42,10 @@ const supportedCoursesSQL = "('Easy','Normal','Hard','Oni','Edit')"
 const publishedChart = `c.status='published' AND NOT EXISTS (SELECT 1 FROM difficulties excluded
  WHERE excluded.chart_id=c.id AND excluded.course NOT IN ` + supportedCoursesSQL + `)`
 
-const chartSelect = `SELECT c.id,c.owner_id,''::text,c.description,c.created_at,v.duration,v.encoding,tf.original_filename,af.original_filename,tf.sha256,af.sha256,af.byte_size,tf.storage_key,af.storage_key,COALESCE(c.title_override,v.title),COALESCE(c.subtitle_override,v.subtitle),v.bpm,v.offset_seconds,v.demo_start,v.wave_filename,v.title_translations || c.title_translation_overrides,v.subtitle_translations || c.subtitle_translation_overrides,
+const chartSelect = `SELECT c.id,c.owner_id,''::text,c.description,c.created_at,c.duration,c.encoding,tf.original_filename,af.original_filename,tf.sha256,af.sha256,af.byte_size,tf.storage_key,af.storage_key,COALESCE(c.title_override,c.title),COALESCE(c.subtitle_override,c.subtitle),c.bpm,c.offset_seconds,c.demo_start,c.wave_filename,c.title_translations || c.title_translation_overrides,c.subtitle_translations || c.subtitle_translation_overrides,
  COALESCE((SELECT jsonb_agg(jsonb_build_object('maker',d.maker,'course',d.course,'level',d.level,'blockIndex',d.block_index,'player',d.player,'style',d.style,'cloudScoreEligible',d.cloud_score_eligible) ORDER BY d.block_index) FROM difficulties d WHERE d.chart_id=c.id),'[]'::jsonb),
  ARRAY(SELECT cc.category_id FROM chart_categories cc WHERE cc.chart_id=c.id ORDER BY cc.category_id)
- FROM charts c JOIN chart_data v ON v.chart_id=c.id JOIN files tf ON tf.id=v.tja_file_id JOIN files af ON af.id=v.audio_file_id `
+ FROM charts c JOIN chart_resources tf ON tf.chart_id=c.id AND tf.kind='tja' JOIN chart_resources af ON af.chart_id=c.id AND af.kind='audio' `
 
 func readChart(row pgx.Row) (Chart, error) {
 	var c Chart
@@ -119,7 +119,7 @@ func (s *Server) remove(w http.ResponseWriter, r *http.Request) {
 		problem(w, 403, "FORBIDDEN", "只能删除自己的作品")
 		return
 	}
-	if _, e := s.DB.Exec(r.Context(), `WITH removed AS (UPDATE charts SET status='deleted' WHERE id=$1 AND owner_id=$2 RETURNING id) DELETE FROM chart_covers WHERE chart_id IN (SELECT id FROM removed)`, c.ID, u.User.ID); e != nil {
+	if _, e := s.DB.Exec(r.Context(), `WITH removed AS (UPDATE charts SET status='deleted' WHERE id=$1 AND owner_id=$2 RETURNING id) DELETE FROM chart_resources WHERE kind='cover' AND chart_id IN (SELECT id FROM removed)`, c.ID, u.User.ID); e != nil {
 		internal(w, e)
 		return
 	}
@@ -139,7 +139,7 @@ func (s *Server) download(w http.ResponseWriter, r *http.Request) {
 	if kind == "download" {
 		if s.remoteStorage() {
 			var key, digest string
-			if e = s.DB.QueryRow(r.Context(), `SELECT storage_key,sha256 FROM chart_archives WHERE chart_id=$1`, c.ID).Scan(&key, &digest); e != nil {
+			if e = s.DB.QueryRow(r.Context(), `SELECT storage_key,sha256 FROM chart_resources WHERE chart_id=$1 AND kind='archive'`, c.ID).Scan(&key, &digest); e != nil {
 				internal(w, e)
 				return
 			}

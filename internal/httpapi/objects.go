@@ -9,10 +9,8 @@ import (
 
 func (s *Server) remoteStorage() bool { _, ok := s.Config.Objects.(*objectstore.S3); return ok }
 func (s *Server) storeFile(ctx context.Context, key, path string, size int64, media, digest string) error {
-	if s.remoteStorage() {
-		if _, e := s.DB.Exec(ctx, `INSERT INTO pending_objects(storage_key) VALUES($1) ON CONFLICT DO NOTHING`, key); e != nil {
-			return e
-		}
+	if _, e := s.DB.Exec(ctx, `INSERT INTO pending_objects(storage_key) VALUES($1) ON CONFLICT DO NOTHING`, key); e != nil {
+		return e
 	}
 	f, e := os.Open(path)
 	if e != nil {
@@ -31,22 +29,17 @@ func (s *Server) saveArchive(ctx context.Context, tx pgx.Tx, chartID, tjaPath, a
 	if e = s.storeFile(ctx, key, file, size, "application/zip", digest); e != nil {
 		return e
 	}
-	_, e = tx.Exec(ctx, `INSERT INTO chart_archives(chart_id,storage_key,sha256,byte_size) VALUES($1,$2,$3,$4)`, chartID, key, digest, size)
+	_, e = tx.Exec(ctx, `INSERT INTO chart_resources(chart_id,kind,storage_key,original_filename,sha256,byte_size,media_type) VALUES($1,'archive',$2,'download.zip',$3,$4,'application/zip')`, chartID, key, digest, size)
 	return e
 }
 func (s *Server) reconcilePending(ctx context.Context) error {
-	if !s.remoteStorage() {
-		return nil
-	}
 	// Only age out abandoned writes after a full day. A commit with an unknown
 	// outcome is resolved against live references before any object is retired.
 	_, e := s.DB.Exec(ctx, `WITH settled AS (
  DELETE FROM pending_objects p WHERE p.created_at<now()-interval '1 day' RETURNING storage_key
  ) INSERT INTO retired_files(storage_key)
  SELECT storage_key FROM settled p WHERE
- NOT EXISTS(SELECT 1 FROM files f WHERE f.storage_key=p.storage_key) AND
- NOT EXISTS(SELECT 1 FROM chart_covers c WHERE c.storage_key=p.storage_key) AND
- NOT EXISTS(SELECT 1 FROM chart_archives a WHERE a.storage_key=p.storage_key)
+ NOT EXISTS(SELECT 1 FROM chart_resources r WHERE r.storage_key=p.storage_key)
  ON CONFLICT DO NOTHING`)
 	return e
 }

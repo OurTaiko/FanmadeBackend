@@ -1,6 +1,6 @@
 # Fanmade 后端数据库结构
 
-本文按当前源码整理，描述完整执行迁移 001–024 后的 PostgreSQL 结构；不是生产数据库的实时巡检结果。结构依据为 [SQL 迁移](../internal/database/)、[迁移入口](../internal/database/database.go) 和 [SSO 迁移入口](../internal/database/sso.go)。
+本文按当前源码整理，描述完整执行迁移 001–026 后的 PostgreSQL 结构；不是生产数据库的实时巡检结果。结构依据为 [SQL 迁移](../internal/database/)、[迁移入口](../internal/database/database.go) 和 [SSO 迁移入口](../internal/database/sso.go)。
 
 ## 数据职责与总览
 
@@ -14,7 +14,15 @@ Fanmade 保存用户上传的谱面、音频索引、网站封面、分类、成
 
 跨库用户 ID 是应用级关联，没有指向 SSO 的 PostgreSQL 外键。Fanmade 的用户行不等于有效登录，每次受保护请求仍需 SSO 验证。
 
-当前共 **17 张表**（含 schema_migrations）。下文未标注“可空”的字段均为 `NOT NULL`；`PK` 为主键，`UQ` 为唯一约束，时间均为 `timestamptz`。业务 ID 通常由应用生成 32 位小写十六进制字符串，但 Fanmade 多数 `text` ID 列没有对应正则 CHECK。
+当前共 **14 张表**，按用途分组：
+
+| 分组 | 表 | 日常用途 |
+| --- | --- | --- |
+| public | users、charts、chart_resources、difficulties、scores、categories、chart_categories | 7 张业务表，pgAdmin 日常查看此组 |
+| auth | sessions、oidc_flows | 本站会话和登录交接 |
+| internal | upload_requests、retired_score_requests、pending_objects、retired_files、schema_migrations | 上传/成绩重试、文件清理和结构迁移 |
+
+分组仍在同一个 Fanmade 数据库内，不影响独立 SSO 数据库。程序连接使用 `public,auth,internal` 搜索路径。下文未标注“可空”的字段均为 `NOT NULL`；`PK` 为主键，`UQ` 为唯一约束，时间均为 `timestamptz`。业务 ID 通常由应用生成 32 位小写十六进制字符串，但 Fanmade 多数 `text` ID 列没有对应正则 CHECK。
 
 ```mermaid
 erDiagram
@@ -22,18 +30,16 @@ erDiagram
   users ||--o{ charts : owns
   users ||--o{ scores : plays
   users ||--o{ upload_requests : submits
-  charts ||--|| chart_data : current
-  files ||--o{ chart_data : tja_or_audio
-  chart_data ||--o{ difficulties : contains
+  charts ||--|{ chart_resources : resources
+  charts ||--o{ difficulties : contains
   charts ||--o{ scores : song
   difficulties ||--o{ scores : eligible_target
   charts ||--o{ upload_requests : receipt
-  charts ||--o| chart_covers : cover
   charts ||--o{ chart_categories : categorized
   categories ||--o{ chart_categories : contains
 ```
 
-`charts.id` 以延迟外键指向唯一的 `chart_data.chart_id`，确保提交时存在歌曲数据；辅助表还包括 `oidc_flows`、`retired_files`、`pending_objects`、`retired_score_requests`、`schema_migrations`。
+`charts` 一行代表一首歌曲，`chart_resources` 每种资源最多一行。延迟约束触发器确保事务提交时每首歌曲都有 TJA 和音频；封面可选，S3 模式另外保存 ZIP。
 
 ## 账号与网站认证
 
@@ -78,18 +84,19 @@ erDiagram
 
 ## 作品、资源与展示
 
-### files
+### chart_resources
 
 | 字段 | 类型 / 约束 | 用途 |
 | --- | --- | --- |
-| id | text PK | 文件 ID |
-| storage_key | text UQ | 对象存储键；本地模式为 STORAGE_DIR 下相对路径 |
-| original_filename | text | 文件名 |
-| sha256 | text，CHECK 长度为 64 | 实际保存字节的 SHA-256；SQL 仅约束长度 |
-| byte_size | bigint，CHECK > 0 | 保存字节数 |
-| media_type | text | 媒体类型 |
+| chart_id | text FK → charts.id，ON DELETE CASCADE | 所属歌曲 |
+| kind | text，tja/audio/cover/archive | 与 chart_id 组成主键，每种最多一个 |
+| storage_key | text，非空，普通索引 | S3_PREFIX 下的对象键，或 STORAGE_DIR 下的相对路径 |
+| original_filename | text | 下载文件名 |
+| sha256 | text，64 位小写十六进制 | 实际保存字节的内容哈希，用于客户端缓存判断 |
+| byte_size | bigint，> 0 | 文件大小；cover 还限制为 12–8388608 字节 |
+| media_type | text | 媒体类型，cover 必须为 image/webp |
 
-TJA 和音频实际字节位于 S3 或本地磁盘，本表只存索引与校验信息。`sha256` 没有唯一约束，不表示按内容全局去重。新 TJA 统一保存为无 BOM UTF-8，历史资源不因文档或编码策略调整而自动改写。
+数据库只保存资源索引，文件字节在 S3 或本地资源目录。封面不再使用 bytea。允许多个歌曲引用同一对象，清理前会再次检查引用；不按哈希自动去重，也不保存历史资源。TJA 新上传仍统一保存为无 BOM UTF-8，迁移不会重写已有 TJA/音频。
 
 ### charts
 
@@ -106,14 +113,6 @@ TJA 和音频实际字节位于 S3 或本地磁盘，本表只存索引与校验
 | subtitle_translation_overrides | jsonb，默认 {}，CHECK 为 object | 各语言副标题覆盖 |
 | metadata_updated_at | timestamptz，可空 | 展示元数据更新时间 |
 
-FK：`id → chart_data.chart_id` 为 `DEFERRABLE INITIALLY DEFERRED`，允许在同一事务创建作品与当前资源；提交后必须一一对应。
-默认字段的 NULL、翻译对象中缺少对应语言键，表示继承当前文件元数据。JSONB CHECK 只保证是对象，语言键和内容规则由应用校验。
-
-### chart_data
-
-| 字段 | 类型 / 默认值 / 约束 | 用途 |
-| --- | --- | --- |
-| chart_id | text PK FK → charts.id，ON DELETE CASCADE | 所属作品，每首只有一行 |
 | title | text | 文件解析的默认标题 |
 | subtitle | text，默认空串 | 默认副标题 |
 | title_translations / subtitle_translations | jsonb，各默认 {}，CHECK 为 object | 文件内 ja/zh/ko 翻译 |
@@ -122,15 +121,14 @@ FK：`id → chart_data.chart_id` 为 `DEFERRABLE INITIALLY DEFERRED`，允许�
 | duration | double precision，CHECK > 0 且 ≤ 1200 | 音频时长，秒 |
 | encoding | text，utf-8 / shift-jis | 实际保存的 TJA 编码 |
 | wave_filename | text | 音频文件名 |
-| tja_file_id / audio_file_id | text，各 FK → files.id | 两个资源文件 |
-| validation_version | text | 解析校验规则版本 |
 
-没有歌曲版本 ID、版本号或历史资源行。`validation_version` 仅标识 TJA 解析校验规则，不是歌曲版本。014 已将 maker 移到难度块中。
+没有歌曲版本 ID、版本号、`validation_version` 或历史资源行。014 已将 maker 移到难度块。展示覆盖列为 NULL / 对应翻译键缺失时继承文件解析元数据，普通编辑仅修改覆盖列。
+
 ### difficulties
 
 | 字段 | 类型 / 默认值 / 约束 | 用途 |
 | --- | --- | --- |
-| chart_id | text FK → chart_data.chart_id，ON DELETE CASCADE | 所属歌曲 |
+| chart_id | text FK → charts.id，ON DELETE CASCADE | 所属歌曲 |
 | block_index | integer | TJA 谱面块序号；与 chart_id 组成 PK |
 | course | text | 新写入只允许 Easy/Normal/Hard/Oni/Edit |
 | level | integer，CHECK 1–10 | 星级 |
@@ -155,17 +153,7 @@ FK：`id → chart_data.chart_id` 为 `DEFERRABLE INITIALLY DEFERRED`，允许�
 
 关联表 PK 为 `(category_id,chart_id)`，作品可属于多个分类。额外索引 `chart_categories_chart(chart_id)`。013 将已有作品归入 Variety；017 新增 Anime，当前种子分类为 Game、Virtual Singer、Pop、Classic、Variety、Anime。数据库没有“作品至少一个分类”的 CHECK，此规则由业务流程保证。
 
-### chart_covers
-
-| 字段 | 类型 / 默认值 / 约束 | 用途 |
-| --- | --- | --- |
-| id | text PK | 封面 ID |
-| chart_id | text UQ FK → charts.id，ON DELETE CASCADE | 每首作品最多一张 |
-| webp | bytea，可空，CHECK 12–8388608 字节 | 转换后的 WebP 内容 |
-| sha256 | text，CHECK 64 位小写十六进制 | 内容哈希 |
-| created_at | timestamptz，默认 now() | 创建时间 |
-
-019 新增，023 增加 `storage_key text`、`byte_size bigint`（两者可空）。本地模式保存 PostgreSQL WebP 字节；S3 模式保存对象键和大小。CHECK 要求至少有字节或有效对象元数据。封面不占用 `files` 行。替换封面在事务内删除旧行并插入新行；只改封面不影响成绩。数据库只检查大小，完整图片解码和格式校验由应用完成。
+封面以 `chart_resources.kind='cover'` 保存。单独换封面不影响成绩；新封面完成写入后，在事务中替换索引，旧对象进入清理队列。
 
 ## 成绩与幂等
 
@@ -213,15 +201,13 @@ UQ `(user_id,idempotency_key)`；NULL 允许多局独立提交，同用户同键
 
 `user_id text FK → users.id ON DELETE CASCADE` 与 `idempotency_key text` 组成 PK。替换文件前保存被删除成绩的请求键，防止已接收旧成绩的网络重试重新创建记录（409 SCORE_REMOVED）。不存旧分数、文件或歌曲版本。
 
-### chart_archives
-
-`chart_id text PK FK → chart_data.chart_id ON DELETE CASCADE`，`storage_key text UNIQUE`，`sha256 text`（64 位小写十六进制），`byte_size bigint > 0`。S3 模式每首歌只有一份当前下载 ZIP；本地模式按需生成。删除记录时触发器将对象键加入 retired_files。
+S3 下载 ZIP 以 `chart_resources.kind='archive'` 保存，本地模式仍按需生成。客户端资源接口字段保持 `resources.download`，与数据库 kind 命名无关。
 
 ## 维护表与索引
 
 | 表 | 字段 | 用途 |
 | --- | --- | --- |
-| retired_files | storage_key text PK；created_at timestamptz 默认 now() | 已提交的对象/磁盘文件删除队列；无 files 外键，因为 files 行已删除 |
+| retired_files | storage_key text PK；created_at timestamptz 默认 now() | 已提交的对象/磁盘文件删除队列；不保留已删除资源的外键 |
 | pending_objects | storage_key text PK；created_at timestamptz 默认 now() | 先记录外部写入意图，超过一天的未引用对象可重试清理 |
 | schema_migrations | version integer PK；applied_at timestamptz 默认 now() | 逐项记录已经执行的迁移 |
 
@@ -234,6 +220,7 @@ UQ `(user_id,idempotency_key)`；NULL 允许多局独立提交，同用户同键
 | sessions_expiry | expires_at | 有效期查询 |
 | oidc_flows_expiry | expires_at | 临时流程清理 |
 | charts_published_recent | created_at DESC, id DESC；WHERE status='published' | 公开作品列表 |
+| chart_resources_storage_key | storage_key | 资源引用检查与清理 |
 | charts_owner | owner_id, created_at DESC | 用户作品 |
 | chart_categories_chart | chart_id | 反查分类 |
 | scores_user_recent | user_id, submitted_at DESC, id DESC | 个人历史 |
@@ -245,9 +232,9 @@ PostgreSQL 不会为每个外键自动创建索引，不能把关系图当作索
 ## 生命周期与迁移
 
 - 修改网站展示元数据：写 charts 覆盖列，保留原文件和成绩。
-- 整体替换歌曲/谱面：保留 charts.id、归属及封面；删除该作品全部旧成绩及难度，更新唯一的 chart_data 行；清除标题覆盖；旧的无引用文件行删除并把存储键加入 retired_files。新数据在同一事务发布，失败回滚。
+- 整体替换歌曲/谱面：保留 charts.id、归属及封面；删除该作品全部旧成绩及难度，更新 charts 的解析元数据和当前资源行；清除标题覆盖；旧资源索引删除并把存储键加入 retired_files。新数据在同一事务发布，失败回滚。
 - 软删除作品：status 改为 deleted，同时删除封面；歌曲数据、资源、分类关系和成绩保留，但不再公开访问。
-- 文件清理：启动时和每 30 秒重试 retired_files，对象/磁盘删除成功或文件已不存在后移除队列行。不是通用的孤儿文件扫描器。
+- 文件清理：启动时和每 30 秒重试 retired_files，仍被 chart_resources 引用的键保留对象并移除队列行；无引用的对象/磁盘文件删除成功或已不存在后移除队列行。不是通用的孤儿文件扫描器。
 - 删除本地用户：sessions 和 retired_score_requests 外键声明级联；已有作品、成绩、上传收据的外键通常会阻止直接物理删除。SSO 删除用户不会跨库级联删除业务数据。
 
 | 迁移 | 变化 |
@@ -269,7 +256,10 @@ PostgreSQL 不会为每个外键自动创建索引，不能把关系图当作索
 | 023 | S3 封面元数据、chart_archives、pending_objects 与对象清理触发器 |
 | 024 | 删除歌曲版本表/字段，改为 chart_data；成绩/难度/ZIP 按歌曲关联；旧文件清理及成绩请求墓碑 |
 
-`Migrate` 在事务与 advisory lock 内执行 001–017、019–024；随后 `MigrateSSO` 另开受保护事务执行 018。因此不能只用 `MAX(version)=24` 判断 SSO 迁移成功，必须检查 018 行。003/004/006 的历史回填需要与数据库配套的 TJA 文件，缺失或解析不一致会回滚。
+| 025 | chart_data 合并入 charts；files/封面/ZIP 合为 chart_resources；删除 validation_version；本地 bytea 封面经校验导出 |
+| 026 | 在 SSO 迁移完成后将认证和维护表移动到 auth/internal |
+
+`Migrate` 在事务与 advisory lock 内执行 001–017、019–025；随后 `MigrateSSO` 另开受保护事务执行 018 与 026。检查迁移时使用 `internal.schema_migrations`；不能只用最大编号推断 018 已执行。003/004/006 的历史回填需要与数据库配套的 TJA 文件，缺失或解析不一致会回滚。
 
 有旧账号时，018 要求先完成备份确认及全部用户 ID 的 SSO 存在性核对，再删除账号资料列。旧资料导入不是双向同步。操作见 [SSO 文档](SSO.md)；回退 018 必须恢复迁移前业务数据库及匹配程序，不能只换二进制。
 
@@ -284,3 +274,7 @@ PostgreSQL 不会为每个外键自动创建索引，不能把关系图当作索
 用户广场的计数、分页和统计使用同一只读 repeatable-read 快照；个人空间在一个 SQL 语句中聚合。访问他人的公开空间不更新该用户活跃时间。昵称查询失败时返回 null 和 profilesAvailable=false，仍可查看业务统计；昵称搜索依赖 SSO，故障返回 503 而非假装没有匹配用户。
 
 个人空间作品列表通过 `GET /api/v1/charts?owner=<用户ID>` 精确筛选，保留原公开状态与支持难度检查。登录名、邮箱、权限与 token 不在公开响应中。完整参数见 [API 文档](API.md)。
+
+025/026 升级不变更歌曲 ID、成绩、难度、分类或上传收据，不移动 S3 对象，也不更换对象键。已有本地 bytea 封面先导出并逐字节核对，才删除旧表；失败会回滚数据库。S3 后端如仍有仅存于 bytea 的封面会拒绝迁移，应先完成资源迁移。回退必须恢复升级前数据库、旧镜像及配套资源，不能只换旧镜像。首次分组要求 auth/internal 尚未被其他应用占用。
+
+pgAdmin 只读角色需要新 schema 的 USAGE 权限。表原有 SELECT 授权随表移动保留；新表和后续表需相应默认 SELECT 授权。不要授予写权限来解决查看问题。

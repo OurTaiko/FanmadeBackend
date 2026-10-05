@@ -76,18 +76,17 @@ func testAudioStreamHTTP(t *testing.T, remote bool) {
 			if remote {
 				teststore.Seed(t, cfg.Objects.(*objectstore.S3), filename, data)
 			}
-			song, audioID, tjaID := ID(), ID(), ID()
+			song, tjaID := ID(), ID()
 			digest := hash(string(data))
-			mustExec(`INSERT INTO files(id,storage_key,original_filename,sha256,byte_size,media_type) VALUES($1,$2,$2,$3,$4,'audio/test'),($5,$5,'a.tja',repeat('a',64),1,'application/octet-stream')`, audioID, filename, digest, len(data), tjaID)
 			tx, err := pool.Begin(ctx)
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer tx.Rollback(ctx)
-			if _, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id) VALUES($1,'89b6ef3a5cb57b6e04f74711d15a8a5f')`, song); err != nil {
+			if _, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id,title,bpm,duration,demo_start,encoding,wave_filename) VALUES($1,'89b6ef3a5cb57b6e04f74711d15a8a5f','Stream',120,120,30,'utf-8',$2)`, song, filename); err != nil {
 				t.Fatal(err)
 			}
-			if _, err = tx.Exec(ctx, `INSERT INTO chart_data(chart_id,title,bpm,duration,demo_start,encoding,wave_filename,tja_file_id,audio_file_id,validation_version) VALUES($1,'Stream',120,120,30,'utf-8',$2,$3,$4,'test')`, song, filename, tjaID, audioID); err != nil {
+			if _, err = tx.Exec(ctx, `INSERT INTO chart_resources(chart_id,kind,storage_key,original_filename,sha256,byte_size,media_type) VALUES($1,'audio',$2,$2,$3,$4,'audio/test'),($1,'tja',$5,'a.tja',repeat('a',64),1,'application/octet-stream')`, song, filename, digest, len(data), tjaID); err != nil {
 				t.Fatal(err)
 			}
 			if err = tx.Commit(ctx); err != nil {

@@ -94,31 +94,16 @@ func (s *Server) copyAudio(ctx context.Context, c *Chart, dir string) (*stagedFi
 	return f, nil
 }
 
-func retireChart(ctx context.Context, tx pgx.Tx, chartID, description string) ([]string, error) {
-	var ids []string
-	if err := tx.QueryRow(ctx, `SELECT ARRAY[tja_file_id,audio_file_id] FROM chart_data WHERE chart_id=$1`, chartID).Scan(&ids); err != nil {
-		return nil, err
-	}
+func retireChart(ctx context.Context, tx pgx.Tx, chartID, description string) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO retired_score_requests(user_id,idempotency_key) SELECT user_id,idempotency_key FROM scores WHERE song_id=$1 AND idempotency_key IS NOT NULL ON CONFLICT DO NOTHING`, chartID); err != nil {
-		return nil, err
+		return err
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM scores WHERE song_id=$1`, chartID); err != nil {
-		return nil, err
-	}
-	if _, err := tx.Exec(ctx, `DELETE FROM difficulties WHERE chart_id=$1`, chartID); err != nil {
-		return nil, err
-	}
-	if _, err := tx.Exec(ctx, `DELETE FROM chart_archives WHERE chart_id=$1`, chartID); err != nil {
-		return nil, err
+	for _, query := range []string{`DELETE FROM scores WHERE song_id=$1`, `DELETE FROM difficulties WHERE chart_id=$1`, `DELETE FROM chart_resources WHERE chart_id=$1 AND kind IN ('tja','audio','archive')`} {
+		if _, err := tx.Exec(ctx, query, chartID); err != nil {
+			return err
+		}
 	}
 	_, err := tx.Exec(ctx, `UPDATE charts SET description=$2,title_override=NULL,subtitle_override=NULL,title_translation_overrides='{}',subtitle_translation_overrides='{}',metadata_updated_at=now() WHERE id=$1`, chartID, description)
-	return ids, err
-}
-
-func retireUnusedFiles(ctx context.Context, tx pgx.Tx, ids []string) error {
-	_, err := tx.Exec(ctx, `WITH removed AS (
- DELETE FROM files f WHERE id=ANY($1) AND NOT EXISTS(SELECT 1 FROM chart_data d WHERE d.tja_file_id=f.id OR d.audio_file_id=f.id) RETURNING storage_key
- ) INSERT INTO retired_files(storage_key) SELECT storage_key FROM removed ON CONFLICT DO NOTHING`, ids)
 	return err
 }
 
@@ -171,6 +156,17 @@ func (s *Server) deleteRetiredFiles(ctx context.Context) error {
 	for _, key := range keys {
 		if !filepath.IsLocal(key) {
 			failures = append(failures, errors.New("invalid retired storage key"))
+			continue
+		}
+		var live bool
+		if err = s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM chart_resources WHERE storage_key=$1)`, key).Scan(&live); err != nil {
+			failures = append(failures, err)
+			continue
+		}
+		if live {
+			if _, err = s.DB.Exec(ctx, `DELETE FROM retired_files WHERE storage_key=$1`, key); err != nil {
+				failures = append(failures, err)
+			}
 			continue
 		}
 		if err = s.Config.Objects.Delete(ctx, key); err != nil && !errors.Is(err, os.ErrNotExist) {

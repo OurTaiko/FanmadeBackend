@@ -20,10 +20,8 @@ func TestLeaderboard(t *testing.T) {
 		}
 	}
 	_, err := pool.Exec(ctx, `BEGIN;
-	 INSERT INTO files(id,storage_key,original_filename,sha256,byte_size,media_type) VALUES
-	 ('t','t','a.tja',repeat('a',64),1,'application/octet-stream'),('a','a','a.ogg',repeat('b',64),1,'audio/ogg');
-	 INSERT INTO charts(id,owner_id) VALUES('11111111111111111111111111111111','000000000000000000000000000003e8'),('22222222222222222222222222222222','000000000000000000000000000003e8');
-	 INSERT INTO chart_data(chart_id,title,bpm,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version) VALUES('11111111111111111111111111111111','Current',120,10,'utf-8','a.ogg','t','a','test'),('22222222222222222222222222222222','Other',120,10,'utf-8','a.ogg','t','a','test');
+ INSERT INTO charts(id,owner_id,title,bpm,duration,encoding,wave_filename) VALUES('11111111111111111111111111111111','000000000000000000000000000003e8','Current',120,10,'utf-8','a.ogg'),('22222222222222222222222222222222','000000000000000000000000000003e8','Other',120,10,'utf-8','a.ogg');
+ INSERT INTO chart_resources(chart_id,kind,storage_key,original_filename,sha256,byte_size,media_type) SELECT id,kind,kind,kind,repeat('a',64),1,'test' FROM charts CROSS JOIN unnest(ARRAY['tja','audio']) kind;
 	 INSERT INTO difficulties(chart_id,block_index,course,level,player,style) VALUES
 	 ('11111111111111111111111111111111',0,'Oni',5,'','Single'),
 	 ('11111111111111111111111111111111',1,'Hard',5,'','Single'),

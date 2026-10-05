@@ -70,7 +70,9 @@ func TestS3PendingRecoveryAndGameIsolation(t *testing.T) {
 	for _, key := range []string{"abandoned", "recent", "referenced"} {
 		teststore.Seed(t, store, key, []byte("test"))
 	}
-	_, e := pool.Exec(ctx, `INSERT INTO pending_objects(storage_key,created_at) VALUES('abandoned',now()-interval '2 days'),('recent',now()),('referenced',now()-interval '2 days'); INSERT INTO files(id,storage_key,original_filename,sha256,byte_size,media_type) VALUES('e9661d52f08e4f778997b042bacb4d90','referenced','test.tja',repeat('a',64),4,'application/octet-stream')`)
+	_, e := pool.Exec(ctx, `INSERT INTO pending_objects(storage_key,created_at) VALUES('abandoned',now()-interval '2 days'),('recent',now()),('referenced',now()-interval '2 days'); INSERT INTO retired_files(storage_key) VALUES('referenced'); BEGIN; INSERT INTO users(id) VALUES('u');
+ INSERT INTO charts(id,owner_id,title,bpm,duration,encoding,wave_filename) VALUES('c','u','Recovery',120,10,'utf-8','test.ogg');
+ INSERT INTO chart_resources(chart_id,kind,storage_key,original_filename,sha256,byte_size,media_type) SELECT 'c',kind,'referenced','test',repeat('a',64),4,'test' FROM unnest(ARRAY['tja','audio']) kind; COMMIT;`)
 	if e != nil {
 		t.Fatal(e)
 	}

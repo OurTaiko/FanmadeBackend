@@ -78,8 +78,26 @@ var objectStorageSchema string
 //go:embed 024_current_chart_resources.sql
 var currentChartSchema string
 
+//go:embed 025_simplify_charts.sql
+var simplifiedChartSchema string
+
 func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
-	pool, err := pgxpool.New(ctx, url)
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		return nil, err
+	}
+	// Preserve an explicitly selected application schema while adding its
+	// authentication/maintenance namespaces on every new connection.
+	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		var schema, path string
+		if err := conn.QueryRow(ctx, `SELECT current_schema(),current_setting('search_path')`).Scan(&schema, &path); err != nil {
+			return err
+		}
+		auth, internal := auxiliarySchemas(schema)
+		_, err := conn.Exec(ctx, `SELECT set_config('search_path',$1,false)`, path+","+pgx.Identifier{auth}.Sanitize()+","+pgx.Identifier{internal}.Sanitize())
+		return err
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -92,11 +110,20 @@ func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 
 // Migrate applies the initial schema once, atomically, with a transaction lock.
 func Migrate(ctx context.Context, pool *pgxpool.Pool, storage string) error {
-	return migrateTo(ctx, pool, storage, 24)
+	return migrateTo(ctx, pool, storage, 25)
+}
+
+// MigrateS3 refuses to export legacy inline covers to an ephemeral local directory.
+// Migrate the local snapshot to S3 before starting an S3-only server.
+func MigrateS3(ctx context.Context, pool *pgxpool.Pool, storage string) error {
+	return migrateToMode(ctx, pool, storage, 25, true)
 }
 
 // The historical target supports testing upgrades before the schema flattening.
 func migrateTo(ctx context.Context, pool *pgxpool.Pool, storage string, target int) error {
+	return migrateToMode(ctx, pool, storage, target, false)
+}
+func migrateToMode(ctx context.Context, pool *pgxpool.Pool, storage string, target int, remote bool) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -105,7 +132,7 @@ func migrateTo(ctx context.Context, pool *pgxpool.Pool, storage string, target i
 	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(73420118)`); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations(version integer PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
+	if _, err = tx.Exec(ctx, `DO $$ BEGIN IF to_regclass('schema_migrations') IS NULL THEN CREATE TABLE schema_migrations(version integer PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now()); END IF; END $$`); err != nil {
 		return err
 	}
 	var exists bool
@@ -370,6 +397,22 @@ func migrateTo(ctx context.Context, pool *pgxpool.Pool, storage string, target i
 				return fmt.Errorf("migration 024: %w", err)
 			}
 			if _, err = tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES(24)`); err != nil {
+				return err
+			}
+		}
+	}
+	if target >= 25 {
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=25)`).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			if err = exportLocalCovers(ctx, tx, storage, remote); err != nil {
+				return fmt.Errorf("migration 025 cover export: %w", err)
+			}
+			if _, err = tx.Exec(ctx, simplifiedChartSchema); err != nil {
+				return fmt.Errorf("migration 025: %w", err)
+			}
+			if _, err = tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES(25)`); err != nil {
 				return err
 			}
 		}

@@ -317,7 +317,6 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		defer tx.Rollback(r.Context())
 	}
 	chartID := ID()
-	var retiredIDs []string
 	if existing != nil {
 		chartID = existing.ID
 	}
@@ -344,24 +343,27 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if existing != nil {
+		if e = retireChart(r.Context(), tx, chartID, fields["description"]); e != nil {
+			internal(w, e)
+			return
+		}
+	}
+	if _, e = tx.Exec(r.Context(), `INSERT INTO charts(id,owner_id,description,title,subtitle,bpm,offset_seconds,demo_start,duration,encoding,wave_filename,title_translations,subtitle_translations)
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+ ON CONFLICT(id) DO UPDATE SET title=EXCLUDED.title,subtitle=EXCLUDED.subtitle,bpm=EXCLUDED.bpm,offset_seconds=EXCLUDED.offset_seconds,demo_start=EXCLUDED.demo_start,duration=EXCLUDED.duration,encoding=EXCLUDED.encoding,wave_filename=EXCLUDED.wave_filename,title_translations=EXCLUDED.title_translations,subtitle_translations=EXCLUDED.subtitle_translations`, chartID, u.User.ID, fields["description"], meta.Title, meta.Subtitle, meta.BPM, meta.Offset, meta.DemoStart, duration, encoding, meta.Wave, meta.TitleTranslations, meta.SubtitleTranslations); e != nil {
+		internal(w, e)
+		return
+	}
 	for field, f := range files {
 		media := "application/octet-stream"
 		if field == "audio" {
 			media = audio.MediaType(f.name)
 		}
-		if _, e = tx.Exec(r.Context(), `INSERT INTO files(id,storage_key,original_filename,sha256,byte_size,media_type) VALUES($1,$2,$3,$4,$5,$6)`, f.id, f.key, f.name, f.sha, f.size, media); e != nil {
+		if _, e = tx.Exec(r.Context(), `INSERT INTO chart_resources(chart_id,kind,storage_key,original_filename,sha256,byte_size,media_type) VALUES($1,$2,$3,$4,$5,$6,$7)`, chartID, field, f.key, f.name, f.sha, f.size, media); e != nil {
 			internal(w, e)
 			return
 		}
-	}
-	if existing == nil {
-		_, e = tx.Exec(r.Context(), `INSERT INTO charts(id,owner_id,description) VALUES($1,$2,$3)`, chartID, u.User.ID, fields["description"])
-	} else {
-		retiredIDs, e = retireChart(r.Context(), tx, chartID, fields["description"])
-	}
-	if e != nil {
-		internal(w, e)
-		return
 	}
 	if cf != nil {
 		if e = s.saveCover(r.Context(), tx, chartID, coverData); e != nil {
@@ -373,19 +375,11 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		internal(w, e)
 		return
 	}
-	if _, e = tx.Exec(r.Context(), `INSERT INTO chart_data(chart_id,title,subtitle,bpm,offset_seconds,demo_start,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT(chart_id) DO UPDATE SET title=EXCLUDED.title,subtitle=EXCLUDED.subtitle,bpm=EXCLUDED.bpm,offset_seconds=EXCLUDED.offset_seconds,demo_start=EXCLUDED.demo_start,duration=EXCLUDED.duration,encoding=EXCLUDED.encoding,wave_filename=EXCLUDED.wave_filename,tja_file_id=EXCLUDED.tja_file_id,audio_file_id=EXCLUDED.audio_file_id,validation_version=EXCLUDED.validation_version`, chartID, meta.Title, meta.Subtitle, meta.BPM, meta.Offset, meta.DemoStart, duration, encoding, meta.Wave, tf.id, af.id, tja.Version); e != nil {
-		internal(w, e)
-		return
-	}
 	if s.remoteStorage() {
 		if e = s.saveArchive(r.Context(), tx, chartID, tf.path, af.path, tf.name, meta.Wave, dir); e != nil {
 			internal(w, e)
 			return
 		}
-	}
-	if _, e = tx.Exec(r.Context(), `UPDATE chart_data SET title_translations=$2,subtitle_translations=$3 WHERE chart_id=$1`, chartID, meta.TitleTranslations, meta.SubtitleTranslations); e != nil {
-		internal(w, e)
-		return
 	}
 	for _, d := range meta.Difficulties {
 		if _, e = tx.Exec(r.Context(), `INSERT INTO difficulties(chart_id,block_index,course,level,player,style,maker) VALUES($1,$2,$3,$4,$5,$6,$7)`, chartID, d.BlockIndex, d.Course, d.Level, d.Player, d.Style, d.Maker); e != nil {
@@ -394,10 +388,6 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if _, e = tx.Exec(r.Context(), `INSERT INTO upload_requests(user_id,idempotency_key,payload_digest,chart_id,tja_sha256,audio_sha256) VALUES($1,$2,$3,$4,$5,$6)`, u.User.ID, key, digest, chartID, tf.sha, af.sha); e != nil {
-		internal(w, e)
-		return
-	}
-	if e = retireUnusedFiles(r.Context(), tx, retiredIDs); e != nil {
 		internal(w, e)
 		return
 	}

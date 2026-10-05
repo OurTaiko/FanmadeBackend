@@ -13,9 +13,7 @@ import (
 func TestPublicGameSearch(t *testing.T) {
 	pool := scoreTestDB(t)
 	ctx := context.Background()
-	if _, err := pool.Exec(ctx, `INSERT INTO users(id,username,nickname,password_hash) VALUES('eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee','searcher','公开昵称','unused');
- INSERT INTO files(id,storage_key,original_filename,sha256,byte_size,media_type) VALUES
- ('t','tja','test.tja',repeat('a',64),1,'application/octet-stream'),('a','ogg','test.ogg',repeat('b',64),1,'audio/ogg');`); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO users(id,username,nickname,password_hash) VALUES('eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee','searcher','公开昵称','unused');`); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 14; i++ {
@@ -24,11 +22,11 @@ func TestPublicGameSearch(t *testing.T) {
 			t.Fatal(err)
 		}
 		id := fmt.Sprintf("%032d", i)
-		_, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id) VALUES($1,'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee');
-  `, id)
+		_, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id,title,bpm,duration,encoding,wave_filename,title_translations) VALUES($1,'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee','Search Song',120,10,'utf-8','test.ogg','{"ja":"検索曲"}')`, id)
 		if err == nil {
-			_, err = tx.Exec(ctx, `INSERT INTO chart_data(chart_id,title,bpm,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version,title_translations) VALUES($1,'Search Song',120,10,'utf-8','test.ogg','t','a','tja-upload-v2','{"ja":"検索曲"}');`, id)
+			_, err = tx.Exec(ctx, `INSERT INTO chart_resources(chart_id,kind,storage_key,original_filename,sha256,byte_size,media_type) VALUES($1,'tja','tja','test.tja',repeat('a',64),1,'application/octet-stream'),($1,'audio','ogg','test.ogg',repeat('b',64),1,'audio/ogg')`, id)
 		}
+
 		if err == nil {
 			_, err = tx.Exec(ctx, `INSERT INTO difficulties(chart_id,block_index,course,level,player,style,maker) VALUES
   ($1,0,'Easy',3,'','Single','Composer'),($1,1,'Oni',8,'','Single','Artist');`, id)

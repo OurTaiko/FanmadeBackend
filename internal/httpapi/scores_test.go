@@ -33,12 +33,15 @@ func scoreTestDB(t *testing.T) *pgxpool.Pool {
 		admin.Close()
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { admin.Exec(ctx, "DROP SCHEMA "+name+" CASCADE"); admin.Close() })
+	t.Cleanup(func() {
+		admin.Exec(ctx, "DROP SCHEMA IF EXISTS "+name+", "+name+"_auth, "+name+"_internal CASCADE")
+		admin.Close()
+	})
 	cfg, err := pgxpool.ParseConfig(url)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = name
+	cfg.ConnConfig.RuntimeParams["search_path"] = database.SchemaSearchPath(name)
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -75,10 +78,9 @@ func TestSubmitScore(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback(ctx)
-	_, err = tx.Exec(ctx, `INSERT INTO files(id,storage_key,original_filename,sha256,byte_size,media_type) VALUES
- ('t','tja','test.tja',repeat('a',64),1,'application/octet-stream'),('a','ogg','test.ogg',repeat('b',64),1,'audio/ogg');
- INSERT INTO charts(id,owner_id) VALUES('11111111111111111111111111111111','89b6ef3a5cb57b6e04f74711d15a8a5f');
- INSERT INTO chart_data(chart_id,title,bpm,duration,encoding,wave_filename,tja_file_id,audio_file_id,validation_version) VALUES('11111111111111111111111111111111','Test',120,10,'utf-8','test.ogg','t','a','tja-upload-v2');
+	_, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id,title,bpm,duration,encoding,wave_filename) VALUES('11111111111111111111111111111111','89b6ef3a5cb57b6e04f74711d15a8a5f','Test',120,10,'utf-8','test.ogg');
+ INSERT INTO chart_resources(chart_id,kind,storage_key,original_filename,sha256,byte_size,media_type) VALUES
+ ('11111111111111111111111111111111','tja','tja','test.tja',repeat('a',64),1,'application/octet-stream'),('11111111111111111111111111111111','audio','ogg','test.ogg',repeat('b',64),1,'audio/ogg');
  INSERT INTO difficulties(chart_id,block_index,course,level,player,style) VALUES
  ('11111111111111111111111111111111',0,'Oni',5,'','Single'),
  ('11111111111111111111111111111111',1,'Oni',5,'P1','Double'),
@@ -334,7 +336,7 @@ func TestSubmitScore(t *testing.T) {
 		t.Fatalf("concurrency: %d created %d IDs", created, len(ids))
 	}
 	// A receipt survives a rename and retries still return it after unpublishing.
-	if _, err = pool.Exec(ctx, `UPDATE chart_data SET title='Renamed' WHERE chart_id=$1`, song); err != nil {
+	if _, err = pool.Exec(ctx, `UPDATE charts SET title='Renamed' WHERE id=$1`, song); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `UPDATE charts SET status='deleted' WHERE id=$1`, song); err != nil {
