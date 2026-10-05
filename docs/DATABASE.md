@@ -1,6 +1,6 @@
 # Fanmade 后端数据库结构
 
-本文按当前源码整理，描述完整执行迁移 001–026 后的 PostgreSQL 结构；不是生产数据库的实时巡检结果。结构依据为 [SQL 迁移](../internal/database/)、[迁移入口](../internal/database/database.go) 和 [SSO 迁移入口](../internal/database/sso.go)。
+本文按当前源码整理，描述完整执行迁移 001–027 后的 PostgreSQL 结构；不是生产数据库的实时巡检结果。结构依据为 [SQL 迁移](../internal/database/)、[迁移入口](../internal/database/database.go) 和 [SSO 迁移入口](../internal/database/sso.go)。
 
 ## 数据职责与总览
 
@@ -252,8 +252,9 @@ PostgreSQL 不会为每个外键自动创建索引，不能把关系图当作索
 | 024 | 删除歌曲版本表/字段，改为 chart_data；成绩/难度/ZIP 按歌曲关联；旧文件清理及成绩请求墓碑 |
 | 025 | chart_data 合并入 charts；files/封面/ZIP 合为 chart_resources；删除 validation_version；本地 bytea 封面经校验导出 |
 | 026 | 在 SSO 迁移完成后将认证和维护表移动到 auth/internal |
+| 027 | 合并全部标题翻译（含 en），删除四个 override 列 |
 
-`Migrate` 在事务与 advisory lock 内执行 001–017、019–025；随后 `MigrateSSO` 另开受保护事务执行 018 与 026。检查迁移时使用 `internal.schema_migrations`；不能只用最大编号推断 018 已执行。003/004/006 的历史回填需要与数据库配套的 TJA 文件，缺失或解析不一致会回滚。
+`Migrate` 在事务与 advisory lock 内执行 001–017、019–025、027；随后 `MigrateSSO` 另开受保护事务执行 018 与 026。检查迁移时使用 `internal.schema_migrations`；不能只用最大编号推断 018 已执行。003/004/006 的历史回填需要与数据库配套的 TJA 文件，缺失或解析不一致会回滚。
 
 有旧账号时，018 要求先完成备份确认及全部用户 ID 的 SSO 存在性核对，再删除账号资料列。旧资料导入不是双向同步。操作见 [SSO 文档](SSO.md)；回退 018 必须恢复迁移前业务数据库及匹配程序，不能只换二进制。
 
