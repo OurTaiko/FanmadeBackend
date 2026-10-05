@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Fanmade database backup at 04:00 Asia/Tokyo
+
+[Timer]
+OnCalendar=*-*-* 04:00:00 Asia/Tokyo
+Persistent=true
+AccuracySec=1min
+Unit=ourtaiko-fanmade-backup.service
+
+[Install]
+WantedBy=timers.target
