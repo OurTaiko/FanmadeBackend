@@ -43,27 +43,13 @@
 
 仅接受 Easy / Normal / Hard / Oni / Edit；TJA 的 COURSE 值支持数字 0–4 和大小写变体。Tower / Dan / 5 / 6 返回 422 `TJA_COURSE_UNSUPPORTED`，`errors[].line` 指向 COURSE 行。只要出现不支持的 COURSE，整份 TJA 拒绝，不能只上传其中的普通难度块。
 
-列表 `course` 参数只允许五种规范英文名，其他非空值返回 400 `DIFFICULTY_INVALID`。成绩接口拒绝不支持的难度（422），排行榜查询同样拒绝（400）。已有不支持的当前版本由迁移 012 下架，列表和游戏曲库不返回，详情、编辑和所有文件下载返回 404；游戏快照排除不支持版本的全部成绩。数据仍保存在数据库和资源目录中。
+列表 `course` 参数允许五种规范英文名及其 _1p/_2p 形式，其他非空值返回 400 `DIFFICULTY_INVALID`。成绩接口拒绝不支持的难度（422），排行榜查询同样拒绝（400）。已有不支持的当前版本由迁移 012 下架，列表和游戏曲库不返回，详情、编辑和所有文件下载返回 404；游戏快照排除不支持版本的全部成绩。数据仍保存在数据库和资源目录中。
 
-## 谱面块的云端成绩资格
+## 歌曲模式
 
-上传成功、作品详情、公开列表与本人列表中的 `difficulties[]` 增加 `style` 和 `cloudScoreEligible`，已有 `course`、`level`、`blockIndex`、`player` 字段保留。例如：
+作品的 isSingle 表示整份文件的模式；difficulties 每项只有 course、level、maker。单人使用五种基础难度名，双人使用带 _1p/_2p 后缀的名称，详见文末协议说明。所有有效难度都支持成绩。
 
-```json
-[
-  {"course":"Oni","level":7,"blockIndex":0,"player":"","style":"Single","cloudScoreEligible":true},
-  {"course":"Oni","level":7,"blockIndex":1,"player":"P1","style":"Double","cloudScoreEligible":false},
-  {"course":"Oni","level":7,"blockIndex":2,"player":"P2","style":"Double","cloudScoreEligible":false}
-]
-```
-
-后端解析 STYLE 值时不区分大小写，支持 Single/0、Double/1 和 ESE 中的 Duet（按 Double）。STYLE 在当前 COURSE 内持续生效直到下一次 STYLE 声明，每次 COURSE 声明恢复默认 Single；P1/P2 块无论 STYLE 如何均按 Double。未知 STYLE 或在谱面块内部声明 STYLE 返回 422 `TJA_STRUCTURE_INVALID`，包含行号。前后端校验标识为 `tja-upload-v7`，都拒绝不支持的难度；STYLE、重复单人难度等规则仍由后端权威校验。
-
-每个 TJA 的同一难度最多一个 Single 块。重复时在上传阶段返回 422 `TJA_DIFFICULTY_DUPLICATE`，`errors[0].line` 指向重复块的 #START，message 指出首次声明行号。难度名与数字别名归一化后比较，修改 LEVEL 不会使重复难度合法；P1/P2 和显式 Double 块不参与这个单人重复检查。
-
-Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:false` 不是上传错误。同一 TJA 的每个块独立判定，不能因含 Double 而禁用整个作品的 Single 块。资格从数据库返回，上传请求不接受客户端指定 style 或资格。
-
-成绩提交接口已实现，目标必须是服务端查到的 Single 块。排行榜及游戏客户端专用鉴权均已实现。
+STYLE 不区分值大小写，支持 Single/0、Double/1、Duet；每次 COURSE 声明恢复默认 Single。P1/P2 标记按双人解析，显式 Double 必须标明 P1/P2。同一文件混合模式、重复完整 course、块内 STYLE 和未知 STYLE 均被拒绝。校验标识为 tja-upload-v8。
 
 ## 提交成绩
 
@@ -89,7 +75,7 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
 
 后端锁定当前已发布歌曲，按难度寻找唯一有资格的单人块。同一难度含一个 Single 和若干 Double 时只选 Single；只有 Double 时拒绝。重复 Single 已在新上传时拦截，成绩接口仍对历史异常数据返回歧义错误。浏览器和原生游戏接口都只按 songId 归属，不接收歌曲版本字段。服务端保存客户端上报值，未根据游玩过程重算成绩。
 
-成功返回 201，响应包含上述八个基础成绩字段（difficulty 已归一化）和 `ClearStatus`（即使为 0 也返回），以及服务端生成的 `id`、`userId`、`blockIndex` 和 `submittedAt`（UTC RFC3339）。每次新提交保留一条游玩记录，不覆盖最高分；排行榜读取时选出每人的最高分记录。歌曲更名或软删除不删除已保存成绩；下架后拒绝新成绩。
+成功返回 201，响应包含上述八个基础成绩字段（difficulty 已归一化）和 `ClearStatus`（即使为 0 也返回），以及服务端生成的 `id`、`userId` 和 `submittedAt`（UTC RFC3339）。每次新提交保留一条游玩记录，不覆盖最高分；排行榜读取时选出每人的最高分记录。歌曲更名或软删除不删除已保存成绩；下架后拒绝新成绩。
 
 可选请求头 `Idempotency-Key` 为 16–80 位字母、数字或短横线，推荐每局生成 UUID 并在网络重试时复用。相同用户、相同 key、相同归一化载荷返回原成绩及 200；同 key 不同载荷返回 409。不同用户的 key 互不影响；省略 key 时每次请求都是新游玩。已成功提交的幂等重试即使歌曲后来下架也返回原回执，不重新选择版本或写入成绩。
 
@@ -101,11 +87,9 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
 | 403 | CSRF_INVALID / ORIGIN_INVALID | 缺少正确的会话令牌／来源 |
 | 404 | CHART_NOT_FOUND | 歌曲不存在、隐藏或删除 |
 | 404 | DIFFICULTY_NOT_FOUND | 当前版本无此难度 |
-| 409 | DIFFICULTY_AMBIGUOUS | 历史数据存在多个同难度单人块 |
 | 409 | IDEMPOTENCY_CONFLICT | 同请求标识用于不同成绩 |
 | 415 | CONTENT_TYPE_INVALID | 非 JSON 媒体类型 |
 | 422 | SCORE_INVALID | 字段缺失、负数、超限、无效歌曲 ID／难度 |
-| 422 | DOUBLE_SCORE_UNSUPPORTED | 目标难度只有 DOUBLE 谱面 |
 
 当前保存的是登录用户上报值：未校验判定数量与谱面音符数、未重算总分、未验证回放、自动演奏或计分模式，不作为已验证竞技成绩。已有基础限流与上传接口共用（来源 IP 每分钟 40 次写请求）。
 
@@ -126,7 +110,7 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
 - `POST /api/v1/game/login`：JSON `{ "username": "...", "password": "..." }`，返回 `user`、`accessToken`、`expiresIn`（604800 秒）。无 Set-Cookie。后续原生请求使用 `Authorization: Bearer <accessToken>`。
 - `GET /api/v1/game/bootstrap`：返回 `{ "user": {...}, "categories": [{ "id": "game", "title": "Game", "genre": "GAME", "chartCount": 1 }, ...], "chartCount": 1, "scores": [...] }`，在同一个 PostgreSQL repeatable-read 快照中读取分类、各分类数量、服务器去重数量和当前用户的历史成绩，不返回全部谱面内容。`GET /api/v1/game/categories/{categoryId}/charts` 按需返回分类内谱面；详情见 [分类协议](CATEGORIES.md)。`songIdOnly: true` 声明本文的歌曲 ID 协议；最佳成绩按服务器/账号/songId/difficulty 筛选。重新获取 bootstrap 时替换该服务器账号的在线成绩快照，不能只追加，因为替换资源会清空旧成绩。
 - 当前原始文件使用 `GET /api/v1/charts/{id}/{tja|audio|download}`。S3 直连使用 `GET /api/v1/charts/{id}/resources`；清单返回各资源的 SHA-256、大小和临时 GET/HEAD URL。加载前核对详情和清单哈希，完整下载后核对实际 SHA-256。
-- `POST /api/v1/game/scores`：八项基础成绩字段（含必填 `max_combo`），建议每次游玩使用固定的 `Idempotency-Key`。示例：`{"songId":"<32 hex>","difficulty":"Oni","good":300,"ok":10,"bad":2,"score":900000,"drumroll":50,"max_combo":250,"ClearStatus":1}`。DOUBLE 仍不支持云端成绩。临时失败重试保持载荷和 key 不变。已接收的成绩若被资源替换删除，再用原 key 重试返回 `409 SCORE_REMOVED`，客户端停止重试。
+- `POST /api/v1/game/scores`：八项基础成绩字段（含必填 `max_combo`），建议每次游玩使用固定的 `Idempotency-Key`。示例：`{"songId":"<32 hex>","difficulty":"Oni","good":300,"ok":10,"bad":2,"score":900000,"drumroll":50,"max_combo":250,"ClearStatus":1}`。双人成绩使用 difficulty=Oni_1p/Oni_2p 等带后缀的规范值，不提交额外 player 或 blockIndex。临时失败重试保持载荷和 key 不变。已接收的成绩若被资源替换删除，再用原 key 重试返回 `409 SCORE_REMOVED`，客户端停止重试。
 
 `POST /api/v1/scores` 与原生接口使用相同成绩字段。两者均不接收 `versionId`（未知 JSON 字段返回 400），也不在回执、bootstrap、排行榜中返回它。`ClearStatus` 可选 0–3，省略为 0；回执和成绩列表总是返回 `max_combo`、`ClearStatus`。SSO 会话行为不变。客户端在待上传记录中保存游玩时的 TJA/audio 哈希，上传前核对当前哈希；不匹配或旧队列缺少可信哈希时不自动上传。服务端没有歌曲版本或游玩快照标识，无法识别从未接收过的离线旧成绩；哈希检查与提交之间也有竞态，不承诺严格排除旧内容成绩。完整实现要求见 [游戏接入文档](GAME_CLIENT_RESOURCE_DOWNLOAD.md)。
 
@@ -135,11 +119,11 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
 
 `GET /api/v1/charts/{id}/leaderboard?difficulty=Oni&page=1` 公开读取，无需登录。
 
-- 未传难度时按 Oni → Edit → Hard → Normal → Easy 回退，其余难度按谱面块顺序选择。接受难度大小写和 `ura` 别名。
-- 仅统计当前已发布歌曲的单人谱；每位用户取总分最高的一次，同一用户同分时取最早提交记录。良／可／不可／连打／最大连击均来自该次游玩，不单独拼接历史最大连击。
+- 未传难度时按 Oni → Edit → Hard → Normal → Easy 回退，双人依同样基础难度顺序，再按 _1p、_2p 选择。接受难度大小写和 `ura` 别名。
+- 统计当前已发布歌曲指定难度（含 _1p/_2p）；每位用户取总分最高的一次，同一用户同分时取最早提交记录。良／可／不可／连打／最大连击均来自该次游玩，不单独拼接历史最大连击。
 - 按总分降序，同分并列（如 1、1、3），同分行按提交时间及成绩 ID 稳定排序。每页 20 人，页码为 1–10000；`total` 为上榜人数。
 - 返回 `{songId, difficulty, supported, items, total, page, pageSize}`；`items` 中包含成绩字段以及 `nickname`、`rank`，不暴露邮箱或认证信息。
-- DOUBLE 难度返回 `supported: false` 与空列表。不存在的歌曲／难度返回 404，有歧义的单人难度返回 409。
+- 有效单人/双人难度均返回 `supported: true`；P1/P2 分别排行。不存在的歌曲／难度返回 404。
 - 修改展示标题和副标题不影响成绩；替换资源会清空该歌曲全部成绩。
 
 邮箱验证和邮件配置统一由 OurTaikoSSO 管理，见 [SSO 接入](SSO.md)。
@@ -155,10 +139,10 @@ Double 允许正常上传、试听和下载原始文件，`cloudScoreEligible:fa
 上传表单可传 `difficultyMakers`，其值为 JSON 数组，例如：
 
 ```json
-[{"blockIndex":0,"maker":"A"},{"blockIndex":1,"maker":"B"},{"blockIndex":2,"maker":"A"}]
+[{"course":"Hard","maker":"A"},{"course":"Oni","maker":"B"},{"course":"Edit","maker":"A"}]
 ```
 
-传入时必须覆盖后端解析出的每个谱面块，blockIndex 不能重复或越界，maker 必须是字符串；空字符串表示不署名。署名去掉两端空白，最长 500 UTF-8 字节，不接受控制字符；整个字段最长 64 KiB。校验失败返回 422 `DIFFICULTY_MAKERS_INVALID`。省略该字段时，每块均采用原 TJA 的 MAKER（没有则为空），兼容已有上传客户端。署名变更参与幂等校验。
+传入时必须覆盖后端解析出的每个谱面块，course 必须精确匹配全部已解析难度且不能重复，maker 必须是字符串；空字符串表示不署名。署名去掉两端空白，最长 500 UTF-8 字节，不接受控制字符；整个字段最长 64 KiB。校验失败返回 422 `DIFFICULTY_MAKERS_INVALID`。省略该字段时，每块均采用原 TJA 的 MAKER（没有则为空），兼容已有上传客户端。署名变更参与幂等校验。
 
 作品详情、列表、本人列表和游戏分类曲库均返回 `difficulties[].maker`；歌曲级 `maker` 为所有难度署名按块顺序去重的汇总，如上述示例返回 `A | B`。空署名不参与汇总，不以上传者代替署名。搜索谱师匹配任一难度的 maker。下载的原 TJA 保持原始内容；游戏使用 API 汇总 maker 覆盖运行缓存的 MAKER。
 
@@ -287,3 +271,11 @@ profilesAvailable=false 表示本次昵称查询失败，统计仍返回；个�
 `POST /api/v1/scores`、`POST /api/v1/game/scores` 接受 `ClearStatus`，提交回执、`GET /api/v1/game/bootstrap` 的 `scores` 和 `GET /api/v1/charts/{id}/leaderboard` 的 `items` 返回相同字段。数据库历史成绩统一初始化为 `0`，不根据旧判定推算皇冠。新客户端需要在上传时传入本局状态，并在展示时读取它。
 
 省略、`null` 和显式 `0` 使用相同的归一化请求摘要，保留升级前幂等键的重试兼容性（包括附带回放的成绩）。非零状态参与摘要；同一幂等键改变状态返回 `409 IDEMPOTENCY_CONFLICT`。排行榜仍按原最高分规则选择成绩，返回该局的通关状态。
+
+## 歌曲级模式与 JSON 难度（028）
+
+歌曲响应增加 isSingle，difficulties 为包含 course、level、maker 的数组。一次上传仅可包含 Single 或 Double；混合文件返回 422 TJA_MODE_MIXED，Double 无 P1/P2 标记返回 TJA_PLAYER_REQUIRED，重复 course 返回 TJA_DIFFICULTY_DUPLICATE。
+
+单人 course 为 Easy、Normal、Hard、Oni、Edit；双人则为 Easy_1p/Easy_2p 等。TJA 原文件依然使用 COURSE:Oni 和 #START P1/P2，由解析器生成 API 后缀，不将 COURSE:Oni_1p 写入 TJA。
+
+列表及游戏 search 的 course 筛选接受 15 种规范值；成绩 difficulty 与排行榜 difficulty 接受相同值，仍兼容大小写与 ura 别名。响应不再包含 blockIndex、player、style、cloudScoreEligible。bootstrap 的 courseKeyedDifficulties=true 声明此协议。每首歌曲 JSON 内 course 唯一，双人两侧独立提交、缓存和排行。

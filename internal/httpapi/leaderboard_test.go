@@ -22,21 +22,14 @@ func TestLeaderboard(t *testing.T) {
 	_, err := pool.Exec(ctx, `BEGIN;
  INSERT INTO charts(id,owner_id,title,bpm,duration,encoding,wave_filename) VALUES('11111111111111111111111111111111','000000000000000000000000000003e8','Current',120,10,'utf-8','a.ogg'),('22222222222222222222222222222222','000000000000000000000000000003e8','Other',120,10,'utf-8','a.ogg');
  INSERT INTO chart_resources(chart_id,kind,storage_key,original_filename,sha256,byte_size,media_type) SELECT id,kind,kind,kind,repeat('a',64),1,'test' FROM charts CROSS JOIN unnest(ARRAY['tja','audio']) kind;
-	 INSERT INTO difficulties(chart_id,block_index,course,level,player,style) VALUES
-	 ('11111111111111111111111111111111',0,'Oni',5,'','Single'),
-	 ('11111111111111111111111111111111',1,'Hard',5,'','Single'),
-	 ('11111111111111111111111111111111',2,'Edit',5,'P1','Double'),
-	 ('11111111111111111111111111111111',3,'Edit',5,'P2','Double'),
-	 ('11111111111111111111111111111111',4,'Easy',5,'','Single'),
-	 ('11111111111111111111111111111111',5,'Easy',5,'','Single'),
-	 ('22222222222222222222222222222222',0,'Oni',5,'','Single');
+	 UPDATE charts c SET difficulties=c.difficulties||d.items FROM (SELECT chart_id,jsonb_agg(jsonb_build_object('course',course,'level',level,'maker',maker)) items FROM (VALUES ('11111111111111111111111111111111','Oni',5,''),('11111111111111111111111111111111','Hard',5,''),('11111111111111111111111111111111','Easy',5,''),('11111111111111111111111111111111','Edit',5,''),('22222222222222222222222222222222','Oni',5,'')) v(chart_id,course,level,maker) GROUP BY chart_id) d WHERE c.id=d.chart_id;
 	 COMMIT;`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	add := func(id, user, chart string, points, good int64, date string) {
 		t.Helper()
-		_, err := pool.Exec(ctx, `INSERT INTO scores(id,user_id,song_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest,submitted_at) VALUES($1,$2,$3,0,'Oni',$4,2,1,$5,55,$4,repeat('a',64),$6::timestamptz)`, id, user, chart, good, points, date)
+		_, err := pool.Exec(ctx, `INSERT INTO scores(id,user_id,song_id,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest,submitted_at) VALUES($1,$2,$3,'Oni',$4,2,1,$5,55,$4,repeat('a',64),$6::timestamptz)`, id, user, chart, good, points, date)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -91,10 +84,10 @@ func TestLeaderboard(t *testing.T) {
 	if v := get(path+"?difficulty=Hard", 200, ""); !v.Supported || v.Total != 0 || v.Items == nil {
 		t.Fatal(v)
 	}
-	if v := get(path+"?difficulty=ura", 200, ""); v.Supported || v.Difficulty != "Edit" || len(v.Items) != 0 {
+	if v := get(path+"?difficulty=ura", 200, ""); !v.Supported || v.Difficulty != "Edit" || len(v.Items) != 0 {
 		t.Fatal(v)
 	}
-	get(path+"?difficulty=Easy", 409, "DIFFICULTY_AMBIGUOUS")
+	get(path+"?difficulty=Easy", 200, "")
 	get(path+"?difficulty=Normal", 404, "DIFFICULTY_NOT_FOUND")
 	get(path+"?difficulty=invalid", 400, "DIFFICULTY_INVALID")
 	for _, page := range []string{"0", "-1", "10001", "invalid", "1.5"} {

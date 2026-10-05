@@ -98,7 +98,7 @@ func retireChart(ctx context.Context, tx pgx.Tx, chartID, description string) er
 	if _, err := tx.Exec(ctx, `INSERT INTO retired_score_requests(user_id,idempotency_key) SELECT user_id,idempotency_key FROM scores WHERE song_id=$1 AND idempotency_key IS NOT NULL ON CONFLICT DO NOTHING`, chartID); err != nil {
 		return err
 	}
-	for _, query := range []string{`DELETE FROM scores WHERE song_id=$1`, `DELETE FROM difficulties WHERE chart_id=$1`, `DELETE FROM chart_resources WHERE chart_id=$1 AND kind IN ('tja','audio','archive')`} {
+	for _, query := range []string{`DELETE FROM scores WHERE song_id=$1`, `DELETE FROM chart_resources WHERE chart_id=$1 AND kind IN ('tja','audio','archive')`} {
 		if _, err := tx.Exec(ctx, query, chartID); err != nil {
 			return err
 		}

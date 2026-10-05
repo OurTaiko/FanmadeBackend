@@ -28,8 +28,7 @@ func TestPublicGameSearch(t *testing.T) {
 		}
 
 		if err == nil {
-			_, err = tx.Exec(ctx, `INSERT INTO difficulties(chart_id,block_index,course,level,player,style,maker) VALUES
-  ($1,0,'Easy',3,'','Single','Composer'),($1,1,'Oni',8,'','Single','Artist');`, id)
+			_, err = tx.Exec(ctx, `UPDATE charts c SET difficulties=c.difficulties||d.items FROM (SELECT chart_id,jsonb_agg(jsonb_build_object('course',course,'level',level,'maker',maker)) items FROM (VALUES ($1,'Easy',3,'Composer'),($1,'Oni',8,'Artist')) v(chart_id,course,level,maker) GROUP BY chart_id) d WHERE c.id=d.chart_id;`, id)
 		}
 		if err != nil {
 			tx.Rollback(ctx)
@@ -94,7 +93,7 @@ func TestPublicGameSearch(t *testing.T) {
 		if i == 1 {
 			okCount = 1
 		}
-		_, err := pool.Exec(ctx, `INSERT INTO scores(id,user_id,song_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest) VALUES($1,'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',$2,1,'Oni',10,$3,0,1000,0,10,repeat('a',64))`, fmt.Sprint("completed", i), fmt.Sprintf("%032d", i), okCount)
+		_, err := pool.Exec(ctx, `INSERT INTO scores(id,user_id,song_id,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest) VALUES($1,'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',$2,'Oni',10,$3,0,1000,0,10,repeat('a',64))`, fmt.Sprint("completed", i), fmt.Sprintf("%032d", i), okCount)
 		if err != nil {
 			t.Fatal(err)
 		}

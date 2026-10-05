@@ -73,7 +73,7 @@ func TestScoreReplayCompatibility(t *testing.T) {
 	_, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id,title,bpm,duration,encoding,wave_filename) VALUES('11111111111111111111111111111111','89b6ef3a5cb57b6e04f74711d15a8a5f','Recording fixture',120,10,'utf-8','test.ogg');
  INSERT INTO chart_resources(chart_id,kind,storage_key,original_filename,sha256,byte_size,media_type) VALUES
  ('11111111111111111111111111111111','tja','tja','test.tja',repeat('a',64),1,'application/octet-stream'),('11111111111111111111111111111111','audio','ogg','test.ogg',repeat('b',64),1,'audio/ogg');
- INSERT INTO difficulties(chart_id,block_index,course,level,player,style) VALUES('11111111111111111111111111111111',0,'Oni',5,'','Single');`)
+ UPDATE charts c SET difficulties=c.difficulties||d.items FROM (SELECT chart_id,jsonb_agg(jsonb_build_object('course',course,'level',level,'maker',maker)) items FROM (VALUES ('11111111111111111111111111111111','Oni',5,'')) v(chart_id,course,level,maker) GROUP BY chart_id) d WHERE c.id=d.chart_id;`)
 	if err != nil {
 		t.Fatal(err)
 	}

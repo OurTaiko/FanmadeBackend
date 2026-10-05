@@ -84,7 +84,7 @@ python3 scripts/metadata_smoke.py
 
 本示范版支持一个 TJA + 一个 Vorbis OGG 或 MP3 音频，TJA 中可有 Easy / Normal / Hard / Oni / Edit 多个难度及 P1 / P2。Tower（塔）和 Dan（段位），包括数字 5 / 6，双端整份拒绝；混合普通难度也不能上传。迁移 012 会下架当前版本含不支持难度的已有作品，保留文件和成绩，所有公开展示及游戏曲库接口排除这些作品。`#NEXTSONG` 多音频谱暂不支持；不承诺完整游戏命令语义。试听在负数 DEMOSTART 时从 0 开始，不改写 TJA。
 
-DOUBLE 谱面不记录云端成绩，但仍可上传与下载。后端按块解析 STYLE 和 P1/P2，API 返回 `style` 与 `cloudScoreEligible`；混合文件的单人块保留资格。迁移 003 会读取 `STORAGE_DIR` 的已有 TJA 回填资格，因此迁移时必须提供配套资源目录；失败会事务回滚。已提供 `POST /api/v1/scores`，提交歌曲 ID、难度、良／可／不可、总分、连打数及最大连击 `max_combo`；复用登录会话与 CSRF，可选幂等键防止重试重复保存，详情见 API 文档。当前记录客户端上报值，未重算成绩；排行榜按每位用户的最高分记录展示。每个 TJA 的同一难度最多一个单人谱，重复在上传时返回带行号的 422。数据库测试仅创建并清理临时 schema，不修改应用表。
+歌曲模式统一保存在 charts.is_single，难度以 JSONB 数组存入 charts.difficulties，不再有独立 difficulties 表。每次上传只能包含单人或双人谱，混合文件和重复难度被拒绝。双人块必须标记 P1/P2，API 将其转换为 Oni_1p/Oni_2p 等 course；双人也支持云成绩与各自排行榜。成绩按歌曲 ID + difficulty 关联，由数据库触发器检查 JSON 中的难度存在性。上传与成绩接口详见 [API](docs/API.md)。
 
 后续功能：邮箱补绑与找回密码、管理员界面、评论收藏、自动清理与备份。示范版软删除后停止公开访问，保留数据库和资源供开发检查。上传失败通常自动清理；数据库 COMMIT 结果不确定或进程崩溃时保留文件供核对，暂未实现后台孤儿文件回收。请同时备份数据库和 `.data/files`。
 

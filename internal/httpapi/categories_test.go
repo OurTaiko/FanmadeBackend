@@ -194,7 +194,7 @@ func TestCategoriesFlow(t *testing.T) {
 		t.Fatal("partial invalid patch")
 	}
 	// An existing score must remain attached to the same chart/version after reclassification.
-	if _, err = pool.Exec(ctx, `INSERT INTO scores(id,user_id,song_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest) VALUES('score','89b6ef3a5cb57b6e04f74711d15a8a5f',$1,0,'Oni',1,0,0,1000,0,1,repeat('a',64))`, c.ID); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO scores(id,user_id,song_id,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest) VALUES('score','89b6ef3a5cb57b6e04f74711d15a8a5f',$1,'Oni',1,0,0,1000,0,1,repeat('a',64))`, c.ID); err != nil {
 		t.Fatal(err)
 	}
 	after = decodeChart(call("PATCH", path, `{"categoryIds":["classic","virtual-singer"]}`, token), 200)

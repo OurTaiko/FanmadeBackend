@@ -37,10 +37,9 @@ func (s *Server) leaderboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	course := strings.ToLower(strings.TrimSpace(query.Get("difficulty")))
-	courses := map[string]string{"easy": "Easy", "normal": "Normal", "hard": "Hard", "oni": "Oni", "edit": "Edit", "ura": "Edit"}
 	if course != "" {
 		var ok bool
-		course, ok = courses[course]
+		course, ok = normalizeCourse(course)
 		if !ok {
 			problem(w, 400, "DIFFICULTY_INVALID", "难度无效")
 			return
@@ -64,53 +63,48 @@ func (s *Server) leaderboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if course == "" {
-		err = tx.QueryRow(r.Context(), `SELECT course FROM difficulties WHERE chart_id=$1
-		 ORDER BY CASE course WHEN 'Oni' THEN 0 WHEN 'Edit' THEN 1 WHEN 'Hard' THEN 2 WHEN 'Normal' THEN 3 WHEN 'Easy' THEN 4 ELSE 5 END,block_index LIMIT 1`, result.SongID).Scan(&course)
+		err = tx.QueryRow(r.Context(), `SELECT d->>'course' AS course FROM charts c CROSS JOIN LATERAL jsonb_array_elements(c.difficulties) d WHERE c.id=$1
+		 ORDER BY CASE split_part(d->>'course','_',1) WHEN 'Oni' THEN 0 WHEN 'Edit' THEN 1 WHEN 'Hard' THEN 2 WHEN 'Normal' THEN 3 WHEN 'Easy' THEN 4 ELSE 5 END,course LIMIT 1`, result.SongID).Scan(&course)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			internal(w, err)
 			return
 		}
 	}
 	result.Difficulty = course
-	var count, eligible, block int
-	err = tx.QueryRow(r.Context(), `SELECT count(*),count(*) FILTER (WHERE cloud_score_eligible),COALESCE(min(block_index) FILTER (WHERE cloud_score_eligible),0)
-	 FROM difficulties WHERE chart_id=$1 AND course=$2`, result.SongID, course).Scan(&count, &eligible, &block)
+	var found bool
+	err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM charts WHERE id=$1 AND difficulties @> jsonb_build_array(jsonb_build_object('course',$2::text)))`, result.SongID, course).Scan(&found)
 	if err != nil {
 		internal(w, err)
 		return
 	}
-	if count == 0 {
+	if !found {
 		problem(w, 404, "DIFFICULTY_NOT_FOUND", "歌曲不存在此难度")
 		return
 	}
-	if eligible > 1 {
-		problem(w, 409, "DIFFICULTY_AMBIGUOUS", "此难度包含多个单人谱面，无法确定排行榜")
-		return
-	}
-	result.Supported = eligible == 1
+	result.Supported = true
 	if result.Supported {
-		err = tx.QueryRow(r.Context(), `SELECT count(DISTINCT user_id) FROM scores WHERE song_id=$1 AND difficulty=$2 AND block_index=$3`, result.SongID, course, block).Scan(&result.Total)
+		err = tx.QueryRow(r.Context(), `SELECT count(DISTINCT user_id) FROM scores WHERE song_id=$1 AND difficulty=$2`, result.SongID, course).Scan(&result.Total)
 		if err != nil {
 			internal(w, err)
 			return
 		}
 		rows, err := tx.Query(r.Context(), `WITH best AS (
 		 SELECT DISTINCT ON (user_id) * FROM scores
-		 WHERE song_id=$1 AND difficulty=$2 AND block_index=$3
+		 WHERE song_id=$1 AND difficulty=$2
 		 ORDER BY user_id,score DESC,submitted_at,id
 		), ranked AS (
 		 SELECT best.*,rank() OVER (ORDER BY score DESC) AS place FROM best
 		)
-		SELECT r.id,r.user_id,r.song_id,r.block_index,r.difficulty,r.good,r.ok,r.bad,r.score,r.drumroll,r.max_combo,r.clear_status,r.submitted_at,''::text,r.place
+		SELECT r.id,r.user_id,r.song_id,r.difficulty,r.good,r.ok,r.bad,r.score,r.drumroll,r.max_combo,r.clear_status,r.submitted_at,''::text,r.place
 		FROM ranked r
-		ORDER BY r.score DESC,r.submitted_at,r.id LIMIT $4 OFFSET $5`, result.SongID, course, block, result.PageSize, (page-1)*result.PageSize)
+		ORDER BY r.score DESC,r.submitted_at,r.id LIMIT $3 OFFSET $4`, result.SongID, course, result.PageSize, (page-1)*result.PageSize)
 		if err != nil {
 			internal(w, err)
 			return
 		}
 		for rows.Next() {
 			var v leaderboardEntry
-			if err = rows.Scan(&v.ID, &v.UserID, &v.SongID, &v.BlockIndex, &v.Difficulty, &v.Good, &v.OK, &v.Bad, &v.Score.Score, &v.Drumroll, &v.MaxCombo, &v.ClearStatus, &v.SubmittedAt, &v.Nickname, &v.Rank); err != nil {
+			if err = rows.Scan(&v.ID, &v.UserID, &v.SongID, &v.Difficulty, &v.Good, &v.OK, &v.Bad, &v.Score.Score, &v.Drumroll, &v.MaxCombo, &v.ClearStatus, &v.SubmittedAt, &v.Nickname, &v.Rank); err != nil {
 				rows.Close()
 				internal(w, err)
 				return

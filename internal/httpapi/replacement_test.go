@@ -130,7 +130,7 @@ func testChartReplacement(t *testing.T, remote bool) {
 		t.Fatal(err)
 	}
 	path := "/api/v1/charts/" + original.ID + "/files"
-	fields := map[string]string{"confirmReset": "true", "description": "new description", "difficultyMakers": `[{"blockIndex":0,"maker":"A"},{"blockIndex":1,"maker":"B"}]`}
+	fields := map[string]string{"confirmReset": "true", "description": "new description", "difficultyMakers": `[{"course":"Hard","maker":"A"},{"course":"Oni","maker":"B"}]`}
 	count := func(sql string, args ...any) int {
 		t.Helper()
 		var n int
@@ -171,10 +171,10 @@ func testChartReplacement(t *testing.T, remote bool) {
 		})
 	}
 	// Fail after the transaction has deleted old rows, proving all deletions roll back.
-	mustExec(`CREATE FUNCTION fail_replacement() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.maker='B' THEN RAISE EXCEPTION 'test write failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER fail_replacement BEFORE INSERT ON difficulties FOR EACH ROW EXECUTE FUNCTION fail_replacement()`)
+	mustExec(`CREATE FUNCTION fail_replacement() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.difficulties @> '[{"maker":"B"}]'::jsonb THEN RAISE EXCEPTION 'test write failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER fail_replacement BEFORE INSERT OR UPDATE ON charts FOR EACH ROW EXECUTE FUNCTION fail_replacement()`)
 	status(request("d46774d30dd13b92d9e536808da468a4", "PUT", path, ID(), replacement, "", nil, fields), 503)
 	unchanged()
-	mustExec(`DROP TRIGGER fail_replacement ON difficulties; DROP FUNCTION fail_replacement()`)
+	mustExec(`DROP TRIGGER fail_replacement ON charts; DROP FUNCTION fail_replacement()`)
 	key := ID()
 	updated := decode(request("d46774d30dd13b92d9e536808da468a4", "PUT", path, key, replacement, "", nil, fields), 200)
 	if remote {
@@ -183,7 +183,7 @@ func testChartReplacement(t *testing.T, remote bool) {
 	if updated.ID != original.ID || updated.TJAHash == original.TJAHash || updated.Title != "Updated" || updated.Maker != "A | B" || updated.Description != "new description" || len(updated.Difficulties) != 2 || updated.AudioHash != original.AudioHash {
 		t.Fatalf("bad updated chart: %+v", updated)
 	}
-	if count(`SELECT count(*) FROM scores WHERE song_id=$1`, original.ID) != 0 || count(`SELECT count(*) FROM charts WHERE id=$1`, original.ID) != 1 || count(`SELECT count(*) FROM difficulties WHERE chart_id=$1`, original.ID) != 2 {
+	if count(`SELECT count(*) FROM scores WHERE song_id=$1`, original.ID) != 0 || count(`SELECT count(*) FROM charts WHERE id=$1`, original.ID) != 1 || count(`SELECT jsonb_array_length(difficulties) FROM charts WHERE id=$1`, original.ID) != 2 {
 		t.Fatal("old rows remain")
 	}
 	if count(`SELECT count(*) FROM scores WHERE song_id=$1`, unrelated.ID) != 1 || count(`SELECT count(*) FROM chart_resources WHERE kind IN ('tja','audio')`) != 4 {

@@ -7,7 +7,6 @@ import (
 	"mime"
 	"net/http"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -32,7 +31,6 @@ type Score struct {
 	ID          string    `json:"id"`
 	UserID      string    `json:"userId"`
 	SongID      string    `json:"songId"`
-	BlockIndex  int       `json:"blockIndex"`
 	Difficulty  string    `json:"difficulty"`
 	Good        int64     `json:"good"`
 	OK          int64     `json:"ok"`
@@ -50,8 +48,7 @@ func (v *scoreSubmission) valid() bool {
 	if !songIDPattern.MatchString(v.SongID) {
 		return false
 	}
-	courses := map[string]string{"easy": "Easy", "normal": "Normal", "hard": "Hard", "oni": "Oni", "edit": "Edit", "ura": "Edit"}
-	c, ok := courses[strings.ToLower(strings.TrimSpace(v.Difficulty))]
+	c, ok := normalizeCourse(v.Difficulty)
 	if !ok {
 		return false
 	}
@@ -64,11 +61,11 @@ func (v *scoreSubmission) valid() bool {
 	return v.Score != nil && *v.Score >= 0 && *v.Score <= 9007199254740991 && v.ClearStatus >= 0 && v.ClearStatus <= 3
 }
 
-const scoreColumns = `id,user_id,song_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,clear_status,submitted_at`
+const scoreColumns = `id,user_id,song_id,difficulty,good,ok,bad,score,drumroll,max_combo,clear_status,submitted_at`
 
 func readScore(row pgx.Row) (Score, error) {
 	var v Score
-	err := row.Scan(&v.ID, &v.UserID, &v.SongID, &v.BlockIndex, &v.Difficulty, &v.Good, &v.OK, &v.Bad, &v.Score, &v.Drumroll, &v.MaxCombo, &v.ClearStatus, &v.SubmittedAt)
+	err := row.Scan(&v.ID, &v.UserID, &v.SongID, &v.Difficulty, &v.Good, &v.OK, &v.Bad, &v.Score, &v.Drumroll, &v.MaxCombo, &v.ClearStatus, &v.SubmittedAt)
 	return v, err
 }
 
@@ -179,48 +176,20 @@ func (s *Server) submitScore(w http.ResponseWriter, r *http.Request) {
 		problem(w, 404, "CHART_NOT_FOUND", "歌曲不存在或已下架")
 		return
 	}
-	rows, err := tx.Query(r.Context(), `SELECT block_index,cloud_score_eligible FROM difficulties WHERE chart_id=$1 AND course=$2 ORDER BY block_index FOR SHARE`, input.SongID, input.Difficulty)
-	if err != nil {
-		internal(w, err)
-		return
-	}
-	blocks, eligible, block := 0, 0, 0
-	for rows.Next() {
-		var index int
-		var allowed bool
-		if err = rows.Scan(&index, &allowed); err != nil {
-			rows.Close()
-			internal(w, err)
-			return
-		}
-		blocks++
-		if allowed {
-			eligible++
-			block = index
-		}
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		internal(w, err)
-		return
-	}
-	if blocks == 0 {
+	var found string
+	err = tx.QueryRow(r.Context(), `SELECT id FROM charts WHERE id=$1 AND difficulties @> jsonb_build_array(jsonb_build_object('course',$2::text)) FOR SHARE`, input.SongID, input.Difficulty).Scan(&found)
+	if errors.Is(err, pgx.ErrNoRows) {
 		problem(w, 404, "DIFFICULTY_NOT_FOUND", "歌曲不存在此难度")
 		return
 	}
-	if eligible == 0 {
-		problem(w, 422, "DOUBLE_SCORE_UNSUPPORTED", "DOUBLE 谱面不支持云端成绩记录")
-		return
-	}
-	if eligible > 1 {
-		problem(w, 409, "DIFFICULTY_AMBIGUOUS", "此难度包含多个单人谱面块，无法唯一确定成绩归属")
+	if err != nil {
+		internal(w, err)
 		return
 	}
 	result, err := readScore(tx.QueryRow(r.Context(), `INSERT INTO scores
-	 (id,user_id,song_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,idempotency_key,payload_digest,replay_data,clear_status)
-	 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NULLIF($12,''),$13,$14,$15) RETURNING `+scoreColumns,
-		ID(), u.User.ID, input.SongID, block, input.Difficulty, *input.Good, *input.OK, *input.Bad, *input.Score, *input.Drumroll, *input.MaxCombo, key, digest, input.ReplayData, input.ClearStatus))
+	 (id,user_id,song_id,difficulty,good,ok,bad,score,drumroll,max_combo,idempotency_key,payload_digest,replay_data,clear_status)
+	 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11,''),$12,$13,$14) RETURNING `+scoreColumns,
+		ID(), u.User.ID, input.SongID, input.Difficulty, *input.Good, *input.OK, *input.Bad, *input.Score, *input.Drumroll, *input.MaxCombo, key, digest, input.ReplayData, input.ClearStatus))
 	if err != nil {
 		internal(w, err)
 		return

@@ -33,8 +33,9 @@ func (s *Server) searchCharts(w http.ResponseWriter, r *http.Request, owner stri
 		}
 	}
 	course := r.URL.Query().Get("course")
-	if course != "" && course != "Easy" && course != "Normal" && course != "Hard" && course != "Oni" && course != "Edit" {
-		problem(w, 400, "DIFFICULTY_INVALID", "仅支持 Easy / Normal / Hard / Oni / Edit 难度")
+	canonical, validCourse := normalizeCourse(course)
+	if course != "" && (!validCourse || canonical != course) {
+		problem(w, 400, "DIFFICULTY_INVALID", "仅支持五种规范难度及其 _1p / _2p 双人难度")
 		return
 	}
 	level := -1
@@ -61,9 +62,9 @@ func (s *Server) searchCharts(w http.ResponseWriter, r *http.Request, owner stri
 			return
 		}
 	}
-	where := ` WHERE ` + publishedChart + ` AND ($1='' OR c.title ILIKE '%'||$1||'%' OR c.subtitle ILIKE '%'||$1||'%' OR EXISTS(SELECT 1 FROM difficulties dm WHERE dm.chart_id=c.id AND dm.maker ILIKE '%'||$1||'%')
+	where := ` WHERE ` + publishedChart + ` AND ($1='' OR c.title ILIKE '%'||$1||'%' OR c.subtitle ILIKE '%'||$1||'%' OR EXISTS(SELECT 1 FROM jsonb_array_elements(c.difficulties) dm WHERE dm->>'maker' ILIKE '%'||$1||'%')
 	 OR EXISTS(SELECT 1 FROM jsonb_each_text(c.title_translations) t WHERE t.value ILIKE '%'||$1||'%')
-	 OR EXISTS(SELECT 1 FROM jsonb_each_text(c.subtitle_translations) t WHERE t.value ILIKE '%'||$1||'%')) AND ($2='' OR c.owner_id=$2) AND EXISTS(SELECT 1 FROM difficulties d WHERE d.chart_id=c.id AND ($3='' OR d.course=$3) AND ($4::int=-1 OR d.level=$4))`
+	 OR EXISTS(SELECT 1 FROM jsonb_each_text(c.subtitle_translations) t WHERE t.value ILIKE '%'||$1||'%')) AND ($2='' OR c.owner_id=$2) AND EXISTS(SELECT 1 FROM jsonb_to_recordset(c.difficulties) AS d(course text,level integer,maker text) WHERE ($3='' OR d.course=$3) AND ($4::int=-1 OR d.level=$4))`
 	var total int
 	if !all {
 		if e := s.DB.QueryRow(r.Context(), `SELECT count(*) FROM charts c JOIN users u ON u.id=c.owner_id`+where, q, owner, course, level).Scan(&total); e != nil {
@@ -74,9 +75,9 @@ func (s *Server) searchCharts(w http.ResponseWriter, r *http.Request, owner stri
 	// Prioritize a chart when any matching difficulty has no qualifying score
 	// for this user and song. Guests keep the default stable order.
 	ordering := ` ORDER BY ($5::text<>'' AND EXISTS(
-	 SELECT 1 FROM difficulties d WHERE d.chart_id=c.id AND ($3='' OR d.course=$3) AND ($4::int=-1 OR d.level=$4)
+	 SELECT 1 FROM jsonb_to_recordset(c.difficulties) AS d(course text,level integer,maker text) WHERE ($3='' OR d.course=$3) AND ($4::int=-1 OR d.level=$4)
 	 AND NOT EXISTS(SELECT 1 FROM scores sc WHERE sc.user_id=$5 AND sc.song_id=c.id
-	 AND sc.block_index=d.block_index AND sc.difficulty=d.course AND sc.bad=0 AND (sc.good>0 OR sc.ok>0)
+	 AND sc.difficulty=d.course AND sc.bad=0 AND (sc.good>0 OR sc.ok>0)
 	 AND ($6::text='unfc' OR sc.ok=0)))) DESC, c.created_at DESC,c.id DESC`
 	args := []any{q, owner, course, level, userID, order}
 	if !all {

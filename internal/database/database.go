@@ -84,6 +84,9 @@ var simplifiedChartSchema string
 //go:embed 027_title_translations.sql
 var titleTranslationsSchema string
 
+//go:embed 028_chart_mode.sql
+var chartModeSchema string
+
 func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	cfg, err := pgxpool.ParseConfig(url)
 	if err != nil {
@@ -113,13 +116,13 @@ func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 
 // Migrate applies the initial schema once, atomically, with a transaction lock.
 func Migrate(ctx context.Context, pool *pgxpool.Pool, storage string) error {
-	return migrateTo(ctx, pool, storage, 27)
+	return migrateTo(ctx, pool, storage, 28)
 }
 
 // MigrateS3 refuses to export legacy inline covers to an ephemeral local directory.
 // Migrate the local snapshot to S3 before starting an S3-only server.
 func MigrateS3(ctx context.Context, pool *pgxpool.Pool, storage string) error {
-	return migrateToMode(ctx, pool, storage, 27, true)
+	return migrateToMode(ctx, pool, storage, 28, true)
 }
 
 // The historical target supports testing upgrades before the schema flattening.
@@ -434,6 +437,20 @@ func migrateToMode(ctx context.Context, pool *pgxpool.Pool, storage string, targ
 		}
 	}
 
+	if target >= 28 {
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=28)`).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			if _, err = tx.Exec(ctx, chartModeSchema); err != nil {
+				return fmt.Errorf("migration 028: %w", err)
+			}
+			if _, err = tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES(28)`); err != nil {
+				return err
+			}
+		}
+	}
+
 	return tx.Commit(ctx)
 }
 
@@ -465,7 +482,7 @@ func backfillLocalizedTitles(ctx context.Context, tx pgx.Tx, storage string) err
 		if err != nil {
 			return fmt.Errorf("read version %s: %w", v.id, err)
 		}
-		meta, issue := tja.Parse(data, v.encoding, v.wave)
+		meta, issue := tja.ParseLegacy(data, v.encoding, v.wave)
 		if issue != nil {
 			return fmt.Errorf("parse version %s: %w", v.id, issue)
 		}
@@ -507,7 +524,7 @@ func backfillStyles(ctx context.Context, tx pgx.Tx, storage string) error {
 		if err != nil {
 			return fmt.Errorf("read TJA for version %s: %w", v.id, err)
 		}
-		meta, issue := tja.Parse(data, v.encoding, v.wave)
+		meta, issue := tja.ParseLegacy(data, v.encoding, v.wave)
 		if issue != nil {
 			return fmt.Errorf("parse TJA for version %s: %w", v.id, issue)
 		}

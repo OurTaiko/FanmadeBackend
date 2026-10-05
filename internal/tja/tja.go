@@ -12,7 +12,7 @@ import (
 	"ourtaiko.dev/fanmade/api/internal/audio"
 )
 
-const Version = "tja-upload-v7"
+const Version = "tja-upload-v8"
 const MaxTJA = 2 * 1024 * 1024
 const MaxAudio = 100 * 1024 * 1024
 
@@ -29,16 +29,18 @@ func fail(code, message string, line int) *Issue {
 	return &Issue{Code: code, Message: message, Line: line}
 }
 
+// Legacy fields are in-memory only, used by pre-028 database backfills.
 type Difficulty struct {
 	Maker              string `json:"maker"`
 	Course             string `json:"course"`
 	Level              int    `json:"level"`
-	BlockIndex         int    `json:"blockIndex"`
-	Player             string `json:"player"`
-	Style              string `json:"style"`
-	CloudScoreEligible bool   `json:"cloudScoreEligible"`
+	BlockIndex         int    `json:"-"`
+	Player             string `json:"-"`
+	Style              string `json:"-"`
+	CloudScoreEligible bool   `json:"-"`
 }
 type Metadata struct {
+	IsSingle             bool              `json:"isSingle"`
 	Title                string            `json:"title"`
 	Subtitle             string            `json:"subtitle"`
 	TitleTranslations    map[string]string `json:"titleTranslations"`
@@ -72,6 +74,15 @@ func numeric(s string) (float64, bool) {
 }
 
 func Parse(data []byte, encoding, audioName string) (Metadata, *Issue) {
+	return parse(data, encoding, audioName, true)
+}
+
+// ParseLegacy supports historical schema backfills before the mode migration.
+func ParseLegacy(data []byte, encoding, audioName string) (Metadata, *Issue) {
+	return parse(data, encoding, audioName, false)
+}
+
+func parse(data []byte, encoding, audioName string, uniform bool) (Metadata, *Issue) {
 	m := Metadata{Difficulties: []Difficulty{}, TitleTranslations: map[string]string{}, SubtitleTranslations: map[string]string{}}
 	data, issue := NormalizeUTF8(data, encoding)
 	if issue != nil {
@@ -83,6 +94,7 @@ func Parse(data []byte, encoding, audioName string) (Metadata, *Issue) {
 	course, level := "Oni", 0
 	style := "Single"
 	singleCourses := map[string]int{}
+	seenCourses := map[string]int{}
 	seen := map[string]bool{}
 	courses := map[string]string{"0": "Easy", "1": "Normal", "2": "Hard", "3": "Oni", "4": "Edit", "easy": "Easy", "normal": "Normal", "hard": "Hard", "oni": "Oni", "edit": "Edit"}
 	for i, raw := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
@@ -114,8 +126,26 @@ func Parse(data []byte, encoding, audioName string) (Metadata, *Issue) {
 				}
 				singleCourses[course] = line
 			}
+			effectiveCourse := course
+			single := blockStyle == "Single"
+			if uniform {
+				if !single && player == "" {
+					return m, fail("TJA_PLAYER_REQUIRED", "双人谱面必须使用 #START P1 或 #START P2", line)
+				}
+				if len(m.Difficulties) > 0 && m.IsSingle != single {
+					return m, fail("TJA_MODE_MIXED", "一个文件只能包含单人谱面或双人谱面，请分开上传", line)
+				}
+				m.IsSingle = single
+				if !single {
+					effectiveCourse += "_" + strings.ToLower(strings.TrimPrefix(player, "P")) + "p"
+				}
+				if first, exists := seenCourses[effectiveCourse]; exists {
+					return m, fail("TJA_DIFFICULTY_DUPLICATE", fmt.Sprintf("%s 难度重复，第 %d 行已声明", effectiveCourse, first), line)
+				}
+				seenCourses[effectiveCourse] = line
+			}
 			m.Difficulties = append(m.Difficulties, Difficulty{
-				Course: course, Level: level, BlockIndex: len(m.Difficulties), Player: player, Maker: m.Maker,
+				Course: effectiveCourse, Level: level, BlockIndex: len(m.Difficulties), Player: player, Maker: m.Maker,
 				Style: blockStyle, CloudScoreEligible: blockStyle == "Single" && player == "",
 			})
 			continue

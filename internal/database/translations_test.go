@@ -59,7 +59,7 @@ func TestTitleTranslationsMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	for range 2 {
-		if err = Migrate(ctx, pool, storage); err != nil {
+		if err = migrateTo(ctx, pool, storage, 27); err != nil {
 			t.Fatal(err)
 		}
 		if err = MigrateSSO(ctx, pool, nil); err != nil {

@@ -81,14 +81,7 @@ func TestSubmitScore(t *testing.T) {
 	_, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id,title,bpm,duration,encoding,wave_filename) VALUES('11111111111111111111111111111111','89b6ef3a5cb57b6e04f74711d15a8a5f','Test',120,10,'utf-8','test.ogg');
  INSERT INTO chart_resources(chart_id,kind,storage_key,original_filename,sha256,byte_size,media_type) VALUES
  ('11111111111111111111111111111111','tja','tja','test.tja',repeat('a',64),1,'application/octet-stream'),('11111111111111111111111111111111','audio','ogg','test.ogg',repeat('b',64),1,'audio/ogg');
- INSERT INTO difficulties(chart_id,block_index,course,level,player,style) VALUES
- ('11111111111111111111111111111111',0,'Oni',5,'','Single'),
- ('11111111111111111111111111111111',1,'Oni',5,'P1','Double'),
- ('11111111111111111111111111111111',2,'Oni',5,'P2','Double'),
- ('11111111111111111111111111111111',3,'Hard',5,'','Double'),
- ('11111111111111111111111111111111',4,'Easy',5,'','Single'),
- ('11111111111111111111111111111111',5,'Easy',5,'','Single'),
- ('11111111111111111111111111111111',6,'Edit',5,'','Single');`)
+ UPDATE charts c SET difficulties=c.difficulties||d.items FROM (SELECT chart_id,jsonb_agg(jsonb_build_object('course',course,'level',level,'maker',maker)) items FROM (VALUES ('11111111111111111111111111111111','Oni',5,''),('11111111111111111111111111111111','Easy',5,''),('11111111111111111111111111111111','Edit',5,'')) v(chart_id,course,level,maker) GROUP BY chart_id) d WHERE c.id=d.chart_id;`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,8 +254,7 @@ func TestSubmitScore(t *testing.T) {
 		{"unknown course", strings.Replace(body, "Oni", "Invalid", 1), "", cookie, nil, 422, "SCORE_INVALID"},
 		{"missing song", strings.Replace(body, song, otherSong, 1), "", cookie, nil, 404, "CHART_NOT_FOUND"},
 		{"missing difficulty", strings.Replace(body, "Oni", "Normal", 1), "", cookie, nil, 404, "DIFFICULTY_NOT_FOUND"},
-		{"double", strings.Replace(body, "Oni", "Hard", 1), "", cookie, nil, 422, "DOUBLE_SCORE_UNSUPPORTED"},
-		{"ambiguous", strings.Replace(body, "Oni", "Easy", 1), "", cookie, nil, 409, "DIFFICULTY_AMBIGUOUS"},
+		{"missing double", strings.Replace(body, "Oni", "Hard", 1), "", cookie, nil, 404, "DIFFICULTY_NOT_FOUND"},
 		{"invalid key", body, "short", cookie, nil, 400, "IDEMPOTENCY_KEY_INVALID"},
 	} {
 		t.Run(tc.name, func(t *testing.T) { assertStatus(call(tc.body, tc.key, tc.token, tc.headers), tc.status, tc.code) })
@@ -281,7 +273,7 @@ func TestSubmitScore(t *testing.T) {
 	if first.ClearStatus != 1 || !strings.Contains(w.Body.String(), `"ClearStatus":1`) {
 		t.Fatal("browser upload lost clear status", w.Body.String())
 	}
-	if first.UserID != "89b6ef3a5cb57b6e04f74711d15a8a5f" || first.BlockIndex != 0 || first.Good != 300 || first.OK != 10 || first.Bad != 2 || first.Score != 900000 || first.Drumroll != 50 || first.MaxCombo != 250 || first.SubmittedAt.IsZero() {
+	if first.UserID != "89b6ef3a5cb57b6e04f74711d15a8a5f" || first.Good != 300 || first.OK != 10 || first.Bad != 2 || first.Score != 900000 || first.Drumroll != 50 || first.MaxCombo != 250 || first.SubmittedAt.IsZero() {
 		t.Fatalf("bad receipt: %+v", first)
 	}
 	stored, err := readScore(pool.QueryRow(ctx, `SELECT `+scoreColumns+` FROM scores WHERE id=$1`, first.ID))
@@ -351,7 +343,7 @@ func TestSubmitScore(t *testing.T) {
 		t.Fatal("database accepted negative maximum combo")
 	}
 	// Even SQL writes cannot attach a score to a Double or different difficulty.
-	if _, err = pool.Exec(ctx, `UPDATE scores SET block_index=1 WHERE id=$1`, first.ID); err == nil {
+	if _, err = pool.Exec(ctx, `UPDATE scores SET difficulty='Oni_1p' WHERE id=$1`, first.ID); err == nil {
 		t.Fatal("database accepted Double target")
 	}
 	if _, err = pool.Exec(ctx, `UPDATE scores SET difficulty='Hard' WHERE id=$1`, first.ID); err == nil {

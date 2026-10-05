@@ -285,3 +285,15 @@ TJA 本地使用 `.tja`；音频根据经过核对的详情或 `contentType` 选
 游戏 DTO 应将两个 Translations 字段解析为语言键到字符串的字典，完整保留。英文也从 en 读取，不能继续把 title 当成编辑后的英文名。客户端可采用“选定语言 → en → 原文”的回退顺序；标题和副标题分别选择，缺失、空或纯空白值继续回退。中文语言码 zh-Hans 对应字典 zh。副标题 --/++ 标记仅在显示时去除。
 
 切换语言只重新选择本地字典，不要求重新请求接口，也不要将显示字符串覆盖进原始数据。旧服务器没有字典时可回退原文。翻译编辑不会改变资源 SHA-256，因此刷新曲库/详情时应更新文本元数据，不能因音频或 TJA 哈希未变而跳过翻译更新；文件下载缓存仍按各资源哈希判断。
+
+## 单人与双人模式、难度身份（028）
+
+bootstrap 返回 courseKeyedDifficulties=true。歌曲级 isSingle 为 true/false；difficulties 是完整数组，每项仅有 course、level、maker。删除旧 DTO 中的 blockIndex、player、style、cloudScoreEligible；所有有效难度都可上传成绩。
+
+```json
+{"isSingle":false,"difficulties":[{"course":"Oni_1p","level":10,"maker":"A"},{"course":"Oni_2p","level":9,"maker":"B"}]}
+```
+
+单人仍为 Easy/Normal/Hard/Oni/Edit；双人难度在基础名后加 _1p 或 _2p。成绩请求仍使用 difficulty 字段，例如 difficulty="Oni_2p"，无需另外传方位或块序号。排行榜与搜索参数也使用完整 course；成绩缓存键必须包含完整后缀，不能把 P1/P2 合并。服务端核验该歌曲确有这个难度。
+
+解析下载的 TJA 时，按 COURSE 和 #START P1/P2 将实际谱面匹配到完整 course；不要依赖 JSON 数组位置与 TJA 第几段相同。TJA 的 COURSE 本身仍为 Oni 等原格式。显示时可将后缀转换为“魔王 1P / 魔王 2P”。一份文件不会再同时含单人与双人块；替换上传仍清空该曲旧成绩，刷新在线成绩快照以移除旧条目。

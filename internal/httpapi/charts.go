@@ -38,19 +38,19 @@ type Chart struct {
 }
 
 // Mixed files are unsupported as a whole; never expose their regular blocks alone.
-const supportedCoursesSQL = "('Easy','Normal','Hard','Oni','Edit')"
-const publishedChart = `c.status='published' AND NOT EXISTS (SELECT 1 FROM difficulties excluded
- WHERE excluded.chart_id=c.id AND excluded.course NOT IN ` + supportedCoursesSQL + `)`
+const supportedCoursesSQL = "('Easy','Normal','Hard','Oni','Edit','Easy_1p','Easy_2p','Normal_1p','Normal_2p','Hard_1p','Hard_2p','Oni_1p','Oni_2p','Edit_1p','Edit_2p')"
+const publishedChart = `c.status='published' AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(c.difficulties) excluded
+ WHERE excluded->>'course' NOT IN ` + supportedCoursesSQL + `)`
 
-const chartSelect = `SELECT c.id,c.owner_id,''::text,c.description,c.created_at,c.duration,c.encoding,tf.original_filename,af.original_filename,tf.sha256,af.sha256,af.byte_size,tf.storage_key,af.storage_key,c.title,c.subtitle,c.bpm,c.offset_seconds,c.demo_start,c.wave_filename,c.title_translations,c.subtitle_translations,
- COALESCE((SELECT jsonb_agg(jsonb_build_object('maker',d.maker,'course',d.course,'level',d.level,'blockIndex',d.block_index,'player',d.player,'style',d.style,'cloudScoreEligible',d.cloud_score_eligible) ORDER BY d.block_index) FROM difficulties d WHERE d.chart_id=c.id),'[]'::jsonb),
+const chartSelect = `SELECT c.id,c.owner_id,''::text,c.description,c.created_at,c.duration,c.encoding,tf.original_filename,af.original_filename,tf.sha256,af.sha256,af.byte_size,tf.storage_key,af.storage_key,c.title,c.subtitle,c.bpm,c.offset_seconds,c.demo_start,c.wave_filename,c.title_translations,c.subtitle_translations,c.is_single,
+ c.difficulties,
  ARRAY(SELECT cc.category_id FROM chart_categories cc WHERE cc.chart_id=c.id ORDER BY cc.category_id)
  FROM charts c JOIN chart_resources tf ON tf.chart_id=c.id AND tf.kind='tja' JOIN chart_resources af ON af.chart_id=c.id AND af.kind='audio' `
 
 func readChart(row pgx.Row) (Chart, error) {
 	var c Chart
 	var difficulties []byte
-	e := row.Scan(&c.ID, &c.OwnerID, &c.Uploader, &c.Description, &c.CreatedAt, &c.Duration, &c.Encoding, &c.TJAName, &c.AudioName, &c.TJAHash, &c.AudioHash, &c.AudioSize, &c.TJAKey, &c.AudioKey, &c.Title, &c.Subtitle, &c.BPM, &c.Offset, &c.DemoStart, &c.Wave, &c.TitleTranslations, &c.SubtitleTranslations, &difficulties, &c.CategoryIDs)
+	e := row.Scan(&c.ID, &c.OwnerID, &c.Uploader, &c.Description, &c.CreatedAt, &c.Duration, &c.Encoding, &c.TJAName, &c.AudioName, &c.TJAHash, &c.AudioHash, &c.AudioSize, &c.TJAKey, &c.AudioKey, &c.Title, &c.Subtitle, &c.BPM, &c.Offset, &c.DemoStart, &c.Wave, &c.TitleTranslations, &c.SubtitleTranslations, &c.IsSingle, &difficulties, &c.CategoryIDs)
 	if e == nil {
 		e = json.Unmarshal(difficulties, &c.Difficulties)
 		c.Maker = difficultyMakers(c.Difficulties)

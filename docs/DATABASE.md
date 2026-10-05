@@ -1,6 +1,6 @@
 # Fanmade 后端数据库结构
 
-本文按当前源码整理，描述完整执行迁移 001–027 后的 PostgreSQL 结构；不是生产数据库的实时巡检结果。结构依据为 [SQL 迁移](../internal/database/)、[迁移入口](../internal/database/database.go) 和 [SSO 迁移入口](../internal/database/sso.go)。
+本文按当前源码整理，描述完整执行迁移 001–028 后的 PostgreSQL 结构；不是生产数据库的实时巡检结果。结构依据为 [SQL 迁移](../internal/database/)、[迁移入口](../internal/database/database.go) 和 [SSO 迁移入口](../internal/database/sso.go)。
 
 ## 数据职责与总览
 
@@ -14,11 +14,11 @@ Fanmade 保存用户上传的谱面、音频索引、网站封面、分类、成
 
 跨库用户 ID 是应用级关联，没有指向 SSO 的 PostgreSQL 外键。Fanmade 的用户行不等于有效登录，每次受保护请求仍需 SSO 验证。
 
-当前共 **14 张表**，按用途分组：
+当前共 **13 张表**，按用途分组：
 
 | 分组 | 表 | 日常用途 |
 | --- | --- | --- |
-| public | users、charts、chart_resources、difficulties、scores、categories、chart_categories | 7 张业务表，pgAdmin 日常查看此组 |
+| public | users、charts、chart_resources、scores、categories、chart_categories | 6 张业务表，pgAdmin 日常查看此组 |
 | auth | sessions、oidc_flows | 本站会话和登录交接 |
 | internal | upload_requests、retired_score_requests、pending_objects、retired_files、schema_migrations | 上传/成绩重试、文件清理和结构迁移 |
 
@@ -31,9 +31,7 @@ erDiagram
   users ||--o{ scores : plays
   users ||--o{ upload_requests : submits
   charts ||--|{ chart_resources : resources
-  charts ||--o{ difficulties : contains
   charts ||--o{ scores : song
-  difficulties ||--o{ scores : eligible_target
   charts ||--o{ upload_requests : receipt
   charts ||--o{ chart_categories : categorized
   categories ||--o{ chart_categories : contains
@@ -108,6 +106,8 @@ erDiagram
 | status | text，默认 published；published/deleted/hidden | 发布、软删除、隐藏 |
 | created_at | timestamptz，默认 now() | 创建时间 |
 | metadata_updated_at | timestamptz，可空 | 展示元数据更新时间 |
+| is_single | boolean，默认 true | 整份文件的单人模式；false 为双人 |
+| difficulties | jsonb 数组，默认 [] | 难度、星级、谱师，见下文 |
 | title | text | 文件解析的默认标题 |
 | subtitle | text，默认空串 | 默认副标题 |
 | title_translations / subtitle_translations | jsonb，各默认 {}，CHECK 为 object | 完整 en/ja/zh/ko 翻译，编辑直接保存于此 |
@@ -119,22 +119,19 @@ erDiagram
 
 没有歌曲版本 ID、版本号、`validation_version` 或历史资源行。014 已将 maker 移到难度块。迁移 027 将旧英文及其他语言的修改合并到翻译字典，并删除四个 override 列。普通编辑直接更新字典；恢复原值时读取当前 TJA，不存储额外覆盖层。title/subtitle 保留原始 TJA 文本，API 不选择显示语言。
 
-### difficulties
+### charts.difficulties JSONB
 
-| 字段 | 类型 / 默认值 / 约束 | 用途 |
-| --- | --- | --- |
-| chart_id | text FK → charts.id，ON DELETE CASCADE | 所属歌曲 |
-| block_index | integer | TJA 谱面块序号；与 chart_id 组成 PK |
-| course | text | 新写入只允许 Easy/Normal/Hard/Oni/Edit |
-| level | integer，CHECK 1–10 | 星级 |
-| player | text，默认空串；空串/P1/P2 | 玩家标记 |
-| style | text；Single/Double，无默认值 | 后端逐块解析的模式 |
-| cloud_score_eligible | boolean STORED 生成列 | `style = 'Single' AND player = ''` |
-| maker | text，默认空串 | 本难度制作者 |
+已删除独立 difficulties 表。每个数组项只有 course、level、maker，例如：
 
-额外 CHECK：`player = '' OR style = 'Double'`。UQ `difficulties_score_target(chart_id,block_index,course,cloud_score_eligible)` 供成绩复合外键引用。
+```json
+[{"course":"Oni_1p","level":10,"maker":"A"},{"course":"Oni_2p","level":9,"maker":"B"}]
+```
 
-012 的 course CHECK 使用 `NOT VALID`：不扫描否定历史归档数据，但仍约束后续插入/更新。历史 Tower/Dan 行可能存在。云成绩资格由数据库计算，不能直接写入；Double 可保留和游玩，不能接受云成绩。API 歌曲级 maker 由各块署名去重汇总，不另存一列。
+is_single=true 时 course 为 Easy/Normal/Hard/Oni/Edit；false 时必须在这些值后附 _1p 或 _2p。一次上传只能有一种模式，双人块必须标记 P1/P2，每个 course 不得重复。数组按原 TJA 谱面块顺序保存；没有 player、style、cloud_score_eligible 或 block_index。API 返回 isSingle 和相同的 difficulties 数组。
+
+CHECK 函数校验 JSON 形状、整数星级 1–10、谱师最长 500 字节、模式与后缀、重复项和最多 5/10 项。API 上传另外要求至少一个完整谱面块。历史不支持的归档难度不被删除，CHECK 使用 NOT VALID；后续写入必须符合新规则。
+
+成绩仍独立保存在 scores。数据库触发器验证 scores.difficulty 确实存在于歌曲 JSON 中，锁定歌曲行以与替换上传串行；延迟约束阻止删除仍被成绩引用的难度。整体替换先清理旧成绩，再更新难度及资源。GIN 索引支持 JSON 包含查询；各难度谱师仍用于搜索和署名汇总。
 
 ### categories 与 chart_categories
 
@@ -159,9 +156,7 @@ erDiagram
 | id | text PK | 每局成绩 ID |
 | user_id | text FK → users.id | 成绩所属账号 |
 | song_id | text FK → charts.id | 作品 ID |
-| block_index | integer | 对应难度块 |
 | difficulty | text | Easy/Normal/Hard/Oni/Edit；CHECK 为 NOT VALID |
-| cloud_score_eligible | boolean，默认 true，CHECK 为 true | 强制关联可计分难度 |
 | good / ok / bad | integer，各 CHECK ≥ 0 | 良、可、不可 |
 | score | bigint，CHECK 0–9007199254740991 | 总分，兼容 JavaScript 安全整数范围 |
 | drumroll / max_combo | integer，各 CHECK ≥ 0 | 连打数、最大连击；max_combo 无默认值 |
@@ -171,7 +166,7 @@ erDiagram
 | clear_status | integer，NOT NULL，默认 0，CHECK 0–3 | 022 新增；API 字段 `ClearStatus`，0 无皇冠／未知，1 通关，2 全连，3 全良 |
 | replay_data | jsonb，可空，CHECK 为 object | 021 新增；输入事件与本局两项延迟，未知/无效为 SQL NULL |
 
-复合 FK：`(song_id,block_index,difficulty,cloud_score_eligible) → difficulties(chart_id,block_index,course,cloud_score_eligible)`。
+`song_id` 外键仍指向 charts；具体难度由数据库触发器检查 JSON，而非指向独立难度表的外键。单人与双人均可提交成绩。
 
 UQ `(user_id,idempotency_key)`；NULL 允许多局独立提交，同用户同键同载荷返回原结果，不同载荷返回 409。每局一行，不覆盖最高分。排行榜从 `scores` 查询每人最高分，没有排行榜表或持久名次字段。数值和关联约束不等于服务端重放验分。
 
@@ -220,7 +215,7 @@ S3 下载 ZIP 以 `chart_resources.kind='archive'` 保存，本地模式仍按�
 | chart_categories_chart | chart_id | 反查分类 |
 | scores_user_recent | user_id, submitted_at DESC, id DESC | 个人历史 |
 | scores_chart_difficulty | song_id, difficulty, submitted_at DESC | 作品难度成绩 |
-| scores_leaderboard_current | song_id, difficulty, block_index, user_id, score DESC, submitted_at, id | 每人最高分及并列排序 |
+| scores_leaderboard_current | song_id, difficulty, user_id, score DESC, submitted_at, id | 每人最高分及并列排序 |
 
 PostgreSQL 不会为每个外键自动创建索引，不能把关系图当作索引清单。当前搜索主要依赖 ILIKE，没有全文搜索索引。
 
@@ -253,8 +248,9 @@ PostgreSQL 不会为每个外键自动创建索引，不能把关系图当作索
 | 025 | chart_data 合并入 charts；files/封面/ZIP 合为 chart_resources；删除 validation_version；本地 bytea 封面经校验导出 |
 | 026 | 在 SSO 迁移完成后将认证和维护表移动到 auth/internal |
 | 027 | 合并全部标题翻译（含 en），删除四个 override 列 |
+| 028 | 歌曲级 is_single 与 difficulties JSONB；删除难度表和成绩块序号，双人成绩使用难度后缀 |
 
-`Migrate` 在事务与 advisory lock 内执行 001–017、019–025、027；随后 `MigrateSSO` 另开受保护事务执行 018 与 026。检查迁移时使用 `internal.schema_migrations`；不能只用最大编号推断 018 已执行。003/004/006 的历史回填需要与数据库配套的 TJA 文件，缺失或解析不一致会回滚。
+`Migrate` 在事务与 advisory lock 内执行 001–017、019–025、027–028；随后 `MigrateSSO` 另开受保护事务执行 018 与 026。检查迁移时使用 `internal.schema_migrations`；不能只用最大编号推断 018 已执行。003/004/006 的历史回填需要与数据库配套的 TJA 文件，缺失或解析不一致会回滚。
 
 有旧账号时，018 要求先完成备份确认及全部用户 ID 的 SSO 存在性核对，再删除账号资料列。旧资料导入不是双向同步。操作见 [SSO 文档](SSO.md)；回退 018 必须恢复迁移前业务数据库及匹配程序，不能只换二进制。
 

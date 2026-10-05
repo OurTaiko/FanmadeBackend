@@ -63,7 +63,7 @@ func testAudioStreamHTTP(t *testing.T, remote bool) {
 	mustExec(`INSERT INTO users(id,username,password_hash) VALUES('89b6ef3a5cb57b6e04f74711d15a8a5f','audioowner','unused')`)
 	app := testServer(t, pool, cfg)
 	// Simulate legacy unsupported rows retained by migration 012.
-	mustExec(`ALTER TABLE difficulties DROP CONSTRAINT difficulties_course_check`)
+	mustExec(`ALTER TABLE charts DROP CONSTRAINT charts_difficulties_check`)
 	for _, filename := range []string{"cbr.mp3", "vorbis.ogg"} {
 		t.Run(filename, func(t *testing.T) {
 			data, err := os.ReadFile("../audio/testdata/" + filename)
@@ -92,7 +92,7 @@ func testAudioStreamHTTP(t *testing.T, remote bool) {
 			if err = tx.Commit(ctx); err != nil {
 				t.Fatal(err)
 			}
-			mustExec(`INSERT INTO difficulties(chart_id,block_index,course,level,player,style) VALUES($1,0,'Oni',5,'','Single')`, song)
+			mustExec(`UPDATE charts c SET difficulties=c.difficulties||d.items FROM (SELECT chart_id,jsonb_agg(jsonb_build_object('course',course,'level',level,'maker',maker)) items FROM (VALUES ($1,'Oni',5,'')) v(chart_id,course,level,maker) GROUP BY chart_id) d WHERE c.id=d.chart_id`, song)
 			path := "/api/v1/charts/" + song + "/audio"
 			etag := `"` + digest + `"`
 			media := "audio/mpeg"
@@ -182,11 +182,11 @@ func testAudioStreamHTTP(t *testing.T, remote bool) {
 			if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &bootstrap) != nil || bootstrap.AudioPreviewVersion != 1 {
 				t.Fatal("missing capability", w.Code, w.Body.String())
 			}
-			mustExec(`UPDATE difficulties SET course='Tower' WHERE chart_id=$1`, song)
+			mustExec(`UPDATE charts SET difficulties=jsonb_set(difficulties,'{0,course}','"Tower"') WHERE id=$1`, song)
 			if w = call("GET", path, nil); w.Code != 404 {
 				t.Fatal("unsupported chart served", w.Code)
 			}
-			mustExec(`UPDATE difficulties SET course='Oni' WHERE chart_id=$1`, song)
+			mustExec(`UPDATE charts SET difficulties=jsonb_set(difficulties,'{0,course}','"Oni"') WHERE id=$1`, song)
 			mustExec(`UPDATE charts SET status='deleted' WHERE id=$1`, song)
 			if w = call("GET", path, map[string]string{"If-None-Match": etag}); w.Code != 404 {
 				t.Fatal("deleted chart served/revalidated", w.Code)

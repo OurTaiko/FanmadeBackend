@@ -57,7 +57,7 @@ func (s *Server) gameBootstrap(w http.ResponseWriter, r *http.Request) {
 	}
 	scores := []Score{}
 	if user != nil {
-		rows, err := tx.Query(r.Context(), `SELECT `+scoreColumns+` FROM scores WHERE user_id=$1 AND difficulty IN `+supportedCoursesSQL+` AND NOT EXISTS (SELECT 1 FROM difficulties excluded WHERE excluded.chart_id=scores.song_id AND excluded.course NOT IN `+supportedCoursesSQL+`) ORDER BY submitted_at,id`, user.ID)
+		rows, err := tx.Query(r.Context(), `SELECT `+scoreColumns+` FROM scores WHERE user_id=$1 AND difficulty IN `+supportedCoursesSQL+` AND NOT EXISTS (SELECT 1 FROM charts c CROSS JOIN LATERAL jsonb_array_elements(c.difficulties) excluded WHERE c.id=scores.song_id AND excluded->>'course' NOT IN `+supportedCoursesSQL+`) ORDER BY submitted_at,id`, user.ID)
 		if err != nil {
 			internal(w, err)
 			return
@@ -82,7 +82,7 @@ func (s *Server) gameBootstrap(w http.ResponseWriter, r *http.Request) {
 		internal(w, err)
 		return
 	}
-	respond(w, 200, map[string]any{"user": user, "songIdOnly": true, "categories": counts, "chartCount": chartCount, "scores": scores, "scoreReplayVersion": 1, "audioPreviewVersion": 1, "resourceDownloadVersion": func() int {
+	respond(w, 200, map[string]any{"user": user, "courseKeyedDifficulties": true, "songIdOnly": true, "categories": counts, "chartCount": chartCount, "scores": scores, "scoreReplayVersion": 1, "audioPreviewVersion": 1, "resourceDownloadVersion": func() int {
 		if s.remoteStorage() {
 			return 1
 		}

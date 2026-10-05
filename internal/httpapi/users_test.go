@@ -178,11 +178,11 @@ func TestUserDirectoryPublicScopeAndStatistics(t *testing.T) {
 		if _, err = tx.Exec(ctx, `INSERT INTO chart_resources(chart_id,kind,storage_key,original_filename,sha256,byte_size,media_type) SELECT $1,kind,$1||kind,'fixture',repeat('a',64),1,'test' FROM unnest(ARRAY['tja','audio']) kind`, song); err != nil {
 			t.Fatal(err)
 		}
-		if _, err = tx.Exec(ctx, `INSERT INTO difficulties(chart_id,block_index,course,level,style) VALUES($1,0,'Oni',1,'Single')`, song); err != nil {
+		if _, err = tx.Exec(ctx, `UPDATE charts c SET difficulties=c.difficulties||d.items FROM (SELECT chart_id,jsonb_agg(jsonb_build_object('course',course,'level',level,'maker',maker)) items FROM (VALUES ($1,'Oni',1,'')) v(chart_id,course,level,maker) GROUP BY chart_id) d WHERE c.id=d.chart_id`, song); err != nil {
 			t.Fatal(err)
 		}
 		for j := 0; j < 2; j++ {
-			if _, err = tx.Exec(ctx, `INSERT INTO scores(id,user_id,song_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest) VALUES($1,$2,$3,0,'Oni',1,0,0,1000,0,1,repeat('a',64))`, ID(), ids[0], song); err != nil {
+			if _, err = tx.Exec(ctx, `INSERT INTO scores(id,user_id,song_id,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest) VALUES($1,$2,$3,'Oni',1,0,0,1000,0,1,repeat('a',64))`, ID(), ids[0], song); err != nil {
 				t.Fatal(err)
 			}
 		}
