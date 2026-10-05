@@ -19,7 +19,15 @@ func (s *Server) resourceLinks(w http.ResponseWriter, r *http.Request) {
 		problem(w, 404, "DIRECT_DOWNLOAD_UNAVAILABLE", "此服务器尚未启用直连下载")
 		return
 	}
-	c, e := s.chart(r.Context(), r.PathValue("id"))
+	// Keep every key/hash/size from one committed upload, even if a replacement
+	// commits while the signed manifest is being assembled.
+	tx, e := s.DB.BeginTx(r.Context(), pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if e != nil {
+		internal(w, e)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	c, e := readChart(tx.QueryRow(r.Context(), chartSelect+` WHERE c.id=$1 AND `+publishedChart, r.PathValue("id")))
 	if errors.Is(e, pgx.ErrNoRows) {
 		problem(w, 404, "CHART_NOT_FOUND", "作品不存在或已下架")
 		return
@@ -49,7 +57,7 @@ func (s *Server) resourceLinks(w http.ResponseWriter, r *http.Request) {
 		return nil
 	}
 	var tjaSize int64
-	if e = s.DB.QueryRow(r.Context(), `SELECT byte_size FROM chart_resources WHERE chart_id=$1 AND kind='tja'`, c.ID).Scan(&tjaSize); e != nil {
+	if e = tx.QueryRow(r.Context(), `SELECT byte_size FROM chart_resources WHERE chart_id=$1 AND kind='tja'`, c.ID).Scan(&tjaSize); e != nil {
 		internal(w, e)
 		return
 	}
@@ -63,7 +71,7 @@ func (s *Server) resourceLinks(w http.ResponseWriter, r *http.Request) {
 	}
 	var key, digest string
 	var size int64
-	if e = s.DB.QueryRow(r.Context(), `SELECT storage_key,sha256,byte_size FROM chart_resources WHERE kind='archive' AND chart_id=$1`, c.ID).Scan(&key, &digest, &size); e != nil {
+	if e = tx.QueryRow(r.Context(), `SELECT storage_key,sha256,byte_size FROM chart_resources WHERE kind='archive' AND chart_id=$1`, c.ID).Scan(&key, &digest, &size); e != nil {
 		internal(w, e)
 		return
 	}
@@ -74,7 +82,7 @@ func (s *Server) resourceLinks(w http.ResponseWriter, r *http.Request) {
 	var coverKey *string
 	var coverHash string
 	var coverSize *int64
-	e = s.DB.QueryRow(r.Context(), `SELECT storage_key,sha256,byte_size FROM chart_resources WHERE kind='cover' AND chart_id=$1`, c.ID).Scan(&coverKey, &coverHash, &coverSize)
+	e = tx.QueryRow(r.Context(), `SELECT storage_key,sha256,byte_size FROM chart_resources WHERE kind='cover' AND chart_id=$1`, c.ID).Scan(&coverKey, &coverHash, &coverSize)
 	if e != nil && !errors.Is(e, pgx.ErrNoRows) {
 		internal(w, e)
 		return
@@ -84,6 +92,10 @@ func (s *Server) resourceLinks(w http.ResponseWriter, r *http.Request) {
 			internal(w, e)
 			return
 		}
+	}
+	if e = tx.Commit(r.Context()); e != nil {
+		internal(w, e)
+		return
 	}
 	respond(w, 200, map[string]any{"chartId": c.ID, "expiresAt": time.Now().UTC().Add(15 * time.Minute), "resources": resources})
 }
