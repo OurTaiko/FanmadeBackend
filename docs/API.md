@@ -19,7 +19,7 @@
 | POST | /charts | multipart：tja、audio、encoding（默认 utf-8）、description（可空）、categoryIds、difficultyMakers（可选 JSON）；首次创建 201，同请求重试 200 |
 | PUT | /charts/{id}/files | 作者或管理员整体替换 TJA／音频，删除旧文件及成绩，只保存当前资源，返回 200 |
 | GET | /charts/{id} | 当前已发布歌曲详情 |
-| PATCH | /charts/{id} | 作者或管理员修改 en/ja/zh/ko 名称／副标题，返回更新后的作品 |
+| PATCH | /charts/{id} | 作者或管理员修改分类、试听范围、介绍、谱师名义和译名，返回更新后的作品 |
 | DELETE | /charts/{id} | 本人软删除；后续资源访问返回 404 |
 | GET | /charts/{id}/tja | 原始 TJA 字节，attachment |
 | GET / HEAD | /charts/{id}/audio | 原始 OGG 或 MP3 流，支持 Range、ETag、If-Range；Content-Type 分别为 audio/ogg、audio/mpeg |
@@ -37,7 +37,7 @@
 
 数量：1 个 TJA + 1 个 OGG 或 MP3 音频。TJA 最大 2 MiB，音频最大 100 MiB，请求最大 105 MiB，说明最大 4000 字节。文本输入接受 UTF-8（默认）或显式 Shift-JIS；后端独立严格解码并统一保存为无 BOM 的 UTF-8。原输入和转换后均限制 2 MiB。网站自动识别常见编码，在上传前转换为 UTF-8。TJA 的哈希、字节数及下载内容均对应实际保存的 UTF-8 字节；已有作品不自动改写。音频接受单音轨 Ogg Vorbis 或 MPEG Layer III（MP3），扩展名必须与真实格式一致。OGG 检查 CRC 与 EOS；MP3 检查帧边界及截断，支持 CBR/VBR、MPEG-1/2/2.5、ID3 和 APE 标签，允许内嵌封面，不接受 free-format MP3。两种格式均需可完整解码，时长不超过 20 分钟。原音频不转码，WAVE 与上传文件名仍须 NFC 后严格匹配（区分大小写）。最多两个上传同时处理。
 
-邮箱验证码、名称／副标题编辑和歌曲文件替换已提供。独立修改投稿说明、管理员管理界面仍未提供；替换歌曲时可同时提交新的说明。
+邮箱验证码、名称／副标题编辑和歌曲文件替换已提供。投稿说明可独立编辑；管理员管理界面仍未提供。
 
 ## 支持的难度
 
@@ -97,7 +97,7 @@ STYLE 不区分值大小写，支持 Single/0、Double/1、Duet；每次 COURSE 
 
 作品响应始终完整返回 `titleTranslations`、`subtitleTranslations` 字典（支持 en/ja/zh/ko），英文也在 en 键内。`title`、`subtitle` 保留 TJA 原文，不代表当前显示语言。后端不按 Accept-Language 或请求语言筛选；由前端和游戏客户端选择显示语言及回退。缺失翻译不伪造对应键，显式空值保留为字符串 `""`。GET 列表的 q 搜索原文和所有翻译。
 
-`PATCH /api/v1/charts/{id}` 接受 titleTranslations、subtitleTranslations 和 categoryIds；旧 title/subtitle 写入仅作为 en 翻译的兼容别名，与相应字典 en 同时提交会被拒绝。登录上传者可以部分修改，缺省字段保持不变；null 恢复原文件值，副标题空字符串表示清空。JSON 请求需要现有 Cookie、Origin 与 X-CSRF-Token；成功 200 返回更新后的完整作品。返回 401 未登录、403 无所有权／CSRF／来源不正确、404 不存在或已下架、400 请求格式或未知字段错误、415 非 JSON、422 `METADATA_INVALID` 内容／语言／长度不合法。完整请求示例、逐语言恢复规则和存储边界见 [多语言与管理说明](LOCALIZATION.md)。
+`PATCH /api/v1/charts/{id}` 接受 titleTranslations、subtitleTranslations、categoryIds、demoStart、demoEnd、description 和 difficultyMakers；旧 title/subtitle 写入仅作为 en 翻译的兼容别名，与相应字典 en 同时提交会被拒绝。登录上传者可以部分修改，缺省字段保持不变；null 恢复原文件值，副标题空字符串表示清空。JSON 请求需要现有 Cookie、Origin 与 X-CSRF-Token；成功 200 返回更新后的完整作品。返回 401 未登录、403 无所有权／CSRF／来源不正确、404 不存在或已下架、400 请求格式或未知字段错误、415 非 JSON、422 `METADATA_INVALID` 内容／语言／长度不合法。完整请求示例、逐语言恢复规则和存储边界见 [多语言与管理说明](LOCALIZATION.md)。
 
 编辑仅改变网站展示与搜索，下载仍是原始 TJA，已保存成绩和歌曲 ID 不变。前端详情页已提供作者／管理员可见的编辑弹窗。
 
@@ -291,3 +291,7 @@ profilesAvailable=false 表示本次昵称查询失败，统计仍返回；个�
 `GET /api/v1/charts/{id}/resources` 新增可选 `resources.preview`，字段与其他资源相同（独立 GET/HEAD 签名、SHA-256、字节数、`audio/ogg`）。私有桶应通过此清单获取下载链接，不应把 `previewPath` 当公开 URL。片段本身从 0 秒开始播放，不能再次 seek DEMOSTART。
 
 网站试听继续使用 `/charts/{id}/audio` 整首源文件；原 TJA、整首音频、ZIP 和成绩不因编辑试听范围而变化。现有 `audioPreview` 仍是整首音频的旧预览描述，与新 `previewPath` 独立。
+
+### 编辑介绍与谱师名义
+
+`PATCH /charts/{id}` 的 `description` 为最多 1000 字符的字符串，允许换行和空字符串，拒绝 null 与空字符；非法值返回 `DESCRIPTION_INVALID`。`difficultyMakers` 格式与上传一致，必须按当前完整 course 集合提供 `{course,maker}` 数组，每项名义最多 500 字节、不含控制字符，允许空字符串；不能修改难度、星级或模式。非法值返回 `MAKERS_INVALID`。省略字段保持原值，所有编辑在同一事务保存，失败全部回滚。介绍和名义修改不改写原始 TJA、音频或成绩。

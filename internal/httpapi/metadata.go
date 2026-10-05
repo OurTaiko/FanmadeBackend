@@ -19,6 +19,8 @@ import (
 )
 
 type metadataPatch struct {
+	Description          json.RawMessage `json:"description"`
+	DifficultyMakers     json.RawMessage `json:"difficultyMakers"`
 	DemoStart            json.RawMessage `json:"demoStart"`
 	DemoEnd              json.RawMessage `json:"demoEnd"`
 	CategoryIDs          json.RawMessage `json:"categoryIds"`
@@ -80,7 +82,7 @@ func patchTranslations(raw json.RawMessage, dst *map[string]string, original map
 }
 
 func (p metadataPatch) apply(o *metadataTranslations, original metadataTranslations) bool {
-	if len(p.Title)+len(p.Subtitle)+len(p.TitleTranslations)+len(p.SubtitleTranslations)+len(p.CategoryIDs)+len(p.DemoStart)+len(p.DemoEnd) == 0 {
+	if len(p.Title)+len(p.Subtitle)+len(p.TitleTranslations)+len(p.SubtitleTranslations)+len(p.CategoryIDs)+len(p.DemoStart)+len(p.DemoEnd)+len(p.Description)+len(p.DifficultyMakers) == 0 {
 		return false
 	}
 	// Legacy scalar writes are aliases for English only. Reads remain raw source
@@ -162,7 +164,7 @@ func (s *Server) editMetadata(w http.ResponseWriter, r *http.Request) {
 		problem(w, 415, "CONTENT_TYPE_INVALID", "请使用 JSON 请求")
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 8192)
+	r.Body = http.MaxBytesReader(w, r.Body, 32768)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	var patch metadataPatch
@@ -203,6 +205,32 @@ func (s *Server) editMetadata(w http.ResponseWriter, r *http.Request) {
 	if !patch.apply(&translations, original) {
 		problem(w, 422, "METADATA_INVALID", "需要有效的名称／副标题；每项最多 500 字节，名称不能为空，多语言仅支持 en、ja、zh、ko，null 恢复原值")
 		return
+	}
+	if len(patch.Description) > 0 {
+		var description string
+		if bytes.Equal(bytes.TrimSpace(patch.Description), []byte("null")) || json.Unmarshal(patch.Description, &description) != nil || len([]rune(description)) > 1000 || strings.ContainsRune(description, 0) {
+			problem(w, 422, "DESCRIPTION_INVALID", "谱面介绍最多 1000 字符，不能包含空字符")
+			return
+		}
+		if _, err = tx.Exec(r.Context(), `UPDATE charts SET description=$2,metadata_updated_at=now() WHERE id=$1`, r.PathValue("id"), description); err != nil {
+			internal(w, err)
+			return
+		}
+	}
+	if len(patch.DifficultyMakers) > 0 {
+		var difficulties []tja.Difficulty
+		if err = tx.QueryRow(r.Context(), `SELECT difficulties FROM charts WHERE id=$1`, r.PathValue("id")).Scan(&difficulties); err != nil {
+			internal(w, err)
+			return
+		}
+		if err = applyDifficultyMakers(string(patch.DifficultyMakers), difficulties); err != nil {
+			problem(w, 422, "MAKERS_INVALID", err.Error())
+			return
+		}
+		if _, err = tx.Exec(r.Context(), `UPDATE charts SET difficulties=$2,metadata_updated_at=now() WHERE id=$1`, r.PathValue("id"), difficulties); err != nil {
+			internal(w, err)
+			return
+		}
 	}
 	if len(patch.DemoStart)+len(patch.DemoEnd) > 0 {
 		c, e := s.readChart(tx.QueryRow(r.Context(), chartSelect+` WHERE c.id=$1`, r.PathValue("id")))

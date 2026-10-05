@@ -74,6 +74,23 @@ func TestMetadataAuthorOrAdmin(t *testing.T) {
 			}
 		}
 	}
+	if _, err = pool.Exec(ctx, `UPDATE charts SET difficulties='[{"course":"Oni","level":5,"maker":"Original"}]' WHERE id='chart'`); err != nil {
+		t.Fatal(err)
+	}
+	updated := call("d46774d30dd13b92d9e536808da468a4", "csrf", `{"description":"介绍\n第二行","difficultyMakers":[{"course":"Oni","maker":"New credit"}]}`)
+	var content Chart
+	if updated.Code != 200 || json.Unmarshal(updated.Body.Bytes(), &content) != nil || content.Description != "介绍\n第二行" || content.Maker != "New credit" {
+		t.Fatalf("content edit failed: %s", updated.Body.String())
+	}
+	for _, body := range []string{`{"description":null}`, `{"description":12}`, `{"description":"\u0000"}`, `{"description":"` + strings.Repeat("中", 1001) + `"}`, `{"description":"rolled back","difficultyMakers":[{"course":"Hard","maker":"invalid"}]}`, `{"difficultyMakers":null}`} {
+		if w := call("d46774d30dd13b92d9e536808da468a4", "csrf", body); w.Code != 422 {
+			t.Fatalf("invalid content accepted: %s", w.Body.String())
+		}
+	}
+	var description string
+	if err = pool.QueryRow(ctx, `SELECT description FROM charts WHERE id='chart'`).Scan(&description); err != nil || description != "介绍\n第二行" {
+		t.Fatalf("failed edit did not roll back: %q %v", description, err)
+	}
 	// Seed cover storage directly: editing display metadata must preserve it
 	// regardless of upload/audio validation and return the same hash as GET.
 	coverBytes := []byte("existing cover fixture")
