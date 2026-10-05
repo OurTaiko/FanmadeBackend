@@ -12,11 +12,13 @@ import (
 	"testing"
 )
 
-func verifyResourceLinks(t *testing.T, h http.Handler, base string, audio []byte) {
+func verifyResourceLinks(t *testing.T, h http.Handler, chartID string, audio []byte) {
 	t.Helper()
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("GET", base+"resources", nil))
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/api/v1/charts/"+chartID+"/resources", nil))
 	var payload struct {
+		ChartID   string  `json:"chartId"`
+		VersionID *string `json:"versionId"`
 		Resources map[string]struct {
 			URL     string `json:"url"`
 			HeadURL string `json:"headUrl"`
@@ -26,6 +28,9 @@ func verifyResourceLinks(t *testing.T, h http.Handler, base string, audio []byte
 	}
 	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &payload) != nil {
 		t.Fatal("resources", w.Code, w.Body.String())
+	}
+	if payload.ChartID != chartID || payload.VersionID != nil {
+		t.Fatal("resource identity must be chart only")
 	}
 	if len(payload.Resources) != 3 {
 		t.Fatal("missing direct resources")

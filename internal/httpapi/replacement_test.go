@@ -175,6 +175,9 @@ func testChartReplacement(t *testing.T, remote bool) {
 	mustExec(`INSERT INTO scores(id,user_id,song_id,version_id,block_index,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest) VALUES($1,'d46774d30dd13b92d9e536808da468a4',$2,$3,0,'Hard',1,0,0,100,0,1,repeat('a',64))`, ID(), original.ID, history)
 	key := ID()
 	updated := decode(request("d46774d30dd13b92d9e536808da468a4", "PUT", path, key, replacement, "", nil, fields), 200)
+	if remote {
+		verifyResourceLinks(t, handler, original.ID, audio)
+	}
 	if updated.ID != original.ID || updated.VersionID == original.VersionID || updated.Title != "Updated" || updated.Maker != "A | B" || updated.Description != "new description" || len(updated.Difficulties) != 2 || updated.AudioHash != original.AudioHash {
 		t.Fatalf("bad updated chart: %+v", updated)
 	}

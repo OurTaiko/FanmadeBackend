@@ -97,7 +97,7 @@ func testAudioUploadAndDownload(t *testing.T, remote bool) {
 				t.Fatal("broken audio range request")
 			}
 			if remote {
-				verifyResourceLinks(t, handler, base, data)
+				verifyResourceLinks(t, handler, chart.ID, data)
 			}
 			w = get("download", "")
 			z, err := zip.NewReader(bytes.NewReader(w.Body.Bytes()), int64(w.Body.Len()))

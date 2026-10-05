@@ -28,10 +28,6 @@ func (s *Server) resourceLinks(w http.ResponseWriter, r *http.Request) {
 		internal(w, e)
 		return
 	}
-	if c.VersionID != r.PathValue("version") {
-		problem(w, 404, "VERSION_NOT_FOUND", "版本不存在")
-		return
-	}
 	type resource struct {
 		URL         string `json:"url"`
 		HeadURL     string `json:"headUrl"`
@@ -89,5 +85,5 @@ func (s *Server) resourceLinks(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	respond(w, 200, map[string]any{"versionId": c.VersionID, "expiresAt": time.Now().UTC().Add(15 * time.Minute), "resources": resources})
+	respond(w, 200, map[string]any{"chartId": c.ID, "expiresAt": time.Now().UTC().Add(15 * time.Minute), "resources": resources})
 }
