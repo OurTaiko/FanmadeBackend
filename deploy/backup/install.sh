@@ -36,7 +36,7 @@ install -m 0644 "$repo/deploy/backup/$unit.service" "/etc/systemd/system/$unit.s
 install -m 0644 "$repo/deploy/backup/$unit.timer" "/etc/systemd/system/$unit.timer"
 systemd-analyze verify "/etc/systemd/system/$unit.service" "/etc/systemd/system/$unit.timer"
 systemctl daemon-reload
-systemctl reset-failed "$unit.service" || true
+if [[ "$active" == failed ]]; then systemctl reset-failed "$unit.service"; fi
 # Verify a real backup before enabling the daily schedule.
 systemctl start "$unit.service"
 systemctl enable --now "$unit.timer"
