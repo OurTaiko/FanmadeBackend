@@ -16,34 +16,75 @@ type Category struct {
 	Genre string `json:"genre"`
 }
 
-type categoryQuery interface {
-	Query(context.Context, string, ...any) (pgx.Rows, error)
+// CategoryFlags are persisted in charts.category_flags. Never renumber or reuse
+// a bit; adding a category also requires widening the database CHECK constraint.
+type CategoryFlags int32
+
+const (
+	CategoryGame          CategoryFlags = 1
+	CategoryVirtualSinger CategoryFlags = 2
+	CategoryPop           CategoryFlags = 4
+	CategoryClassic       CategoryFlags = 8
+	CategoryVariety       CategoryFlags = 16
+	CategoryAnime         CategoryFlags = 32
+)
+
+// Catalog order and metadata are part of the existing public API contract.
+var categoryCatalog = [...]struct {
+	Flag CategoryFlags
+	Category
+}{
+	{CategoryGame, Category{"game", "Game", "GAME"}},
+	{CategoryVirtualSinger, Category{"virtual-singer", "Virtual Singer", "VOCALOID"}},
+	{CategoryPop, Category{"pop", "Pop", "J-POP"}},
+	{CategoryClassic, Category{"classic", "Classic", "CLASSICAL"}},
+	{CategoryVariety, Category{"variety", "Variety", "VARIETY"}},
+	{CategoryAnime, Category{"anime", "Anime", "ANIME"}},
 }
 
-func readCategories(ctx context.Context, db categoryQuery) ([]Category, error) {
-	rows, err := db.Query(ctx, `SELECT id,title,genre FROM categories ORDER BY sort_order,id`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Category{}
-	for rows.Next() {
-		var c Category
-		if err = rows.Scan(&c.ID, &c.Title, &c.Genre); err != nil {
-			return nil, err
+func categoryFlag(id string) (CategoryFlags, bool) {
+	for _, category := range categoryCatalog {
+		if category.ID == id {
+			return category.Flag, true
 		}
-		items = append(items, c)
 	}
-	return items, rows.Err()
+	return 0, false
+}
+
+func encodeCategories(ids []string) (CategoryFlags, error) {
+	var flags CategoryFlags
+	for _, id := range ids {
+		flag, ok := categoryFlag(id)
+		if !ok {
+			return 0, errors.New("invalid category ID")
+		}
+		flags |= flag
+	}
+	return flags, nil
+}
+
+func (flags CategoryFlags) IDs() []string {
+	ids := []string{}
+	for _, category := range categoryCatalog {
+		if flags&category.Flag != 0 {
+			ids = append(ids, category.ID)
+		}
+	}
+	// Chart responses and idempotency payloads use lexical ID order.
+	sort.Strings(ids)
+	return ids
+}
+
+func readCategories() []Category {
+	items := make([]Category, 0, len(categoryCatalog))
+	for _, category := range categoryCatalog {
+		items = append(items, category.Category)
+	}
+	return items
 }
 
 func (s *Server) categories(w http.ResponseWriter, r *http.Request) {
-	items, err := readCategories(r.Context(), s.DB)
-	if err != nil {
-		internal(w, err)
-		return
-	}
-	respond(w, 200, map[string]any{"items": items})
+	respond(w, 200, map[string]any{"items": readCategories()})
 }
 
 // Omitted, null or empty selection defaults to Variety. Canonical ordering also
@@ -71,39 +112,28 @@ func categorySelection(raw json.RawMessage) ([]string, error) {
 	return unique, nil
 }
 
-func validCategories(ctx context.Context, db categoryQuery, ids []string) (bool, error) {
-	rows, err := db.Query(ctx, `SELECT id FROM categories WHERE id=ANY($1::text[])`, ids)
-	if err != nil {
-		return false, err
-	}
-	defer rows.Close()
-	count := 0
-	for rows.Next() {
-		count++
-	}
-	return count == len(ids), rows.Err()
+func validCategories(ids []string) bool {
+	_, err := encodeCategories(ids)
+	return err == nil
 }
 
 func setCategories(ctx context.Context, tx pgx.Tx, chart string, ids []string) error {
-	if _, err := tx.Exec(ctx, `DELETE FROM chart_categories WHERE chart_id=$1`, chart); err != nil {
+	flags, err := encodeCategories(ids)
+	if err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, `INSERT INTO chart_categories(category_id,chart_id) SELECT unnest($2::text[]),$1`, chart, ids)
+	_, err = tx.Exec(ctx, `UPDATE charts SET category_flags=$2 WHERE id=$1`, chart, flags)
 	return err
 }
 
 func (s *Server) gameCategory(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("category")
-	var exists bool
-	if err := s.DB.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM categories WHERE id=$1)`, id).Scan(&exists); err != nil {
-		internal(w, err)
-		return
-	}
+	flag, exists := categoryFlag(id)
 	if !exists {
 		problem(w, 404, "CATEGORY_NOT_FOUND", "分类不存在")
 		return
 	}
-	rows, err := s.DB.Query(r.Context(), chartSelect+` WHERE `+publishedChart+` AND EXISTS(SELECT 1 FROM chart_categories cc WHERE cc.chart_id=c.id AND cc.category_id=$1) ORDER BY c.id`, id)
+	rows, err := s.DB.Query(r.Context(), chartSelect+` WHERE `+publishedChart+` AND (c.category_flags & $1) <> 0 ORDER BY c.id`, flag)
 	if err != nil {
 		internal(w, err)
 		return

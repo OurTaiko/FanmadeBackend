@@ -1,6 +1,6 @@
 # Fanmade 后端数据库结构
 
-本文按当前源码整理，描述完整执行迁移 001–028 后的 PostgreSQL 结构；不是生产数据库的实时巡检结果。结构依据为 [SQL 迁移](../internal/database/)、[迁移入口](../internal/database/database.go) 和 [SSO 迁移入口](../internal/database/sso.go)。
+本文按当前源码整理，描述完整执行迁移 001–029 后的 PostgreSQL 结构；不是生产数据库的实时巡检结果。结构依据为 [SQL 迁移](../internal/database/)、[迁移入口](../internal/database/database.go) 和 [SSO 迁移入口](../internal/database/sso.go)。
 
 ## 数据职责与总览
 
@@ -14,11 +14,11 @@ Fanmade 保存用户上传的谱面、音频索引、网站封面、分类、成
 
 跨库用户 ID 是应用级关联，没有指向 SSO 的 PostgreSQL 外键。Fanmade 的用户行不等于有效登录，每次受保护请求仍需 SSO 验证。
 
-当前共 **13 张表**，按用途分组：
+当前共 **11 张表**，按用途分组：
 
 | 分组 | 表 | 日常用途 |
 | --- | --- | --- |
-| public | users、charts、chart_resources、scores、categories、chart_categories | 6 张业务表，pgAdmin 日常查看此组 |
+| public | users、charts、chart_resources、scores | 4 张业务表，CloudBeaver 日常查看此组 |
 | auth | sessions、oidc_flows | 本站会话和登录交接 |
 | internal | upload_requests、retired_score_requests、pending_objects、retired_files、schema_migrations | 上传/成绩重试、文件清理和结构迁移 |
 
@@ -33,8 +33,6 @@ erDiagram
   charts ||--|{ chart_resources : resources
   charts ||--o{ scores : song
   charts ||--o{ upload_requests : receipt
-  charts ||--o{ chart_categories : categorized
-  categories ||--o{ chart_categories : contains
 ```
 
 `charts` 一行代表一首歌曲，`chart_resources` 每种资源最多一行。延迟约束触发器确保事务提交时每首歌曲都有 TJA 和音频；封面可选，S3 模式另外保存 ZIP。
@@ -106,6 +104,7 @@ erDiagram
 | status | text，默认 published；published/deleted/hidden | 发布、软删除、隐藏 |
 | created_at | timestamptz，默认 now() | 创建时间 |
 | metadata_updated_at | timestamptz，可空 | 展示元数据更新时间 |
+| category_flags | integer，默认 16，CHECK 仅允许低 6 位（0–63） | 分类位标记，见下文 |
 | is_single | boolean，默认 true | 整份文件的单人模式；false 为双人 |
 | difficulties | jsonb 数组，默认 [] | 难度、星级、谱师，见下文 |
 | title | text | 文件解析的默认标题 |
@@ -133,19 +132,24 @@ CHECK 函数校验 JSON 形状、整数星级 1–10、谱师最长 500 字节�
 
 成绩仍独立保存在 scores。数据库触发器验证 scores.difficulty 确实存在于歌曲 JSON 中，锁定歌曲行以与替换上传串行；延迟约束阻止删除仍被成绩引用的难度。整体替换先清理旧成绩，再更新难度及资源。GIN 索引支持 JSON 包含查询；各难度谱师仍用于搜索和署名汇总。
 
-### categories 与 chart_categories
-
-| 表 | 字段 | 类型 / 约束 |
-| --- | --- | --- |
-| categories | id | text PK，匹配 `^[a-z][a-z0-9-]{0,63}$` |
-| categories | title / genre | text，各非空 |
-| categories | sort_order | integer UQ |
-| chart_categories | category_id | text FK → categories.id |
-| chart_categories | chart_id | text FK → charts.id，ON DELETE CASCADE |
-
-关联表 PK 为 `(category_id,chart_id)`，作品可属于多个分类。额外索引 `chart_categories_chart(chart_id)`。013 将已有作品归入 Variety；017 新增 Anime，当前种子分类为 Game、Virtual Singer、Pop、Classic、Variety、Anime。数据库没有“作品至少一个分类”的 CHECK，此规则由业务流程保证。
-
 封面以 `chart_resources.kind='cover'` 保存。单独换封面不影响成绩；新封面完成写入后，在事务中替换索引，旧对象进入清理队列。
+
+### charts.category_flags
+
+分类直接保存在 `charts.category_flags`；029 迁移后不再有 `categories`、`chart_categories` 表。后端 `CategoryFlags` 枚举固定绑定以下 ID、title、genre，目录按表中顺序返回。
+
+| bit 值 | ID | title | genre |
+| --- | --- | --- | --- |
+| 1 | game | Game | GAME |
+| 2 | virtual-singer | Virtual Singer | VOCALOID |
+| 4 | pop | Pop | J-POP |
+| 8 | classic | Classic | CLASSICAL |
+| 16 | variety | Variety | VARIETY |
+| 32 | anime | Anime | ANIME |
+
+多选按位 OR，例如 Game + Anime = 33；查询使用 `(category_flags & 分类位) <> 0`。位值永久固定，不随显示顺序变化，也不得复用。增加分类必须同时更新枚举、元数据及数据库 CHECK。
+
+接口继续接收／返回字符串 `categoryIds` 数组，响应按 ID 字典序排列，不暴露位掩码。上传省略、null、空数组以及编辑显式 null／空数组仍默认 Variety；编辑省略字段保持原值。迁移逐首保留全部原分类，包括隐藏／删除歌曲；历史无分类的行保留为 0。遇到未知分类 ID 则整个迁移回滚。
 
 ## 成绩与幂等
 
@@ -212,7 +216,6 @@ S3 下载 ZIP 以 `chart_resources.kind='archive'` 保存，本地模式仍按�
 | charts_published_recent | created_at DESC, id DESC；WHERE status='published' | 公开作品列表 |
 | chart_resources_storage_key | storage_key | 资源引用检查与清理 |
 | charts_owner | owner_id, created_at DESC | 用户作品 |
-| chart_categories_chart | chart_id | 反查分类 |
 | scores_user_recent | user_id, submitted_at DESC, id DESC | 个人历史 |
 | scores_chart_difficulty | song_id, difficulty, submitted_at DESC | 作品难度成绩 |
 | scores_leaderboard_current | song_id, difficulty, user_id, score DESC, submitted_at, id | 每人最高分及并列排序 |
@@ -269,3 +272,7 @@ PostgreSQL 不会为每个外键自动创建索引，不能把关系图当作索
 025/026 升级不变更歌曲 ID、成绩、难度、分类或上传收据，不移动 S3 对象，也不更换对象键。已有本地 bytea 封面先导出并逐字节核对，才删除旧表；失败会回滚数据库。S3 后端如仍有仅存于 bytea 的封面会拒绝迁移，应先完成资源迁移。回退必须恢复升级前数据库、旧镜像及配套资源，不能只换旧镜像。首次分组要求 auth/internal 尚未被其他应用占用。
 
 pgAdmin 只读角色需要新 schema 的 USAGE 权限。表原有 SELECT 授权随表移动保留；新表和后续表需相应默认 SELECT 授权。不要授予写权限来解决查看问题。
+
+### 029 分类位标记迁移
+
+迁移在事务与表锁内将旧关联映射为 `charts.category_flags`，删除分类目录表与关联表，保留歌曲 ID、资源索引、成绩及上传幂等收据。目录元数据由后端枚举提供，API 协议不变。上线前需停写并备份数据库；回退必须恢复迁移前数据库和旧程序，不能只切回旧镜像。

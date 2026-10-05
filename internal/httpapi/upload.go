@@ -166,12 +166,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		problem(w, 422, "CATEGORIES_INVALID", "分类必须为分类 ID 数组")
 		return
 	}
-	valid, categoryErr := validCategories(r.Context(), s.DB, categoryIDs)
-	if categoryErr != nil {
-		internal(w, categoryErr)
-		return
-	}
-	if !valid {
+	if !validCategories(categoryIDs) {
 		problem(w, 422, "CATEGORIES_INVALID", "包含不存在的分类，请刷新后重试")
 		return
 	}

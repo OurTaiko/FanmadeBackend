@@ -2,28 +2,30 @@
 
 ## 数据模型
 
-迁移 `013_categories.sql` 只新增 `categories` 和 `chart_categories`：分类保存显示名称和游戏 genre，关联表以 `(category_id, chart_id)` 为主键，引用稳定的 `charts.id`。同一作品可属于多个分类。既有谱面、版本、文件、用户及成绩行不改写；迁移为已有作品新增 Variety 关联，包含已隐藏／删除作品，但公开接口仍按原有可见性规则过滤。
+分类使用后端 `CategoryFlags` 位标记枚举，数据库只保存 `charts.category_flags` integer。分类 ID、title、genre 与枚举值固定绑定，按下表顺序返回目录。
 
-| ID | 名称 | box.def GENRE |
-| --- | --- | --- |
-| game | Game | GAME |
-| virtual-singer | Virtual Singer | VOCALOID |
-| pop | Pop | J-POP |
-| classic | Classic | CLASSICAL |
-| variety | Variety | VARIETY |
-| anime | Anime | ANIME |
+| bit 值 | ID | 名称 | box.def GENRE |
+| --- | --- | --- | --- |
+| 1 | game | Game | GAME |
+| 2 | virtual-singer | Virtual Singer | VOCALOID |
+| 4 | pop | Pop | J-POP |
+| 8 | classic | Classic | CLASSICAL |
+| 16 | variety | Variety | VARIETY |
+| 32 | anime | Anime | ANIME |
 
-迁移 `017_anime_category.sql` 在现有分类末尾加入 Anime，既有数据库与新安装都会应用；不改变其他分类的顺序、歌曲归属或默认 Variety。网页从分类 API 自动显示 Anime，无需维护前端固定列表。游戏沿用 `genre` → `box.def` → `GenreIndex::ANIME` 的映射，支持 `ANIME` 及 `Anime`，使用现有 Anime 皮肤样式。
+同一作品的分类通过按位 OR 合并，例如 Game + Anime 保存为 33。位值不得重新编号或复用；新增分类需要修改枚举、元数据和数据库约束。API 不暴露整数，仍使用原有字符串 ID 和元数据。
 
-分类是作品层级的信息，不属于某个文件版本。改变分类不会更新谱面 ID、下载文件、哈希或成绩归属。物理删除作品时关联级联删除；软删除保留关联。
+迁移 `029_category_flags.sql` 将旧 `chart_categories` 的全部关联逐首转成位标记，然后删除 `categories` 和 `chart_categories`。隐藏／删除作品同样保留分类；历史无分类作品保存为 0，新增作品默认 Variety（16）。未知分类 ID 会中止并回滚整个迁移，要求先明确映射。
+
+分类是作品层级的信息。改变分类不会更新歌曲 ID、下载文件、哈希或成绩归属；分类随歌曲行物理删除，软删除时保留。数据库 CHECK 拒绝负数及未定义的高位。
 
 ## 网站 API
 
-- `GET /api/v1/categories`：公开接口，返回 `{ "items": [{ "id": "game", "title": "Game", "genre": "GAME" }, ...] }`，按配置顺序排列。
+- `GET /api/v1/categories`：公开接口，返回 `{ "items": [{ "id": "game", "title": "Game", "genre": "GAME" }, ...] }`，按固定枚举目录顺序排列。
 - `Chart` 对象新增 `categoryIds: string[]`，包括列表、详情、上传与编辑响应。
 - `POST /api/v1/charts`：multipart 新增可选文本字段 `categoryIds`，值是 JSON 数组，例如 `["game","pop"]`。不传、`[]`、`null` 均自动归入 `variety`。无效类型或不存在的分类返回 `422 CATEGORIES_INVALID`；重复 ID 自动去重。非默认分类参与上传幂等摘要，数组顺序不影响重试；默认选择保持旧客户端上传摘要兼容。
-- `PATCH /api/v1/charts/{id}`：JSON 新增 `categoryIds`。传入时替换全部关联；`[]` 或 `null` 归入 `variety`；**省略字段保留原分类**。分类和名称编辑在同一个事务中提交，无效分类不会造成部分修改。
-- 编辑继续要求作者或现有网站管理员身份、浏览器会话、Origin 与 CSRF；非作者不能自行修改关联。
+- `PATCH /api/v1/charts/{id}`：JSON 新增 `categoryIds`。传入时替换全部分类位；`[]` 或 `null` 归入 `variety`；**省略字段保留原分类**。分类和名称编辑在同一个事务中提交，无效分类不会造成部分修改。
+- 编辑继续要求作者或现有网站管理员身份、浏览器会话、Origin 与 CSRF；非作者不能自行修改分类。
 
 上传页及信息编辑弹窗从服务器取得选项，支持多选、加载中提示、失败后重试；上传时不选默认 Variety。没有新增分类管理界面。
 
@@ -51,13 +53,13 @@ GET /api/v1/game/categories/{categoryId}/charts
 
 ## 上线和容量边界
 
-- 后端迁移由正常启动或 `go run ./cmd/server -migrate` 执行。先部署后端迁移与分类 API，再部署网页，并同步更新游戏客户端。
-- 这是原生 bootstrap 响应的协议变更：旧游戏依赖 `charts`，新版游戏依赖 `categories`，两端版本必须配套。不提供退回全量曲库的兼容分支。
-- 本次消除启动时的全量谱面请求。按需求，单个分类仍返回该分类全部谱面，成绩仍在 bootstrap 一次读取。若单个分类或成绩继续增长，仍需要分页／增量同步；游戏单次 API 响应现有限制为 64 MiB。
+- 后端迁移由正常启动或 `go run ./cmd/server -migrate` 执行。029 只改变内部存储；网页和游戏继续使用现有接口，无需配套修改。
+- 升级前停写并备份数据库；回退必须恢复升级前数据库和旧程序，不能只回退镜像。
+- 继续按分类加载谱面，单个分类仍返回该分类全部谱面，成绩仍在 bootstrap 一次读取。若单个分类或成绩继续增长，仍需要分页／增量同步；游戏单次 API 响应现有限制为 64 MiB。
 
 ## 验证
 
-`categories_test.go` 覆盖六类目录、Anime 上传／编辑及游戏分类响应、默认值、多选去重、非法 ID、幂等、原生认证、分类过滤、作者权限、事务回滚、歌曲 ID／文件哈希／成绩不变和软删除。`database_test.go` 比较迁移 013 前后完整业务行，并验证从 016 升级到 017 后保留原分类、归属和业务数据以及重复迁移。`supported_courses_test.go` 确认分类接口继续排除不支持的难度。
+`category_flags_test.go` 验证 028→029 的全部 64 种组合、历史不支持的难度、未知分类回滚、重复迁移、旧表删除及歌曲／资源／成绩／幂等收据不变。`categories_test.go` 覆盖六类目录、Anime 上传／编辑及游戏分类响应、默认值、多选去重、非法 ID、幂等、原生认证、分类过滤、作者权限、事务回滚、歌曲 ID／文件哈希／成绩不变和软删除。`database_test.go` 比较迁移 013 前后完整业务行，并验证从 016 升级到 017 后保留原分类、归属和业务数据以及重复迁移。`supported_courses_test.go` 确认分类接口继续排除不支持的难度。
 
 前端 `e2e/categories.spec.ts` 使用真实 API 验证分类重试、多选上传、默认值、作者编辑、刷新回显和 390px 手机弹窗；可使用现有邮箱夹具或独立测试账号运行：
 

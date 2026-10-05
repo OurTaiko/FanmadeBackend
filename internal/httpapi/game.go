@@ -30,11 +30,7 @@ func (s *Server) gameBootstrap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	categories, err := readCategories(r.Context(), tx)
-	if err != nil {
-		internal(w, err)
-		return
-	}
+	categories := categoryCatalog
 	// Counts travel with the category metadata, without fetching chart bodies.
 	// Each category counts memberships; the server total counts distinct charts.
 	type gameCategoryInfo struct {
@@ -44,14 +40,14 @@ func (s *Server) gameBootstrap(w http.ResponseWriter, r *http.Request) {
 	counts := make([]gameCategoryInfo, 0, len(categories))
 	for _, category := range categories {
 		var n int
-		if err = tx.QueryRow(r.Context(), `SELECT count(*) FROM chart_categories cc JOIN charts c ON c.id=cc.chart_id WHERE cc.category_id=$1 AND `+publishedChart, category.ID).Scan(&n); err != nil {
+		if err = tx.QueryRow(r.Context(), `SELECT count(*) FROM charts c WHERE (c.category_flags & $1) <> 0 AND `+publishedChart, category.Flag).Scan(&n); err != nil {
 			internal(w, err)
 			return
 		}
-		counts = append(counts, gameCategoryInfo{category, n})
+		counts = append(counts, gameCategoryInfo{category.Category, n})
 	}
 	var chartCount int
-	if err = tx.QueryRow(r.Context(), `SELECT count(*) FROM charts c WHERE `+publishedChart+` AND EXISTS(SELECT 1 FROM chart_categories cc WHERE cc.chart_id=c.id)`).Scan(&chartCount); err != nil {
+	if err = tx.QueryRow(r.Context(), `SELECT count(*) FROM charts c WHERE `+publishedChart+` AND c.category_flags <> 0`).Scan(&chartCount); err != nil {
 		internal(w, err)
 		return
 	}

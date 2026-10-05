@@ -207,12 +207,7 @@ func (s *Server) editMetadata(w http.ResponseWriter, r *http.Request) {
 			problem(w, 422, "CATEGORIES_INVALID", "分类必须为分类 ID 数组")
 			return
 		}
-		valid, e := validCategories(r.Context(), tx, ids)
-		if e != nil {
-			internal(w, e)
-			return
-		}
-		if !valid {
+		if !validCategories(ids) {
 			problem(w, 422, "CATEGORIES_INVALID", "包含不存在的分类，请刷新后重试")
 			return
 		}

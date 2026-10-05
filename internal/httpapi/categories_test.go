@@ -81,13 +81,13 @@ func TestCategoriesFlow(t *testing.T) {
 	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &catalog) != nil || len(catalog.Items) != 6 {
 		t.Fatal(w.Body.String())
 	}
-	for i, id := range []string{"game", "virtual-singer", "pop", "classic", "variety", "anime"} {
-		if catalog.Items[i].ID != id {
-			t.Fatal(catalog)
-		}
+	wantCatalog := []Category{
+		{"game", "Game", "GAME"}, {"virtual-singer", "Virtual Singer", "VOCALOID"},
+		{"pop", "Pop", "J-POP"}, {"classic", "Classic", "CLASSICAL"},
+		{"variety", "Variety", "VARIETY"}, {"anime", "Anime", "ANIME"},
 	}
-	if catalog.Items[5] != (Category{ID: "anime", Title: "Anime", Genre: "ANIME"}) {
-		t.Fatal("Anime metadata", catalog.Items[5])
+	if !reflect.DeepEqual(catalog.Items, wantCatalog) {
+		t.Fatal("catalog metadata/order changed", catalog)
 	}
 	for _, raw := range []string{"", "[]", "null"} {
 		c := decodeChart(post(raw, ID()), 201)
@@ -99,6 +99,10 @@ func TestCategoriesFlow(t *testing.T) {
 	c := decodeChart(post(`["pop","anime","game","pop"]`, key), 201)
 	if !reflect.DeepEqual(c.CategoryIDs, []string{"anime", "game", "pop"}) {
 		t.Fatal(c.CategoryIDs)
+	}
+	var flags int32
+	if err = pool.QueryRow(ctx, `SELECT category_flags FROM charts WHERE id=$1`, c.ID).Scan(&flags); err != nil || flags != 37 {
+		t.Fatal("multi-category storage", flags, err)
 	}
 	retry := decodeChart(post(`["game","pop","anime"]`, key), 200)
 	if retry.ID != c.ID {
@@ -193,11 +197,14 @@ func TestCategoriesFlow(t *testing.T) {
 	if after.Title != c.Title || !reflect.DeepEqual(after.CategoryIDs, c.CategoryIDs) {
 		t.Fatal("partial invalid patch")
 	}
-	// An existing score must remain attached to the same chart/version after reclassification.
+	// An existing score must remain attached to the same song after reclassification.
 	if _, err = pool.Exec(ctx, `INSERT INTO scores(id,user_id,song_id,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest) VALUES('score','89b6ef3a5cb57b6e04f74711d15a8a5f',$1,'Oni',1,0,0,1000,0,1,repeat('a',64))`, c.ID); err != nil {
 		t.Fatal(err)
 	}
 	after = decodeChart(call("PATCH", path, `{"categoryIds":["classic","virtual-singer"]}`, token), 200)
+	if err = pool.QueryRow(ctx, `SELECT category_flags FROM charts WHERE id=$1`, c.ID).Scan(&flags); err != nil || flags != 10 {
+		t.Fatal("category edit must replace, not accumulate bits", flags, err)
+	}
 	if after.ID != c.ID || after.TJAHash != c.TJAHash || after.AudioHash != c.AudioHash {
 		t.Fatal("classification changed content identity")
 	}
