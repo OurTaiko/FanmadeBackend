@@ -12,7 +12,7 @@
 | POST | /auth/logout | 撤销 Session，清 Cookie |
 | GET | /me | `{user, csrfToken}`；user 含自己的 username 和 nickname；未登录返回 200，user 为 null |
 | PATCH | /me | 已迁移，返回 410 SSO_REQUIRED；在 SSO 管理昵称 |
-| POST | /scores | JSON 提交单人谱成绩；首次保存 201，幂等重试 200 |
+| POST | /scores | JSON 提交单人／双人指定难度成绩；首次保存 201，幂等重试 200 |
 | GET | /upload-rules | 校验版本、大小上限、编码与音频支持信息 |
 | GET | /charts?q=&course=&level=&order=default&page=1 | 返回 `{items,total,page,pageSize}`；每页 12 |
 | GET | /me/charts | 本人作品列表，查询参数与公开列表一致 |
@@ -73,7 +73,7 @@ STYLE 不区分值大小写，支持 Single/0、Double/1、Duet；每次 COURSE 
 
 `ClearStatus` 为可选整数，取值 `0`（无皇冠／状态未知）、`1`（普通通关）、`2`（全连）、`3`（全良）。字段名大小写按此示例；省略或 `null` 按 `0` 保存，兼容旧客户端。负数或大于 3 返回 `422 SCORE_INVALID`；字符串、小数、布尔值返回 `400 REQUEST_INVALID`。服务端保存上报状态，不根据分数、不可数量或回放推断通关。
 
-后端锁定当前已发布歌曲，按难度寻找唯一有资格的单人块。同一难度含一个 Single 和若干 Double 时只选 Single；只有 Double 时拒绝。重复 Single 已在新上传时拦截，成绩接口仍对历史异常数据返回歧义错误。浏览器和原生游戏接口都只按 songId 归属，不接收歌曲版本字段。服务端保存客户端上报值，未根据游玩过程重算成绩。
+后端锁定当前已发布歌曲，检查 difficulty 与歌曲 JSON 中某项 course 精确匹配，双人两侧分别使用 _1p / _2p。浏览器和原生游戏接口都只按 songId 归属，不接收歌曲版本字段。服务端保存客户端上报值，未根据游玩过程重算成绩。
 
 成功返回 201，响应包含上述八个基础成绩字段（difficulty 已归一化）和 `ClearStatus`（即使为 0 也返回），以及服务端生成的 `id`、`userId` 和 `submittedAt`（UTC RFC3339）。每次新提交保留一条游玩记录，不覆盖最高分；排行榜读取时选出每人的最高分记录。歌曲更名或软删除不删除已保存成绩；下架后拒绝新成绩。
 
