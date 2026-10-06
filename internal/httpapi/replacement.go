@@ -64,7 +64,7 @@ func (s *Server) beginUpload(w http.ResponseWriter, r *http.Request, user, key, 
 		return nil, false
 	}
 	c = items[0]
-	c.Uploader = s.publicNames(r.Context(), []string{c.OwnerID})[c.OwnerID]
+	c.setUploader(s.publicProfiles(r.Context(), []string{c.OwnerID})[c.OwnerID])
 	respond(w, 200, c)
 	return nil, false
 }

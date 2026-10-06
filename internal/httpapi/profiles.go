@@ -7,13 +7,13 @@ import (
 
 // Public catalogs stay available during an identity-provider outage. Account
 // checks never use this fallback; they always require a live SSO response.
-func (s *Server) publicNames(ctx context.Context, ids []string) map[string]string {
-	result := map[string]string{}
+func (s *Server) publicProfiles(ctx context.Context, ids []string) map[string]PublicProfile {
+	result := map[string]PublicProfile{}
 	unique := []string{}
 	for _, id := range ids {
 		if _, ok := result[id]; !ok {
 			unique = append(unique, id)
-			result[id] = "未知用户"
+			result[id] = PublicProfile{Nickname: "未知用户"}
 		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -31,8 +31,13 @@ func (s *Server) chartNames(ctx context.Context, charts []Chart) {
 	for i, c := range charts {
 		ids[i] = c.OwnerID
 	}
-	names := s.publicNames(ctx, ids)
+	profiles := s.publicProfiles(ctx, ids)
 	for i := range charts {
-		charts[i].Uploader = names[charts[i].OwnerID]
+		charts[i].setUploader(profiles[charts[i].OwnerID])
 	}
+}
+
+func (c *Chart) setUploader(p PublicProfile) {
+	c.Uploader = p.Nickname
+	c.UploaderAvatarURL = p.AvatarURL
 }

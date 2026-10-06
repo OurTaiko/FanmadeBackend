@@ -38,7 +38,7 @@ func TestSSOConnectAddressPreservesPublicIssuer(t *testing.T) {
 		t.Fatal("browser URL changed")
 	}
 	profiles, err := c.Profiles(context.Background(), []string{"11111111111111111111111111111111"})
-	if err != nil || profiles["11111111111111111111111111111111"] != "Docker" {
+	if err != nil || profiles["11111111111111111111111111111111"].Nickname != "Docker" {
 		t.Fatal(profiles, err)
 	}
 	// Unrelated origins must not be routed to the account center.

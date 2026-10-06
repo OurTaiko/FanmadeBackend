@@ -16,6 +16,7 @@ import (
 type PublicUser struct {
 	ID           string     `json:"id"`
 	Nickname     *string    `json:"nickname"`
+	AvatarURL    string     `json:"avatarUrl"`
 	FirstLoginAt *time.Time `json:"firstLoginAt"`
 	LastActiveAt *time.Time `json:"lastActiveAt"`
 	ChartCount   int64      `json:"chartCount"`
@@ -64,8 +65,8 @@ func (s *Server) userSpace(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		result.ProfilesAvailable = false
 	}
-	if name, ok := names[id]; ok {
-		u.Nickname = &name
+	if p, ok := names[id]; ok {
+		u.Nickname, u.AvatarURL = &p.Nickname, p.AvatarURL
 	}
 	respond(w, http.StatusOK, result)
 }
@@ -155,8 +156,8 @@ func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 		result.ProfilesAvailable = false
 	}
 	for i := range result.Items {
-		if name, ok := names[result.Items[i].ID]; ok {
-			result.Items[i].Nickname = &name
+		if p, ok := names[result.Items[i].ID]; ok {
+			result.Items[i].Nickname, result.Items[i].AvatarURL = &p.Nickname, p.AvatarURL
 		}
 	}
 	respond(w, http.StatusOK, result)

@@ -215,9 +215,15 @@ func TestUserDirectoryPublicScopeAndStatistics(t *testing.T) {
 	if err = json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
 		t.Fatal(err)
 	}
+	public := map[string]bool{"id": true, "nickname": true, "avatarUrl": true, "firstLoginAt": true, "lastActiveAt": true, "chartCount": true, "scoreCount": true}
 	for _, u := range raw.Items {
-		if len(u) != 6 {
-			t.Fatal("unexpected public fields", u)
+		for key := range u {
+			if !public[key] {
+				t.Fatal("unexpected public field", key, u)
+			}
+		}
+		if len(u) != len(public) {
+			t.Fatal("missing public fields", u)
 		}
 	}
 	for _, secret := range []string{"PrivateLogin", "private-hash", "email", "isAdmin", "csrf", "token", "SSO独有"} {

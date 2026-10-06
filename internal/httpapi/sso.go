@@ -189,21 +189,25 @@ func validSubject(id string) bool {
 	b, e := hex.DecodeString(id)
 	return e == nil && len(b) == 16 && strings.ToLower(id) == id
 }
-func (c *SSOClient) Profiles(ctx context.Context, ids []string) (map[string]string, error) {
-	names := map[string]string{}
+
+// PublicProfile is what SSO publishes about any user: nickname and avatar only.
+type PublicProfile struct {
+	Nickname  string `json:"nickname"`
+	AvatarURL string `json:"avatarUrl"`
+}
+
+func (c *SSOClient) Profiles(ctx context.Context, ids []string) (map[string]PublicProfile, error) {
+	names := map[string]PublicProfile{}
 	for len(ids) > 0 {
 		n := min(len(ids), 100)
 		var res struct {
-			Users []struct {
-				ID       string `json:"id"`
-				Nickname string `json:"nickname"`
-			} `json:"users"`
+			Users []User `json:"users"`
 		}
 		if e := c.call(ctx, "users/lookup", map[string]any{"userIds": ids[:n]}, &res); e != nil {
 			return nil, e
 		}
 		for _, u := range res.Users {
-			names[u.ID] = u.Nickname
+			names[u.ID] = PublicProfile{Nickname: u.Nickname, AvatarURL: c.avatarURL(u)}
 		}
 		ids = ids[n:]
 	}

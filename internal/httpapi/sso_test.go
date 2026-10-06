@@ -153,9 +153,9 @@ func TestPublicNamesDoNotExposeLogin(t *testing.T) {
 		t.Fatal(e)
 	}
 	app := testServer(t, pool, Config{})
-	names := app.publicNames(context.Background(), []string{id, id})
+	names := app.publicProfiles(context.Background(), []string{id, id})
 	data, _ := json.Marshal(names)
-	if strings.Contains(string(data), "PrivateLogin") || names[id] != "公开名" {
+	if strings.Contains(string(data), "PrivateLogin") || names[id].Nickname != "公开名" {
 		t.Fatal(string(data))
 	}
 	matches, e := app.Config.SSO.search(context.Background(), "PrivateLogin")
@@ -163,7 +163,7 @@ func TestPublicNamesDoNotExposeLogin(t *testing.T) {
 		t.Fatal("login name searchable", e)
 	}
 	app.Config.SSO.http = &http.Client{Transport: failingTransport{}}
-	if app.publicNames(context.Background(), []string{id})[id] != "未知用户" {
+	if app.publicProfiles(context.Background(), []string{id})[id] != (PublicProfile{Nickname: "未知用户"}) {
 		t.Fatal("no outage fallback")
 	}
 }
@@ -223,5 +223,38 @@ func TestSSOAvatarURLIsPassedThroughOnlyFromIssuer(t *testing.T) {
 	body, err := json.Marshal(user)
 	if err != nil || !strings.Contains(string(body), `"avatarUrl":"`+valid+`"`) {
 		t.Fatalf("avatarUrl missing from API response: %s, %v", body, err)
+	}
+}
+
+func TestSSOProfilesCarryOnlyValidAvatars(t *testing.T) {
+	a, b := strings.Repeat("a", 32), strings.Repeat("b", 32)
+	digest := strings.Repeat("0f", 16)
+	var issuer string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/internal/v1/users/lookup" {
+			t.Error("unexpected request", r.URL.Path)
+		}
+		json.NewEncoder(w).Encode(map[string]any{"users": []map[string]string{
+			{"id": a, "nickname": "A", "avatarUrl": issuer + "/avatars/" + a + "/" + digest + ".webp"},
+			// Another user's avatar path must not be attributed to b.
+			{"id": b, "nickname": "B", "avatarUrl": issuer + "/avatars/" + a + "/" + digest + ".webp"},
+		}})
+	}))
+	defer upstream.Close()
+	issuer = upstream.URL
+	client := &SSOClient{config: SSOConfig{Issuer: issuer, ServiceID: "fanmade"}, http: upstream.Client()}
+	profiles, err := client.Profiles(context.Background(), []string{a, b})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profiles[a] != (PublicProfile{Nickname: "A", AvatarURL: issuer + "/avatars/" + a + "/" + digest + ".webp"}) ||
+		profiles[b] != (PublicProfile{Nickname: "B"}) {
+		t.Fatalf("%#v", profiles)
+	}
+	chart := Chart{OwnerID: a}
+	chart.setUploader(profiles[a])
+	data, _ := json.Marshal(chart)
+	if !strings.Contains(string(data), `"uploaderAvatarUrl":"`+profiles[a].AvatarURL+`"`) {
+		t.Fatal(string(data))
 	}
 }

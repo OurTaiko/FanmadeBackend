@@ -11,8 +11,9 @@ import (
 
 type leaderboardEntry struct {
 	Score
-	Nickname string `json:"nickname"`
-	Rank     int64  `json:"rank"`
+	Nickname  string `json:"nickname"`
+	AvatarURL string `json:"avatarUrl"`
+	Rank      int64  `json:"rank"`
 }
 
 type leaderboardResponse struct {
@@ -126,9 +127,10 @@ func (s *Server) leaderboard(w http.ResponseWriter, r *http.Request) {
 	for _, entry := range result.Items {
 		ids = append(ids, entry.UserID)
 	}
-	names := s.publicNames(r.Context(), ids)
+	profiles := s.publicProfiles(r.Context(), ids)
 	for i := range result.Items {
-		result.Items[i].Nickname = names[result.Items[i].UserID]
+		p := profiles[result.Items[i].UserID]
+		result.Items[i].Nickname, result.Items[i].AvatarURL = p.Nickname, p.AvatarURL
 	}
 	respond(w, 200, result)
 }

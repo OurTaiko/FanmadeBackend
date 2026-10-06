@@ -25,17 +25,19 @@ type Chart struct {
 	ID           string        `json:"id"`
 	OwnerID      string        `json:"ownerId"`
 	Uploader     string        `json:"uploader"`
-	Description  string        `json:"description"`
-	CreatedAt    time.Time     `json:"createdAt"`
-	Duration     float64       `json:"duration"`
-	Encoding     string        `json:"encoding"`
-	TJAName      string        `json:"tjaName"`
-	AudioName    string        `json:"audioName"`
-	TJAHash      string        `json:"tjaHash"`
-	AudioHash    string        `json:"audioHash"`
-	AudioSize    int64         `json:"audioSize"`
-	TJAKey       string        `json:"-"`
-	AudioKey     string        `json:"-"`
+	// UploaderAvatarURL is empty when the uploader has no avatar or SSO is unavailable.
+	UploaderAvatarURL string    `json:"uploaderAvatarUrl"`
+	Description       string    `json:"description"`
+	CreatedAt         time.Time `json:"createdAt"`
+	Duration          float64   `json:"duration"`
+	Encoding          string    `json:"encoding"`
+	TJAName           string    `json:"tjaName"`
+	AudioName         string    `json:"audioName"`
+	TJAHash           string    `json:"tjaHash"`
+	AudioHash         string    `json:"audioHash"`
+	AudioSize         int64     `json:"audioSize"`
+	TJAKey            string    `json:"-"`
+	AudioKey          string    `json:"-"`
 	tja.Metadata
 }
 
@@ -65,7 +67,7 @@ func readChart(row pgx.Row) (Chart, error) {
 func (s *Server) chart(ctx context.Context, id string) (Chart, error) {
 	c, e := s.readChart(s.DB.QueryRow(ctx, chartSelect+` WHERE c.id=$1 AND `+publishedChart, id))
 	if e == nil {
-		c.Uploader = s.publicNames(ctx, []string{c.OwnerID})[c.OwnerID]
+		c.setUploader(s.publicProfiles(ctx, []string{c.OwnerID})[c.OwnerID])
 	}
 	if e == nil {
 		items := []Chart{c}

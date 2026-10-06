@@ -296,7 +296,7 @@ func (s *Server) editMetadata(w http.ResponseWriter, r *http.Request) {
 		internal(w, err)
 		return
 	}
-	chart.Uploader = s.publicNames(r.Context(), []string{chart.OwnerID})[chart.OwnerID]
+	chart.setUploader(s.publicProfiles(r.Context(), []string{chart.OwnerID})[chart.OwnerID])
 	items := []Chart{chart}
 	if err = s.coverHashes(r.Context(), items); err != nil {
 		internal(w, err)
