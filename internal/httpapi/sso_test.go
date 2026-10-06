@@ -191,3 +191,37 @@ func TestSSOPreferredLanguageIsLive(t *testing.T) {
 		}
 	}
 }
+
+func TestSSOAvatarURLIsPassedThroughOnlyFromIssuer(t *testing.T) {
+	id := strings.Repeat("a", 32)
+	digest := strings.Repeat("0f", 16)
+	avatar := ""
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"user": User{ID: id, AvatarURL: avatar}})
+	}))
+	defer upstream.Close()
+	client := &SSOClient{config: SSOConfig{Issuer: upstream.URL + "/", ServiceID: "fanmade"}, http: upstream.Client()}
+	valid := upstream.URL + "/avatars/" + id + "/" + digest + ".webp"
+	for given, want := range map[string]string{
+		valid: valid,
+		"":    "",
+		"https://evil.example/avatars/" + id + "/" + digest + ".webp":                 "",
+		upstream.URL + "/avatars/" + strings.Repeat("b", 32) + "/" + digest + ".webp": "",
+		upstream.URL + "/avatars/" + id + "/" + digest + ".png":                       "",
+		upstream.URL + "/avatars/" + id + "/" + digest + ".webp?x=1":                  "",
+		upstream.URL + "/avatars/" + id + "/../" + digest[:29] + ".webp":              "",
+		"javascript:alert(1)": "",
+	} {
+		avatar = given
+		user, err := client.identity(context.Background(), "web", "test-token")
+		if err != nil || user.AvatarURL != want {
+			t.Fatalf("avatar %q: got %q, %v", given, user.AvatarURL, err)
+		}
+	}
+	avatar = valid
+	user, _ := client.identity(context.Background(), "web", "test-token")
+	body, err := json.Marshal(user)
+	if err != nil || !strings.Contains(string(body), `"avatarUrl":"`+valid+`"`) {
+		t.Fatalf("avatarUrl missing from API response: %s, %v", body, err)
+	}
+}

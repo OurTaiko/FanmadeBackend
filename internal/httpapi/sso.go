@@ -170,7 +170,20 @@ func (c *SSOClient) identity(ctx context.Context, kind, token string) (User, err
 	if e == nil && !validSubject(result.User.ID) {
 		return User{}, errors.New("invalid SSO subject")
 	}
+	result.User.AvatarURL = c.avatarURL(result.User)
 	return result.User, e
+}
+
+// avatarURL passes through only the SSO's own content-addressed avatar path for
+// this user, so a compromised or misconfigured upstream cannot inject other URLs.
+func (c *SSOClient) avatarURL(u User) string {
+	prefix := strings.TrimRight(c.config.Issuer, "/") + "/avatars/" + u.ID + "/"
+	rest, ok := strings.CutPrefix(u.AvatarURL, prefix)
+	digest, ext := strings.CutSuffix(rest, ".webp")
+	if !ok || !ext || len(digest) != 32 || strings.Trim(digest, "0123456789abcdef") != "" {
+		return ""
+	}
+	return u.AvatarURL
 }
 func validSubject(id string) bool {
 	b, e := hex.DecodeString(id)

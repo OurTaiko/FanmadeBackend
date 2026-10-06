@@ -19,6 +19,7 @@ type User struct {
 	ID                string `json:"id"`
 	Username          string `json:"username"`
 	Nickname          string `json:"nickname"`
+	AvatarURL         string `json:"avatarUrl"`
 	EmailVerified     bool   `json:"emailVerified"`
 	IsAdmin           bool   `json:"isAdmin"`
 }
@@ -157,6 +158,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		internal(w, e)
 		return
 	}
+	result.User.AvatarURL = s.Config.SSO.avatarURL(result.User)
 	respond(w, 200, result)
 }
 func (s *Server) accountRedirect(w http.ResponseWriter, r *http.Request) {
