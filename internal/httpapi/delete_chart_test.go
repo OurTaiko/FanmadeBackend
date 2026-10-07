@@ -10,7 +10,7 @@ import (
 	"ourtaiko.dev/fanmade/api/internal/teststore"
 )
 
-func TestDeleteChartRemovesScoresAndUnsharedFiles(t *testing.T) {
+func TestDeleteChartRemovesScoresRowAndUnsharedFiles(t *testing.T) {
 	pool := scoreTestDB(t)
 	ctx := context.Background()
 	const owner, other = "d46774d30dd13b92d9e536808da468a4", "9b893bc6d9422c93536ff0df503b81e9"
@@ -43,6 +43,9 @@ func TestDeleteChartRemovesScoresAndUnsharedFiles(t *testing.T) {
   ('kept','audio','shared','a.ogg',repeat('a',64),14,'audio/ogg');
  COMMIT;`)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO upload_requests(user_id,idempotency_key,payload_digest,chart_id,tja_sha256,audio_sha256) VALUES($1,'gone-upload-receipt',repeat('a',64),'gone',repeat('a',64),repeat('a',64))`, owner); err != nil {
 		t.Fatal(err)
 	}
 	for _, s := range []struct{ id, user, song string }{{"s1", owner, "gone"}, {"s2", other, "gone"}, {"s3", other, "kept"}} {
@@ -90,8 +93,12 @@ func TestDeleteChartRemovesScoresAndUnsharedFiles(t *testing.T) {
 	if count(`SELECT count(*) FROM chart_resources WHERE chart_id='gone'`) != 0 || count(`SELECT count(*) FROM chart_resources WHERE chart_id='kept'`) != 2 {
 		t.Fatal("resources not limited to the deleted song")
 	}
-	if count(`SELECT count(*) FROM charts WHERE id='gone' AND status='deleted'`) != 1 {
-		t.Fatal("tombstone missing")
+	if count(`SELECT count(*) FROM charts WHERE id='gone'`) != 0 || count(`SELECT count(*) FROM charts WHERE id='kept'`) != 1 {
+		t.Fatal("chart rows not limited to the deleted song")
+	}
+	// The upload receipt survives so a retried upload reports the removal.
+	if count(`SELECT count(*) FROM upload_requests WHERE idempotency_key='gone-upload-receipt' AND chart_id IS NULL`) != 1 {
+		t.Fatal("upload receipt not detached")
 	}
 	for _, key := range []string{"gone/tja", "gone/cover", "gone/archive", "gone/preview"} {
 		if exists(key) {
@@ -106,9 +113,5 @@ func TestDeleteChartRemovesScoresAndUnsharedFiles(t *testing.T) {
 	}
 	if code := remove(owner); code != 404 {
 		t.Fatal("repeated delete", code)
-	}
-	// The deleted song may not regain files without becoming a live song again.
-	if _, err = pool.Exec(ctx, `UPDATE charts SET status='published' WHERE id='gone'`); err == nil {
-		t.Fatal("restored a song without files")
 	}
 }

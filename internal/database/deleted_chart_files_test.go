@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func TestDeletedChartFilesMigration(t *testing.T) {
+func TestDeletedChartsMigration(t *testing.T) {
 	url := os.Getenv("DATABASE_TEST_URL")
 	if url == "" {
 		t.Skip("DATABASE_TEST_URL required")
@@ -49,6 +49,8 @@ func TestDeletedChartFilesMigration(t *testing.T) {
   ('live','tja','live/tja','f',repeat('a',64),1,'test'),('live','audio','shared','f',repeat('a',64),1,'test'),
   ('gone','tja','gone/tja','f',repeat('a',64),1,'test'),('gone','audio','shared','f',repeat('a',64),1,'test'),
   ('gone','archive','gone/zip','f',repeat('a',64),1,'test');
+ INSERT INTO upload_requests(user_id,idempotency_key,payload_digest,chart_id,tja_sha256,audio_sha256) VALUES
+  ('owner','gone-upload-receipt',repeat('a',64),'gone',repeat('a',64),repeat('a',64));
  INSERT INTO scores(id,user_id,song_id,difficulty,good,ok,bad,score,drumroll,max_combo,payload_digest) VALUES
   ('s1','owner','live','Oni',1,0,0,1000,0,1,repeat('a',64)),('s2','owner','gone','Oni',1,0,0,1000,0,1,repeat('a',64));
  COMMIT;`)
@@ -63,7 +65,8 @@ func TestDeletedChartFilesMigration(t *testing.T) {
 	 (SELECT array_agg(song_id) FROM scores)=ARRAY['live'] AND
 	 (SELECT count(*) FROM chart_resources WHERE chart_id='gone')=0 AND
 	 (SELECT count(*) FROM chart_resources WHERE chart_id='live')=2 AND
-	 (SELECT count(*) FROM charts)=2 AND
+	 (SELECT array_agg(id) FROM charts)=ARRAY['live'] AND
+	 (SELECT count(*) FROM upload_requests WHERE chart_id IS NULL)=1 AND
 	 (SELECT array_agg(storage_key ORDER BY storage_key) FROM retired_files)=ARRAY['gone/tja','gone/zip','shared']`).Scan(&ok)
 	if err != nil || !ok {
 		t.Fatal("purge", ok, err)

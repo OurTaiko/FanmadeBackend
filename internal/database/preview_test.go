@@ -48,7 +48,8 @@ func TestDemoEndMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = Migrate(ctx, pool, t.TempDir()); err != nil {
+	// Stop before 033, which removes the deleted chart.
+	if err = migrateTo(ctx, pool, t.TempDir(), 32); err != nil {
 		t.Fatal(err)
 	}
 	var correct bool
@@ -58,7 +59,7 @@ func TestDemoEndMigration(t *testing.T) {
 	if _, err = pool.Exec(ctx, `UPDATE charts SET demo_end=20 WHERE id='one'`); err != nil {
 		t.Fatal(err)
 	}
-	if err = Migrate(ctx, pool, t.TempDir()); err != nil {
+	if err = migrateTo(ctx, pool, t.TempDir(), 32); err != nil {
 		t.Fatal(err)
 	}
 	var end float64

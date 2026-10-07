@@ -32,7 +32,7 @@ func (s *Server) beginUpload(w http.ResponseWriter, r *http.Request, user, key, 
 		return nil, false
 	}
 	var chartID, previousDigest, tjaHash, audioHash string
-	err = tx.QueryRow(r.Context(), `SELECT chart_id,payload_digest,tja_sha256,audio_sha256 FROM upload_requests WHERE user_id=$1 AND idempotency_key=$2`, user, key).Scan(&chartID, &previousDigest, &tjaHash, &audioHash)
+	err = tx.QueryRow(r.Context(), `SELECT COALESCE(chart_id,''),payload_digest,tja_sha256,audio_sha256 FROM upload_requests WHERE user_id=$1 AND idempotency_key=$2`, user, key).Scan(&chartID, &previousDigest, &tjaHash, &audioHash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		proceed = true
 		return tx, true

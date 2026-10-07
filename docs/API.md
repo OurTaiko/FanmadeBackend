@@ -20,7 +20,7 @@
 | PUT | /charts/{id}/files | 作者或管理员整体替换 TJA／音频，删除旧文件及成绩，只保存当前资源，返回 200 |
 | GET | /charts/{id} | 当前已发布歌曲详情 |
 | PATCH | /charts/{id} | 作者或管理员修改分类、试听范围、介绍、谱师名义和译名，返回更新后的作品 |
-| DELETE | /charts/{id} | 本人删除：同一事务删除该作品全部成绩和全部资源记录（作品行保留为 `deleted` 墓碑），随后从存储删除不再被任何资源引用的文件（失败由 30 秒清理任务重试）；后续访问返回 404 |
+| DELETE | /charts/{id} | 本人删除：同一事务依次删除该作品全部成绩、全部资源记录和作品行（迁移 033；上传幂等记录保留并将 chart_id 置空，重试仍返回 `CHART_REMOVED`），随后从存储删除不再被任何资源引用的文件（失败由 30 秒清理任务重试）；后续访问返回 404 |
 | GET | /charts/{id}/tja | 原始 TJA 字节，attachment |
 | GET / HEAD | /charts/{id}/audio | 原始 OGG 或 MP3 流，支持 Range、ETag、If-Range；Content-Type 分别为 audio/ogg、audio/mpeg |
 | GET | /charts/{id}/download | ZIP，含原始 TJA 与按 WAVE 原值命名的音频 |

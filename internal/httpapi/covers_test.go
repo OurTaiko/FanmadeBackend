@@ -288,7 +288,7 @@ func testCoverLifecycle(t *testing.T, useWebP, remote bool) {
 	invalid := append([]part(nil), parts...)
 	invalid[0] = part{"tja", "broken.tja", []byte("not a chart")}
 	status(send("POST", "/api/v1/charts", "owner", "csrf", ID(), invalid...), 422)
-	if count(`SELECT count(*) FROM charts`) != 2 || count(`SELECT count(*) FROM chart_resources WHERE kind='cover'`) != 0 {
+	if count(`SELECT count(*) FROM charts`) != 0 || count(`SELECT count(*) FROM chart_resources WHERE kind='cover'`) != 0 {
 		t.Fatal("invalid upload persisted data")
 	}
 }

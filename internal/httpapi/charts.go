@@ -144,8 +144,8 @@ func (s *Server) remove(w http.ResponseWriter, r *http.Request) {
 	respond(w, 200, map[string]bool{"ok": true})
 }
 
-// deleteChart removes a song's scores and resources, keeping the row as a
-// tombstone. The resource trigger queues each file in retired_files.
+// deleteChart removes a song's scores, resources and row. The resource trigger
+// queues each file in retired_files.
 func (s *Server) deleteChart(ctx context.Context, chartID, ownerID string) ([]string, error) {
 	tx, e := s.DB.Begin(ctx)
 	if e != nil {
@@ -159,15 +159,15 @@ func (s *Server) deleteChart(ctx context.Context, chartID, ownerID string) ([]st
 	if _, e = tx.Exec(ctx, `DELETE FROM scores WHERE song_id=$1`, chartID); e != nil {
 		return nil, e
 	}
-	if _, e = tx.Exec(ctx, `UPDATE charts SET status='deleted' WHERE id=$1`, chartID); e != nil {
-		return nil, e
-	}
 	rows, e := tx.Query(ctx, `DELETE FROM chart_resources WHERE chart_id=$1 RETURNING storage_key`, chartID)
 	if e != nil {
 		return nil, e
 	}
 	keys, e := pgx.CollectRows(rows, pgx.RowTo[string])
 	if e != nil {
+		return nil, e
+	}
+	if _, e = tx.Exec(ctx, `DELETE FROM charts WHERE id=$1`, chartID); e != nil {
 		return nil, e
 	}
 	return keys, tx.Commit(ctx)
