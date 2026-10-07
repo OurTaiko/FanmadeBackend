@@ -30,10 +30,13 @@ func fail(code, message string, line int) *Issue {
 }
 
 // Legacy fields are in-memory only, used by pre-028 database backfills.
+// Branching reports a #BRANCHSTART inside the block, so song select can mark
+// branch charts before the TJA is downloaded.
 type Difficulty struct {
 	Maker              string `json:"maker"`
 	Course             string `json:"course"`
 	Level              int    `json:"level"`
+	Branching          bool   `json:"branching"`
 	BlockIndex         int    `json:"-"`
 	Player             string `json:"-"`
 	Style              string `json:"-"`
@@ -148,6 +151,10 @@ func parse(data []byte, encoding, audioName string, uniform bool) (Metadata, *Is
 				Course: effectiveCourse, Level: level, BlockIndex: len(m.Difficulties), Player: player, Maker: m.Maker,
 				Style: blockStyle, CloudScoreEligible: blockStyle == "Single" && player == "",
 			})
+			continue
+		}
+		if inBlock && len(s) >= 12 && strings.EqualFold(s[:12], "#BRANCHSTART") {
+			m.Difficulties[len(m.Difficulties)-1].Branching = true
 			continue
 		}
 		if s == "#END" {

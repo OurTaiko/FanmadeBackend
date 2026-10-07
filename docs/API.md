@@ -47,7 +47,7 @@
 
 ## 歌曲模式
 
-作品的 isSingle 表示整份文件的模式；difficulties 每项只有 course、level、maker。单人使用五种基础难度名，双人使用带 _1p/_2p 后缀的名称，详见文末协议说明。所有有效难度都支持成绩。
+作品的 isSingle 表示整份文件的模式；difficulties 每项为 course、level、maker、branching（031，见「难度分歧标记」）。单人使用五种基础难度名，双人使用带 _1p/_2p 后缀的名称，详见文末协议说明。所有有效难度都支持成绩。
 
 STYLE 不区分值大小写，支持 Single/0、Double/1、Duet；每次 COURSE 声明恢复默认 Single。P1/P2 标记按双人解析，显式 Double 必须标明 P1/P2。同一文件混合模式、重复完整 course、块内 STYLE 和未知 STYLE 均被拒绝。校验标识为 tja-upload-v8。
 
@@ -146,6 +146,51 @@ STYLE 不区分值大小写，支持 Single/0、Double/1、Duet；每次 COURSE 
 
 作品详情、列表、本人列表和游戏分类曲库均返回 `difficulties[].maker`；歌曲级 `maker` 为所有难度署名按块顺序去重的汇总，如上述示例返回 `A | B`。空署名不参与汇总，不以上传者代替署名。搜索谱师匹配任一难度的 maker。下载的原 TJA 保持原始内容；游戏使用 API 汇总 maker 覆盖运行缓存的 MAKER。
 
+
+## 难度分歧标记（031）
+
+`difficulties[].branching` 为布尔值：该难度的谱面块（`#START`…`#END`）内出现 `#BRANCHSTART`（不区分大小写）时为 true，否则为 false。双人谱面按 P1、P2 各自的块分别判断。游戏可在下载 TJA 前据此在选曲界面标出分歧谱面；字段只描述谱面，不影响成绩、排行榜或难度身份，`course` 仍是唯一标识。
+
+作品详情、作品列表、本人列表、搜索和游戏分类曲库（`GET /api/v1/game/categories/{categoryId}/charts` 的 `charts[]`）都返回同一 Chart 对象。示例（`GET /api/v1/charts/{id}`）：
+
+```json
+{
+  "id": "0123456789abcdef0123456789abcdef",
+  "ownerId": "d46774d30dd13b92d9e536808da468a4",
+  "uploader": "author",
+  "uploaderAvatarUrl": "",
+  "description": "",
+  "createdAt": "2026-10-07T05:42:12.954756Z",
+  "categoryIds": ["variety"],
+  "duration": 128.4,
+  "encoding": "utf-8",
+  "tjaName": "song.tja",
+  "audioName": "song.ogg",
+  "tjaHash": "<64 位 SHA-256>",
+  "audioHash": "<64 位 SHA-256>",
+  "audioSize": 2483712,
+  "demoStart": 32.5,
+  "demoEnd": 47.5,
+  "audioPreview": {"url": "/api/v1/charts/0123456789abcdef0123456789abcdef/audio", "contentType": "audio/ogg", "startSeconds": 32.5, "durationSeconds": 15},
+  "isSingle": true,
+  "title": "TJA 原始标题",
+  "subtitle": "",
+  "titleTranslations": {"en": "TJA 原始标题", "ja": "日本語名"},
+  "subtitleTranslations": {"en": ""},
+  "maker": "A | B",
+  "bpm": 150,
+  "offset": -1.2,
+  "wave": "song.ogg",
+  "difficulties": [
+    {"course": "Hard", "level": 6, "maker": "A", "branching": false},
+    {"course": "Oni", "level": 9, "maker": "B", "branching": true}
+  ]
+}
+```
+
+- 新上传与整体替换由服务器解析 TJA 写入，不接受客户端提交该字段，`difficultyMakers` 也不含它。
+- 031 之前上传的作品由后台任务读取已存储的 TJA 补齐：启动时执行一次，之后每 5 分钟重试仍缺字段的作品。补齐前该项不含 branching 键，API 输出为 false；客户端应将缺失与 false 同样视为「未知／非分歧」。解析失败或谱面块与记录不一致时只记录日志，不猜测。
+- 旧服务器（含 ESE）不返回该字段，客户端按 false 处理。
 
 ## 整体替换歌曲与谱面
 
@@ -274,7 +319,7 @@ profilesAvailable=false 表示本次昵称查询失败，统计仍返回；个�
 
 ## 歌曲级模式与 JSON 难度（028）
 
-歌曲响应增加 isSingle，difficulties 为包含 course、level、maker 的数组。一次上传仅可包含 Single 或 Double；混合文件返回 422 TJA_MODE_MIXED，Double 无 P1/P2 标记返回 TJA_PLAYER_REQUIRED，重复 course 返回 TJA_DIFFICULTY_DUPLICATE。
+歌曲响应增加 isSingle，difficulties 为包含 course、level、maker 的数组（031 起另有 branching）。一次上传仅可包含 Single 或 Double；混合文件返回 422 TJA_MODE_MIXED，Double 无 P1/P2 标记返回 TJA_PLAYER_REQUIRED，重复 course 返回 TJA_DIFFICULTY_DUPLICATE。
 
 单人 course 为 Easy、Normal、Hard、Oni、Edit；双人则为 Easy_1p/Easy_2p 等。TJA 原文件依然使用 COURSE:Oni 和 #START P1/P2，由解析器生成 API 后缀，不将 COURSE:Oni_1p 写入 TJA。
 

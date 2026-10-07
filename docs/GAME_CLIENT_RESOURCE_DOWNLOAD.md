@@ -288,10 +288,10 @@ TJA 本地使用 `.tja`；音频根据经过核对的详情或 `contentType` 选
 
 ## 单人与双人模式、难度身份（028）
 
-bootstrap 返回 courseKeyedDifficulties=true。歌曲级 isSingle 为 true/false；difficulties 是完整数组，每项仅有 course、level、maker。删除旧 DTO 中的 blockIndex、player、style、cloudScoreEligible；所有有效难度都可上传成绩。
+bootstrap 返回 courseKeyedDifficulties=true。歌曲级 isSingle 为 true/false；difficulties 是完整数组，每项为 course、level、maker，以及 031 起的 branching（该块含 #BRANCHSTART，缺失按 false）。删除旧 DTO 中的 blockIndex、player、style、cloudScoreEligible；所有有效难度都可上传成绩。
 
 ```json
-{"isSingle":false,"difficulties":[{"course":"Oni_1p","level":10,"maker":"A"},{"course":"Oni_2p","level":9,"maker":"B"}]}
+{"isSingle":false,"difficulties":[{"course":"Oni_1p","level":10,"maker":"A","branching":false},{"course":"Oni_2p","level":9,"maker":"B","branching":true}]}
 ```
 
 单人仍为 Easy/Normal/Hard/Oni/Edit；双人难度在基础名后加 _1p 或 _2p。成绩请求仍使用 difficulty 字段，例如 difficulty="Oni_2p"，无需另外传方位或块序号。排行榜与搜索参数也使用完整 course；成绩缓存键必须包含完整后缀，不能把 P1/P2 合并。服务端核验该歌曲确有这个难度。

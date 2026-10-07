@@ -120,15 +120,15 @@ erDiagram
 
 ### charts.difficulties JSONB
 
-已删除独立 difficulties 表。每个数组项只有 course、level、maker，例如：
+已删除独立 difficulties 表。每个数组项为 course、level、maker，031 起另有布尔 branching（该谱面块含 #BRANCHSTART），例如：
 
 ```json
-[{"course":"Oni_1p","level":10,"maker":"A"},{"course":"Oni_2p","level":9,"maker":"B"}]
+[{"course":"Oni_1p","level":10,"maker":"A","branching":false},{"course":"Oni_2p","level":9,"maker":"B","branching":true}]
 ```
 
 is_single=true 时 course 为 Easy/Normal/Hard/Oni/Edit；false 时必须在这些值后附 _1p 或 _2p。一次上传只能有一种模式，双人块必须标记 P1/P2，每个 course 不得重复。数组按原 TJA 谱面块顺序保存；没有 player、style、cloud_score_eligible 或 block_index。API 返回 isSingle 和相同的 difficulties 数组。
 
-CHECK 函数校验 JSON 形状、整数星级 1–10、谱师最长 500 字节、模式与后缀、重复项和最多 5/10 项。API 上传另外要求至少一个完整谱面块。历史不支持的归档难度不被删除，CHECK 使用 NOT VALID；后续写入必须符合新规则。
+CHECK 函数校验 JSON 形状（branching 可省略，存在时必须为布尔）、整数星级 1–10、谱师最长 500 字节、模式与后缀、重复项和最多 5/10 项。API 上传另外要求至少一个完整谱面块。历史不支持的归档难度不被删除，CHECK 使用 NOT VALID；后续写入必须符合新规则。
 
 成绩仍独立保存在 scores。数据库触发器验证 scores.difficulty 确实存在于歌曲 JSON 中，锁定歌曲行以与替换上传串行；延迟约束阻止删除仍被成绩引用的难度。整体替换先清理旧成绩，再更新难度及资源。GIN 索引支持 JSON 包含查询；各难度谱师仍用于搜索和署名汇总。
 
@@ -252,6 +252,7 @@ PostgreSQL 不会为每个外键自动创建索引，不能把关系图当作索
 | 026 | 在 SSO 迁移完成后将认证和维护表移动到 auth/internal |
 | 027 | 合并全部标题翻译（含 en），删除四个 override 列 |
 | 028 | 歌曲级 is_single 与 difficulties JSONB；删除难度表和成绩块序号，双人成绩使用难度后缀 |
+| 031 | difficulties 项允许布尔 branching；旧作品由服务启动后的后台任务读取存储的 TJA 补齐（不在迁移事务内，S3 模式同样适用） |
 
 `Migrate` 在事务与 advisory lock 内执行 001–017、019–025、027–028；随后 `MigrateSSO` 另开受保护事务执行 018 与 026。检查迁移时使用 `internal.schema_migrations`；不能只用最大编号推断 018 已执行。003/004/006 的历史回填需要与数据库配套的 TJA 文件，缺失或解析不一致会回滚。
 
