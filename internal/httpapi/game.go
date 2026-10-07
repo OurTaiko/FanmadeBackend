@@ -78,7 +78,7 @@ func (s *Server) gameBootstrap(w http.ResponseWriter, r *http.Request) {
 		internal(w, err)
 		return
 	}
-	respond(w, 200, map[string]any{"user": user, "courseKeyedDifficulties": true, "songIdOnly": true, "categories": counts, "chartCount": chartCount, "scores": scores, "scoreReplayVersion": 1, "audioPreviewVersion": 1, "resourceDownloadVersion": func() int {
+	respond(w, 200, map[string]any{"user": user, "courseKeyedDifficulties": true, "categories": counts, "chartCount": chartCount, "scores": scores, "scoreReplayVersion": 1, "audioPreviewVersion": 1, "resourceDownloadVersion": func() int {
 		if s.remoteStorage() {
 			return 1
 		}

@@ -120,7 +120,7 @@ func TestSubmitScore(t *testing.T) {
 	if w := native("POST", "/api/v1/game/scores", oldBody); w.Code != 400 {
 		t.Fatal("removed field accepted", w.Code, w.Body.String())
 	}
-	if w := native("GET", "/api/v1/game/bootstrap", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"songIdOnly":true`) || strings.Contains(w.Body.String(), "versionId") || !strings.Contains(w.Body.String(), `"good":5`) || !strings.Contains(w.Body.String(), `"max_combo":6`) {
+	if w := native("GET", "/api/v1/game/bootstrap", ""); w.Code != 200 || strings.Contains(w.Body.String(), "songIdOnly") || strings.Contains(w.Body.String(), "versionId") || !strings.Contains(w.Body.String(), `"good":5`) || !strings.Contains(w.Body.String(), `"max_combo":6`) {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	// Existing personal scores must never leak through anonymous bootstrap,

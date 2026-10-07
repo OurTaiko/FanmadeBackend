@@ -24,14 +24,14 @@
 GET {baseUrl}/api/v1/game/bootstrap
 ```
 
-先读取布尔值 `songIdOnly`：`true` 表示歌曲、下载和成绩都采用本文的新协议；缺失时属于旧协议。此能力与存储方式独立，本地存储后端也可以为 true。兼容其他旧服务器的代码必须按服务器分别分支，不能向新版发送版本字段。
+歌曲、下载和成绩一律只用歌曲 ID 标识，不发送版本字段。原布尔能力 `songIdOnly` 已于 2026-10-07 删除，bootstrap 不再返回，客户端不要读取它。
 
-再读取整数 `resourceDownloadVersion`：
+读取整数 `resourceDownloadVersion`：
 
 | 值 | 客户端行为 |
 | --- | --- |
 | `1` | 启用本文的资源清单和直接下载流程 |
-| 缺失或 `0` | 若 songIdOnly=true，使用 `/charts/{id}/tja`、`/audio`；否则保持旧服务器下载流程 |
+| 缺失或 `0` | 使用 `/charts/{id}/tja`、`/audio` |
 | 其他值或类型错误 | 不假定协议兼容；采用既有兼容流程或明确报告不支持 |
 
 这个数字是下载协议能力号，不是歌曲版本号。每个服务器分别保存能力，重连时重新读取，不能把测试服的能力应用到其他服务器。
@@ -127,7 +127,7 @@ GET {baseUrl}/api/v1/charts/{chartId}/resources
 
 ```text
 if endpoint.resourceDownloadVersion != 1:
-    return PrepareViaAPI(endpoint.songIdOnly)
+    return PrepareViaAPI()
 
 chart, manifest = FetchMatchingChartAndResources(chartId, maxRefresh = 1)
 
@@ -259,7 +259,7 @@ TJA 本地使用 `.tja`；音频根据经过核对的详情或 `contentType` 选
 - 过期或首次 403 可以刷新后恢复；连续 403 有界失败，不触发登录或无限循环。
 - 403 刷新过程中歌曲变更、详情与清单不一致、外部 404、部分下载、超限响应、哈希不符都有测试；失败不会覆盖已有完整缓存。
 - 原生预览仅下载需要的 Range，正确处理实际 ETag、206、412、错误 Content-Range、意外 200、链接刷新和内容变化。切歌后旧请求停止，旧分块不混入新预览。
-- 没有 `resourceDownloadVersion` 的旧服务器仍可下载和游玩。旧服务器使用独立兼容分支；新服务器验证 songIdOnly、无版本成绩上传、ClearStatus、回放、幂等重试、SCORE_REMOVED、旧待上传队列迁移以及在线成绩删除同步。
+- 没有 `resourceDownloadVersion` 的旧服务器仍可下载和游玩。旧服务器使用独立兼容分支；新服务器验证无版本成绩上传、ClearStatus、回放、幂等重试、SCORE_REMOVED、旧待上传队列迁移以及在线成绩删除同步。
 - 连接上述 HTTPS 测试服进行实际进歌、试听、退出再进歌、缓存命中、取消和成绩上传验证。使用用户正常登录流程，不读取或硬编码玩家密码。
 - 报告分别列出自动测试、Unity 编译/构建、真实网络、实机或 Editor 交互验证；未执行的部分明确写出。当前没有 CloudFront，不声称验证过 CloudFront。
 
