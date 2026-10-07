@@ -1,6 +1,6 @@
 # 在线歌曲流播放与游戏端预览改进
 
-本文供 OurTaikoPlayerUnity 游戏端接入使用。后端提供原始 MP3／OGG 的 HTTP 渐进下载与字节范围读取，游戏端负责缓冲、解码、试听起点、切歌取消和资源释放。后端已于 2026-10-03 部署并通过公网协议验证，详情见 [生产发布记录](DEPLOYMENT.md#在线音频预览2026-10-03)。游戏端尚未改动，真机试听尚未验证。
+本文供 OurTaikoPlayerUnity 游戏端接入使用。后端提供原始 MP3／OGG 的 HTTP 渐进下载与字节范围读取，游戏端负责缓冲、解码、试听起点、切歌取消和资源释放。
 
 ## 现状与参考实现
 
@@ -110,13 +110,7 @@ ESE 是独立后端，本次未改动它。客户端必须逐服务器探测能�
 sh scripts/test.sh -count=1
 ```
 
-该脚本创建并清理独立 PostgreSQL，运行 race 检查及 go vet。2026-10-03 本次完整运行已通过，数据库测试未跳过。本机 FFmpeg 的 Homebrew x265 链接缺失，通过仅给测试进程指定现存兼容库完成验证，没有更改系统安装：
-
-```sh
-sh -c 'export DYLD_LIBRARY_PATH=/opt/homebrew/Cellar/x265/4.2/lib; . "$0"' scripts/test.sh -count=1
-```
-
-这条兼容命令只适用于该开发机，其他环境应使用正常可执行的 ffmpeg／ffprobe。
+该脚本创建并清理独立 PostgreSQL，运行 race 检查及 go vet。
 
 上线后选择一首当前已发布歌曲，将真实音频地址赋给 AUDIO_URL，进行只读检查：
 
@@ -129,6 +123,4 @@ curl -sS -D - -H 'Range: bytes=0-3' "$AUDIO_URL" -o /tmp/fanmade-preview-first4.
 
 游戏端验收覆盖：MP3／OGG 冷热缓存、弱网下整首下载完成前起播、靠近末尾及越界 DEMOSTART、连续切歌无串音、加载中离开场景、取消后资源释放、BGM 恢复、删除后的资源 404、旧服务器兼容、预览后正式下载仍通过完整哈希校验。Unity Editor 和目标真机分别记录首声音延迟、起播时已下载字节数和选曲内存趋势。
 
-2026-10-03 已经通过实际 HTTPS／代理链验证 MP3 与 OGG 的 HEAD、前缀／后缀／开放范围、ETag、If-Range、416 与旧版本 404；26 首公开歌曲均返回预览元数据。后端测试及上线验证不代表游戏试听已通过，完成游戏端接入和真机验证后才能关闭在线预览功能事项。
-
-当前 schema 024 不再使用歌曲版本 ID，旧路径已经移除。S3 直连预览和成绩适配请以 [游戏端资源直连接入说明](GAME_CLIENT_RESOURCE_DOWNLOAD.md) 为准；上面的 2026-10-03 记录仅描述当时上线验证。
+当前 schema 024 不再使用歌曲版本 ID，旧路径已经移除。S3 直连预览和成绩适配请以 [游戏端资源直连接入说明](GAME_CLIENT_RESOURCE_DOWNLOAD.md) 为准。

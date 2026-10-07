@@ -28,7 +28,7 @@ API 默认监听 `http://127.0.0.1:8080`，前端默认地址 `http://127.0.0.1:
 
 配置项见 [.env.example](.env.example)。应用启动时通过 godotenv 自动加载工作目录中的 `.env`，已经设置的进程环境变量优先；`.env.example` 不会被读取。真实密码仅放在 Git 忽略的 `.env`，模板保持空密码。默认数据库连接字符串是 `postgres://localhost/ourtaiko_fanmade?host=/tmp&sslmode=disable`，使用本地当前用户。
 
-本机现有 PostgreSQL 使用 trust，本次未改认证文件或创建开机启动项。示范版默认仅监听 loopback。正式部署应配置数据库最小权限账号、密码认证、HTTPS 与安全 Cookie。
+示范版默认仅监听 loopback。正式部署应配置数据库最小权限账号、密码认证、HTTPS 与安全 Cookie。
 
 ## 局域网真机测试
 
@@ -72,13 +72,11 @@ python3 scripts/metadata_smoke.py
 
 ## 设计与边界
 
-- [项目规划](docs/PROJECT_PLAN.md)
 - [数据库结构](docs/DATABASE.md)
 - [API 说明](docs/API.md)
 - [多语言名称与编辑](docs/LOCALIZATION.md)
-- [ESE 兼容性](docs/ESE_COMPATIBILITY.md)
-- [验收记录](docs/VERIFICATION.md)
-- [服务器部署与更新](docs/DEPLOYMENT.md)
+- [S3 存储](docs/S3_STORAGE.md)
+- [Docker 部署](deploy/README.md)
 
 账号注册、昵称、密码和验证邮件现由 OurTaikoSSO 管理，详见 [SSO 接入](docs/SSO.md)。
 
