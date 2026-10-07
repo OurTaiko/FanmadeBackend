@@ -20,7 +20,7 @@
 | PUT | /charts/{id}/files | 作者或管理员整体替换 TJA／音频，删除旧文件及成绩，只保存当前资源，返回 200 |
 | GET | /charts/{id} | 当前已发布歌曲详情 |
 | PATCH | /charts/{id} | 作者或管理员修改分类、试听范围、介绍、谱师名义和译名，返回更新后的作品 |
-| DELETE | /charts/{id} | 本人软删除；后续资源访问返回 404 |
+| DELETE | /charts/{id} | 本人删除：同一事务删除该作品全部成绩和全部资源记录（作品行保留为 `deleted` 墓碑），随后从存储删除不再被任何资源引用的文件（失败由 30 秒清理任务重试）；后续访问返回 404 |
 | GET | /charts/{id}/tja | 原始 TJA 字节，attachment |
 | GET / HEAD | /charts/{id}/audio | 原始 OGG 或 MP3 流，支持 Range、ETag、If-Range；Content-Type 分别为 audio/ogg、audio/mpeg |
 | GET | /charts/{id}/download | ZIP，含原始 TJA 与按 WAVE 原值命名的音频 |
@@ -75,7 +75,7 @@ STYLE 不区分值大小写，支持 Single/0、Double/1、Duet；每次 COURSE 
 
 后端锁定当前已发布歌曲，检查 difficulty 与歌曲 JSON 中某项 course 精确匹配，双人两侧分别使用 _1p / _2p。浏览器和原生游戏接口都只按 songId 归属，不接收歌曲版本字段。服务端保存客户端上报值，未根据游玩过程重算成绩。
 
-成功返回 201，响应包含上述八个基础成绩字段（difficulty 已归一化）和 `ClearStatus`（即使为 0 也返回），以及服务端生成的 `id`、`userId` 和 `submittedAt`（UTC RFC3339）。每次新提交保留一条游玩记录，不覆盖最高分；排行榜读取时选出每人的最高分记录。歌曲更名或软删除不删除已保存成绩；下架后拒绝新成绩。
+成功返回 201，响应包含上述八个基础成绩字段（difficulty 已归一化）和 `ClearStatus`（即使为 0 也返回），以及服务端生成的 `id`、`userId` 和 `submittedAt`（UTC RFC3339）。每次新提交保留一条游玩记录，不覆盖最高分；排行榜读取时选出每人的最高分记录。歌曲更名或下架不删除已保存成绩，作者删除作品时一并删除其全部成绩（迁移 032）；下架或删除后拒绝新成绩。
 
 可选请求头 `Idempotency-Key` 为 16–80 位字母、数字或短横线，推荐每局生成 UUID 并在网络重试时复用。相同用户、相同 key、相同归一化载荷返回原成绩及 200；同 key 不同载荷返回 409。不同用户的 key 互不影响；省略 key 时每次请求都是新游玩。已成功提交的幂等重试即使歌曲后来下架也返回原回执，不重新选择版本或写入成绩。
 

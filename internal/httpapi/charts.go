@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"mime"
 	"net/http"
 	"path/filepath"
@@ -125,11 +126,51 @@ func (s *Server) remove(w http.ResponseWriter, r *http.Request) {
 		problem(w, 403, "FORBIDDEN", "只能删除自己的作品")
 		return
 	}
-	if _, e := s.DB.Exec(r.Context(), `WITH removed AS (UPDATE charts SET status='deleted' WHERE id=$1 AND owner_id=$2 RETURNING id) DELETE FROM chart_resources WHERE kind='cover' AND chart_id IN (SELECT id FROM removed)`, c.ID, u.User.ID); e != nil {
+	keys, e := s.deleteChart(r.Context(), c.ID, u.User.ID)
+	if errors.Is(e, pgx.ErrNoRows) {
+		problem(w, 404, "CHART_NOT_FOUND", "作品不存在")
+		return
+	}
+	if e != nil {
 		internal(w, e)
 		return
 	}
+	// Files are queued by the deletion; the periodic cleanup retries any failure.
+	for _, key := range keys {
+		if e = s.deleteRetiredFile(r.Context(), key); e != nil {
+			log.Printf("deleted chart file cleanup pending: %v", e)
+		}
+	}
 	respond(w, 200, map[string]bool{"ok": true})
+}
+
+// deleteChart removes a song's scores and resources, keeping the row as a
+// tombstone. The resource trigger queues each file in retired_files.
+func (s *Server) deleteChart(ctx context.Context, chartID, ownerID string) ([]string, error) {
+	tx, e := s.DB.Begin(ctx)
+	if e != nil {
+		return nil, e
+	}
+	defer tx.Rollback(ctx)
+	// Serialize with score submissions, which hold the song row FOR SHARE.
+	if e = tx.QueryRow(ctx, `SELECT id FROM charts WHERE id=$1 AND owner_id=$2 AND status<>'deleted' FOR UPDATE`, chartID, ownerID).Scan(&chartID); e != nil {
+		return nil, e
+	}
+	if _, e = tx.Exec(ctx, `DELETE FROM scores WHERE song_id=$1`, chartID); e != nil {
+		return nil, e
+	}
+	if _, e = tx.Exec(ctx, `UPDATE charts SET status='deleted' WHERE id=$1`, chartID); e != nil {
+		return nil, e
+	}
+	rows, e := tx.Query(ctx, `DELETE FROM chart_resources WHERE chart_id=$1 RETURNING storage_key`, chartID)
+	if e != nil {
+		return nil, e
+	}
+	keys, e := pgx.CollectRows(rows, pgx.RowTo[string])
+	if e != nil {
+		return nil, e
+	}
+	return keys, tx.Commit(ctx)
 }
 func (s *Server) download(w http.ResponseWriter, r *http.Request) {
 	c, e := s.chart(r.Context(), r.PathValue("id"))

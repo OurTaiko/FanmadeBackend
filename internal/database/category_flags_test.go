@@ -97,8 +97,9 @@ func TestCategoryFlagsMigration(t *testing.T) {
 	if _, err = pool.Exec(ctx, `DELETE FROM categories WHERE id='custom'`); err != nil {
 		t.Fatal(err)
 	}
+	// Stop before 032, which intentionally removes deleted charts' resources.
 	for range 2 {
-		if err = MigrateS3(ctx, pool, storage); err != nil {
+		if err = migrateToMode(ctx, pool, storage, 31, true); err != nil {
 			t.Fatal(err)
 		}
 	}

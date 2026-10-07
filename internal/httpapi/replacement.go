@@ -154,30 +154,28 @@ func (s *Server) deleteRetiredFiles(ctx context.Context) error {
 	}
 	var failures []error
 	for _, key := range keys {
-		if !filepath.IsLocal(key) {
-			failures = append(failures, errors.New("invalid retired storage key"))
-			continue
-		}
-		var live bool
-		if err = s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM chart_resources WHERE storage_key=$1)`, key).Scan(&live); err != nil {
+		if err = s.deleteRetiredFile(ctx, key); err != nil {
 			failures = append(failures, err)
-			continue
 		}
-		if live {
-			if _, err = s.DB.Exec(ctx, `DELETE FROM retired_files WHERE storage_key=$1`, key); err != nil {
-				failures = append(failures, err)
-			}
-			continue
-		}
-		if err = s.Config.Objects.Delete(ctx, key); err != nil && !errors.Is(err, os.ErrNotExist) {
-			failures = append(failures, err)
-			continue
-		}
-		if _, err = s.DB.Exec(ctx, `DELETE FROM retired_files WHERE storage_key=$1`, key); err != nil {
-			failures = append(failures, err)
-			continue
-		}
-
 	}
 	return errors.Join(failures...)
+}
+
+// deleteRetiredFile deletes one queued object unless a resource still refers to
+// it, then removes it from the queue. A failure leaves it queued for retry.
+func (s *Server) deleteRetiredFile(ctx context.Context, key string) error {
+	if !filepath.IsLocal(key) {
+		return errors.New("invalid retired storage key")
+	}
+	var live bool
+	if err := s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM chart_resources WHERE storage_key=$1)`, key).Scan(&live); err != nil {
+		return err
+	}
+	if !live {
+		if err := s.Config.Objects.Delete(ctx, key); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	_, err := s.DB.Exec(ctx, `DELETE FROM retired_files WHERE storage_key=$1`, key)
+	return err
 }
