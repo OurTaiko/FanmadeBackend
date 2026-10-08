@@ -180,7 +180,7 @@ func testCoverLifecycle(t *testing.T, useWebP, remote bool) {
 	for _, tc := range []struct {
 		user, csrf string
 		status     int
-	}{{"", "csrf", 401}, {"owner", "wrong", 403}, {"other", "csrf", 403}, {"admin", "csrf", 403}} {
+	}{{"", "csrf", 401}, {"owner", "wrong", 403}, {"other", "csrf", 403}, {"admin", "wrong", 403}} {
 		status(send("PUT", path, tc.user, tc.csrf, "", changed[2]), tc.status)
 	}
 	for _, tc := range []struct {
@@ -207,7 +207,7 @@ func testCoverLifecycle(t *testing.T, useWebP, remote bool) {
 	if _, err = pool.Exec(ctx, `DROP TRIGGER reject_cover ON chart_resources; DROP FUNCTION reject_cover()`); err != nil {
 		t.Fatal(err)
 	}
-	w = send("PUT", path, "owner", "csrf", "", changed[2])
+	w = send("PUT", path, "admin", "csrf", "", changed[2])
 	status(w, 200)
 	var result struct {
 		CoverHash string `json:"coverHash"`
@@ -230,8 +230,16 @@ func testCoverLifecycle(t *testing.T, useWebP, remote bool) {
 		t.Fatal("serving old cover")
 	}
 	detail := decode(get("/api/v1/charts/"+original.ID, ""))
-	if detail.CoverHash != result.CoverHash || detail.ID != original.ID || detail.AudioHash != original.AudioHash || detail.TJAHash != original.TJAHash {
+	if detail.CoverHash != result.CoverHash || detail.ID != original.ID || detail.OwnerID != original.OwnerID || detail.AudioHash != original.AudioHash || detail.TJAHash != original.TJAHash {
 		t.Fatal("changed chart resources")
+	}
+	// Revoking the role also removes access for an existing administrator session.
+	if _, err = pool.Exec(ctx, `UPDATE test_sso_users SET is_admin=false WHERE id=repeat('3',32)`); err != nil {
+		t.Fatal(err)
+	}
+	status(send("PUT", path, "admin", "csrf", "", parts[2]), 403)
+	if hash(get(path, "").Body.String()) != result.CoverHash {
+		t.Fatal("revoked administrator changed cover")
 	}
 	w = get("/api/v1/charts", "")
 	status(w, 200)
@@ -251,6 +259,25 @@ func testCoverLifecycle(t *testing.T, useWebP, remote bool) {
 	}
 	if count(`SELECT count(*) FROM chart_resources WHERE kind IN ('tja','audio')`) != 2 || count(`SELECT count(*) FROM chart_resources WHERE kind='cover'`) != 1 {
 		t.Fatal("unexpected file records")
+	}
+	// A file update may explicitly replace the cover, while omission above preserves it.
+	if _, err = pool.Exec(ctx, `UPDATE test_sso_users SET is_admin=true WHERE id=repeat('3',32)`); err != nil {
+		t.Fatal(err)
+	}
+	updatePath := "/api/v1/charts/" + original.ID + "/files"
+	updateKey := ID()
+	withCover := append(append([]part(nil), replacement...), parts[2])
+	w = send("PUT", updatePath, "admin", "csrf", updateKey, withCover...)
+	status(w, 200)
+	if decode(w).CoverHash != original.CoverHash {
+		t.Fatal("file replacement did not save selected cover")
+	}
+	status(send("PUT", updatePath, "admin", "csrf", updateKey, withCover...), 200)
+	withCover[len(withCover)-1] = changed[2]
+	status(send("PUT", updatePath, "admin", "csrf", updateKey, withCover...), 409)
+	status(send("PUT", updatePath, "admin", "csrf", updateKey, replacement...), 409)
+	if hash(get(path, "").Body.String()) != original.CoverHash {
+		t.Fatal("conflicting retry changed cover")
 	}
 	status(send("DELETE", "/api/v1/charts/"+original.ID, "owner", "csrf", ""), 200)
 	status(get(path, ""), 404)

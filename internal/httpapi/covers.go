@@ -114,8 +114,8 @@ func (s *Server) replaceCover(w http.ResponseWriter, r *http.Request) {
 		internal(w, err)
 		return
 	}
-	if owner != u.User.ID {
-		problem(w, 403, "FORBIDDEN", "只有上传者可以修改封面")
+	if owner != u.User.ID && !u.User.IsAdmin {
+		problem(w, 403, "FORBIDDEN", "只有上传者或管理员可以修改封面")
 		return
 	}
 	select {
@@ -179,8 +179,8 @@ func (s *Server) replaceCover(w http.ResponseWriter, r *http.Request) {
 		internal(w, err)
 		return
 	}
-	if owner != u.User.ID {
-		problem(w, 403, "FORBIDDEN", "只有上传者可以修改封面")
+	if owner != u.User.ID && !u.User.IsAdmin {
+		problem(w, 403, "FORBIDDEN", "只有上传者或管理员可以修改封面")
 		return
 	}
 	if err = s.saveCover(r.Context(), tx, id, encoded); err != nil {

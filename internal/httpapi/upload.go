@@ -93,7 +93,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		field, name := params["name"], params["filename"]
-		if field == "tja" || field == "audio" || (field == "cover" && existing == nil) {
+		if field == "tja" || field == "audio" || field == "cover" {
 			validExtension := strings.EqualFold(filepath.Ext(name), ".tja")
 			maxBytes := int64(tja.MaxTJA)
 			if field == "audio" {
@@ -230,6 +230,9 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		parts := []string{existing.ID, tf.name, tf.sha}
 		if af != nil {
 			parts = append(parts, af.name, af.sha)
+		}
+		if cf != nil {
+			parts = append(parts, "cover", cf.name, cf.sha)
 		}
 		encoded, _ := json.Marshal(struct {
 			Parts  []string
