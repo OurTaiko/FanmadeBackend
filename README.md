@@ -1,8 +1,8 @@
 # OurTaiko Fanmade API
 
-当前使用独立 OurTaikoSSO，网站以 OIDC 登录、游戏 API 转接认证。首次启动前请按 [SSO 接入与迁移](docs/SSO.md) 配置。
+当前使用独立 OurTaikoSSO，网站以 OIDC 登录、游戏 API 转接认证。首次启动前请按 SSO 接入与迁移（文档 `SSO.md`）配置。
 
-在线音频支持 HTTP 渐进读取与 Range；预览协议、参考实现分析和 Unity 游戏端接入步骤见 [在线歌曲流播放与游戏端预览改进](docs/ONLINE_AUDIO_PREVIEW.md)。
+在线音频支持 HTTP 渐进读取与 Range；预览协议、参考实现分析和 Unity 游戏端接入步骤见在线歌曲流播放与游戏端预览改进（文档 `ONLINE_AUDIO_PREVIEW.md`）。
 
 独立的 Go + PostgreSQL 后端仓库。本地示范版已实现账号会话、TJA + OGG / MP3 上传校验、作品查询、试听资源、原文件 / ZIP 下载和本人作品删除、登录用户成绩提交。前端位于相邻的 `../frontend` 仓库，由 pnpm 管理。
 
@@ -19,7 +19,7 @@ createdb ourtaiko_fanmade
 
 # 在本仓库目录执行：
 go mod download
-# 如果还没有 .env，复制模板并按 docs/SSO.md 填写 SSO 客户端配置：
+# 如果还没有 .env，复制模板并按文档 `SSO.md` 填写 SSO 客户端配置：
 cp -n .env.example .env
 go run ./cmd/server
 ```
@@ -72,23 +72,21 @@ python3 scripts/metadata_smoke.py
 
 ## 设计与边界
 
-- [数据库结构](docs/DATABASE.md)
-- [API 说明](docs/API.md)
-- [多语言名称与编辑](docs/LOCALIZATION.md)
-- [S3 存储](docs/S3_STORAGE.md)
+API、数据库结构、SSO、管理员、分类、多语言、S3 存储和游戏端接入等技术文档统一放在私有仓库 OurTaikoLogs 的 `FanmadeBackend/docs/` 目录，本仓库不再收录。下文以“文档 `X.md`”指代该目录下的文件。
+
 - [Docker 部署](deploy/README.md)
 
-账号注册、昵称、密码和验证邮件现由 OurTaikoSSO 管理，详见 [SSO 接入](docs/SSO.md)。
+账号注册、昵称、密码和验证邮件现由 OurTaikoSSO 管理，详见 SSO 接入（文档 `SSO.md`）。
 
 本示范版支持一个 TJA + 一个 Vorbis OGG 或 MP3 音频，TJA 中可有 Easy / Normal / Hard / Oni / Edit 多个难度及 P1 / P2。Tower（塔）和 Dan（段位），包括数字 5 / 6，双端整份拒绝；混合普通难度也不能上传。迁移 012 会下架当前版本含不支持难度的已有作品，保留文件和成绩，所有公开展示及游戏曲库接口排除这些作品。`#NEXTSONG` 多音频谱暂不支持；不承诺完整游戏命令语义。试听在负数 DEMOSTART 时从 0 开始，不改写 TJA。
 
-歌曲模式统一保存在 charts.is_single，难度以 JSONB 数组存入 charts.difficulties，不再有独立 difficulties 表。每次上传只能包含单人或双人谱，混合文件和重复难度被拒绝。双人块必须标记 P1/P2，API 将其转换为 Oni_1p/Oni_2p 等 course；双人也支持云成绩与各自排行榜。成绩按歌曲 ID + difficulty 关联，由数据库触发器检查 JSON 中的难度存在性。上传与成绩接口详见 [API](docs/API.md)。
+歌曲模式统一保存在 charts.is_single，难度以 JSONB 数组存入 charts.difficulties，不再有独立 difficulties 表。每次上传只能包含单人或双人谱，混合文件和重复难度被拒绝。双人块必须标记 P1/P2，API 将其转换为 Oni_1p/Oni_2p 等 course；双人也支持云成绩与各自排行榜。成绩按歌曲 ID + difficulty 关联，由数据库触发器检查 JSON 中的难度存在性。上传与成绩接口详见 API（文档 `API.md`）。
 
 后续功能：邮箱补绑与找回密码、管理员界面、评论收藏、自动清理与备份。示范版软删除后停止公开访问，保留数据库和资源供开发检查。上传失败通常自动清理；数据库 COMMIT 结果不确定或进程崩溃时保留文件供核对，暂未实现后台孤儿文件回收。请同时备份数据库和 `.data/files`。
 
 所有变更使用 Conventional Commits。远端仓库：[OurTaiko/Fanmade_Backend](https://github.com/OurTaiko/Fanmade_Backend)，使用 `ourtaiko` 远端管理。
 
-所有名称翻译统一保存在 `title_translations` / `subtitle_translations`（en/ja/zh/ko）。接口完整返回语言字典，由网页和游戏选择显示语言；`title` / `subtitle` 保留 TJA 原文。作者或管理员可用 `PATCH /api/v1/charts/{id}` 修改各语言名称、副标题，支持 null 从当前 TJA 恢复原值。修改只影响网站元数据和搜索，原始 TJA 与成绩不变；前端详情页已提供编辑弹窗。[管理员配置说明](docs/ADMIN.md)。
+所有名称翻译统一保存在 `title_translations` / `subtitle_translations`（en/ja/zh/ko）。接口完整返回语言字典，由网页和游戏选择显示语言；`title` / `subtitle` 保留 TJA 原文。作者或管理员可用 `PATCH /api/v1/charts/{id}` 修改各语言名称、副标题，支持 null 从当前 TJA 恢复原值。修改只影响网站元数据和搜索，原始 TJA 与成绩不变；前端详情页已提供编辑弹窗。管理员配置说明（文档 `ADMIN.md`）。
 
 ## TJA 编码与保存
 
@@ -98,27 +96,27 @@ python3 scripts/metadata_smoke.py
 
 ## 谱面分类
 
-支持 Game / Virtual Singer / Pop / Classic / Variety / Anime 多选分类。迁移 013 使用独立分类关联表，旧作品归入 Variety；迁移 017 增加 Anime（`anime` / `ANIME`），保留已有歌曲归属。游戏在模式选择到选曲的过场中取得分类与数量，进入服务器文件夹时刷新所有分类的谱面列表，网页上传与作者信息编辑支持多选。游戏与后端须配套更新，详见 [分类接口、迁移和验证](docs/CATEGORIES.md)。
+支持 Game / Virtual Singer / Pop / Classic / Variety / Anime 多选分类。迁移 013 使用独立分类关联表，旧作品归入 Variety；迁移 017 增加 Anime（`anime` / `ANIME`），保留已有歌曲归属。游戏在模式选择到选曲的过场中取得分类与数量，进入服务器文件夹时刷新所有分类的谱面列表，网页上传与作者信息编辑支持多选。游戏与后端须配套更新，详见分类接口、迁移和验证（文档 `CATEGORIES.md`）。
 
 ## 难度制作者
 
-迁移 014 将旧的版本级 maker 回填到每个难度并删除旧列。上传页面支持按谱面块填写署名；作品响应的 maker 为各块署名去重后以 ` | ` 连接，difficulties[].maker 返回具体署名，供网页切换难度显示。部署新后端时启动会自动迁移，旧后端不能继续使用迁移后的 schema。详见 [API](docs/API.md) 和 [数据库结构](docs/DATABASE.md)。
+迁移 014 将旧的版本级 maker 回填到每个难度并删除旧列。上传页面支持按谱面块填写署名；作品响应的 maker 为各块署名去重后以 ` | ` 连接，difficulties[].maker 返回具体署名，供网页切换难度显示。部署新后端时启动会自动迁移，旧后端不能继续使用迁移后的 schema。详见 API（文档 `API.md`）和数据库结构（文档 `DATABASE.md`）。
 
 
 ## 歌曲与谱面替换
 
-作者或管理员可以通过 `PUT /api/v1/charts/{id}/files` 整体替换歌曲，提交完整的新 TJA，可选更换音频。歌曲地址保留，成功后删除旧资源及全体玩家的旧成绩，只保存当前文件，即使难度未变也不继承。新文件校验或事务失败时保留旧数据；幂等重试不会删除新成绩。迁移 024 全面移除歌曲版本 ID，成绩、难度和下载只按歌曲 ID 关联；保留幂等收据与持久文件删除队列，启动及每 30 秒重试未完成的文件删除。详细字段及行为见 [API](docs/API.md#整体替换歌曲与谱面)。
+作者或管理员可以通过 `PUT /api/v1/charts/{id}/files` 整体替换歌曲，提交完整的新 TJA，可选更换音频。歌曲地址保留，成功后删除旧资源及全体玩家的旧成绩，只保存当前文件，即使难度未变也不继承。新文件校验或事务失败时保留旧数据；幂等重试不会删除新成绩。迁移 024 全面移除歌曲版本 ID，成绩、难度和下载只按歌曲 ID 关联；保留幂等收据与持久文件删除队列，启动及每 30 秒重试未完成的文件删除。详细字段及行为见 API（文档 `API.md`）。
 
 
 ## 用户昵称
 
-账号注册、昵称、密码和验证邮件现由 OurTaikoSSO 管理，详见 [SSO 接入](docs/SSO.md)。
+账号注册、昵称、密码和验证邮件现由 OurTaikoSSO 管理，详见 SSO 接入（文档 `SSO.md`）。
 
 ## 网站歌曲封面
 
 发布歌曲可通过 multipart `cover` 字段附带 `.jpg` / `.jpeg` / `.png` / `.webp`（仅静态图片）；封面可选，最大 8 MiB、1600 万像素、单边 8192 像素。
 服务器完整解码图片，经 cwebp 转成最长边不超过 1600px 的 WebP，并只将转换后的二进制保存在 PostgreSQL。
 网站 owner 可通过 `PUT /api/v1/charts/{id}/cover` 单独替换封面；读取使用 `GET /api/v1/charts/{id}/cover`。
-封面不会进入游戏曲库响应或下载包，也不会重置成绩。详情见 [封面 API](docs/API.md#网站歌曲封面)。
+封面不会进入游戏曲库响应或下载包，也不会重置成绩。详情见 封面 API（文档 `API.md`）。
 
-当前歌曲 ID 协议及 S3 游戏客户端接入见 [游戏端实施文档](docs/GAME_CLIENT_RESOURCE_DOWNLOAD.md)。新协议用文件 SHA-256 判断缓存更新；迁移旧数据库需保留备份，schema 025/026 回退必须恢复匹配的数据库和程序。当前数据库仅有 7 张 public 业务表；歌曲信息集中在 charts，四类资源统一在 chart_resources，认证和维护表分别位于 auth/internal。详见 [数据库结构](docs/DATABASE.md)。
+当前歌曲 ID 协议及 S3 游戏客户端接入见游戏端实施文档（文档 `GAME_CLIENT_RESOURCE_DOWNLOAD.md`）。新协议用文件 SHA-256 判断缓存更新；迁移旧数据库需保留备份，schema 025/026 回退必须恢复匹配的数据库和程序。当前数据库仅有 7 张 public 业务表；歌曲信息集中在 charts，四类资源统一在 chart_resources，认证和维护表分别位于 auth/internal。详见数据库结构（文档 `DATABASE.md`）。
