@@ -40,51 +40,54 @@ func TestPublicGameSearch(t *testing.T) {
 	}
 	s := testServer(t, pool, Config{Origin: "http://localhost"})
 	handler := s.Handler()
+	// The game filters by keyword, difficulty and star level in one bulk list;
+	// the website pages a keyword search and ignores difficulty filters.
 	for _, tc := range []struct {
-		query                string
+		endpoint, query      string
 		total, items, status int
 	}{
-		{"?q=Search&course=Oni&level=8", 14, 12, 200},
-		{"?q=Search&course=Oni&level=8&page=2", 14, 2, 200},
-		{"?q=Search&course=Easy&level=8", 0, 0, 200},
-		{"?q=検索曲&level=3", 14, 12, 200},
-		{"?q=Artist", 14, 12, 200},
-		{"?q=公开昵称", 0, 0, 200},
-		{"?q=searcher", 0, 0, 200},
-		{"?course=Edit", 0, 0, 200},
-		{"?course=Tower", 0, 0, 400},
-		{"?level=nope", 0, 0, 400},
-		{"?level=-1", 0, 0, 400},
-		{"?level=100", 0, 0, 400},
-		{"?page=10001", 0, 0, 400},
+		{"/api/v1/game/search", "?q=Search&course=Oni&level=8", 14, 14, 200},
+		{"/api/v1/game/search", "?q=Search&course=Easy&level=8", 0, 0, 200},
+		{"/api/v1/game/search", "?q=検索曲&level=3", 14, 14, 200},
+		{"/api/v1/game/search", "?q=Artist", 14, 14, 200},
+		{"/api/v1/game/search", "?q=公开昵称", 0, 0, 200},
+		{"/api/v1/game/search", "?course=Edit", 0, 0, 200},
+		{"/api/v1/game/search", "?course=Tower", 0, 0, 400},
+		{"/api/v1/game/search", "?level=nope", 0, 0, 400},
+		{"/api/v1/game/search", "?level=-1", 0, 0, 400},
+		{"/api/v1/game/search", "?level=100", 0, 0, 400},
+		{"/api/v1/game/search", "?order=hot", 0, 0, 400},
+		{"/api/v1/game/search", "?order=comments", 0, 0, 400},
+		{"/api/v1/charts", "?q=Search", 14, 12, 200},
+		{"/api/v1/charts", "?q=Search&page=2", 14, 2, 200},
+		{"/api/v1/charts", "?q=検索曲", 14, 12, 200},
+		{"/api/v1/charts", "?q=Artist&order=hot", 14, 12, 200},
+		{"/api/v1/charts", "?q=公开昵称", 0, 0, 200},
+		{"/api/v1/charts", "?q=searcher", 0, 0, 200},
+		{"/api/v1/charts", "?q=Search&course=Easy&level=8", 14, 12, 200},
+		{"/api/v1/charts", "?course=Tower&level=nope", 14, 12, 200},
+		{"/api/v1/charts", "?order=unfc", 0, 0, 400},
+		{"/api/v1/charts", "?order=unperfect", 0, 0, 400},
+		{"/api/v1/charts", "?page=10001", 0, 0, 400},
 	} {
-		for _, endpoint := range []string{"/api/v1/charts", "/api/v1/game/search"} {
-			if endpoint == "/api/v1/game/search" && strings.Contains(tc.query, "page=") {
-				continue
-			}
-			r := httptest.NewRequest("GET", endpoint+tc.query, nil)
-			w := httptest.NewRecorder()
-			handler.ServeHTTP(w, r)
-			if w.Code != tc.status {
-				t.Fatalf("%s: %d %s", tc.query, w.Code, w.Body.String())
-			}
-			if tc.status != 200 {
-				continue
-			}
-			var result struct {
-				Items []Chart `json:"items"`
-				Total int     `json:"total"`
-			}
-			if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
-				t.Fatal(err)
-			}
-			wantItems := tc.items
-			if endpoint == "/api/v1/game/search" {
-				wantItems = tc.total
-			}
-			if result.Total != tc.total || len(result.Items) != wantItems {
-				t.Fatalf("%s: got %d/%d", tc.query, result.Total, len(result.Items))
-			}
+		r := httptest.NewRequest("GET", tc.endpoint+tc.query, nil)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		if w.Code != tc.status {
+			t.Fatalf("%s%s: %d %s", tc.endpoint, tc.query, w.Code, w.Body.String())
+		}
+		if tc.status != 200 {
+			continue
+		}
+		var result struct {
+			Items []Chart `json:"items"`
+			Total int     `json:"total"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		if result.Total != tc.total || len(result.Items) != tc.items {
+			t.Fatalf("%s%s: got %d/%d", tc.endpoint, tc.query, result.Total, len(result.Items))
 		}
 	}
 	// Completion ordering uses the current user's matching course, before pagination.
@@ -103,7 +106,7 @@ func TestPublicGameSearch(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at) VALUES($1,'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee','',now()+interval '1 day')`, hash("game:"+gameToken)); err != nil {
 		t.Fatal(err)
 	}
-	for _, endpoint := range []string{"/api/v1/charts", "/api/v1/game/search"} {
+	for _, endpoint := range []string{"/api/v1/game/search"} {
 		for _, tc := range []struct {
 			order, course, auth string
 			first               int
@@ -137,21 +140,17 @@ func TestPublicGameSearch(t *testing.T) {
 				Items []Chart `json:"items"`
 				Total int     `json:"total"`
 			}
-			wantItems := 12
-			if endpoint == "/api/v1/game/search" {
-				wantItems = 14
-			}
-			if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &result) != nil || len(result.Items) != wantItems || result.Total != 14 || result.Items[0].ID != fmt.Sprintf("%032d", tc.first) {
+			if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &result) != nil || len(result.Items) != 14 || result.Total != 14 || result.Items[0].ID != fmt.Sprintf("%032d", tc.first) {
 				t.Fatalf("%s %+v: %d %s", endpoint, tc, w.Code, w.Body.String())
 			}
 		}
 	}
-	// The complete game snapshot preserves the entire paginated order, while
-	// omitting web enrichment. Browser cookies cannot authorize game ordering.
-	for _, order := range []string{"default", "unfc", "unperfect"} {
+	// Both default to newest first; the game list holds the whole paged web
+	// list without web enrichment. Browser cookies cannot authorize game ordering.
+	{
 		var paged []string
 		for _, path := range []string{"/api/v1/charts?page=1", "/api/v1/charts?page=2", "/api/v1/game/search?"} {
-			r := httptest.NewRequest("GET", path+"&course=Oni&order="+order, nil)
+			r := httptest.NewRequest("GET", path+"&order=default", nil)
 			if strings.HasPrefix(path, "/api/v1/game/") {
 				r.Header.Set("Authorization", "Bearer "+gameToken)
 			} else {

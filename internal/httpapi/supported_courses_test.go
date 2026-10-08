@@ -117,7 +117,7 @@ ALTER TABLE scores ADD CONSTRAINT scores_difficulty_check CHECK(difficulty IN ('
 		}
 		return w
 	}
-	for _, path := range []string{"/api/v1/charts", "/api/v1/me/charts", "/api/v1/charts?course=Oni"} {
+	for _, path := range []string{"/api/v1/charts", "/api/v1/me/charts", "/api/v1/game/search?course=Oni"} {
 		var list struct {
 			Items []Chart
 			Total int
@@ -128,7 +128,7 @@ ALTER TABLE scores ADD CONSTRAINT scores_difficulty_check CHECK(difficulty IN ('
 		}
 	}
 	for _, course := range []string{"Tower", "Dan", "5", "6"} {
-		call("GET", "/api/v1/charts?course="+course, "", 400)
+		call("GET", "/api/v1/game/search?course="+course, "", 400)
 		call("GET", "/api/v1/charts/"+ids[0]+"/leaderboard?difficulty="+course, "", 400)
 		body := fmt.Sprintf(`{"songId":%q,"difficulty":%q,"good":10,"ok":0,"bad":0,"score":10000,"drumroll":0,"max_combo":10}`, ids[0], course)
 		call("POST", "/api/v1/scores", body, 422)

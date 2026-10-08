@@ -101,7 +101,7 @@ func (s *Server) mine(w http.ResponseWriter, r *http.Request) {
 	s.listFor(w, r, u.User.ID)
 }
 func (s *Server) listFor(w http.ResponseWriter, r *http.Request, owner string) {
-	s.searchCharts(w, r, owner, false)
+	s.webSearch(w, r, owner)
 }
 
 func (s *Server) detail(w http.ResponseWriter, r *http.Request) {
