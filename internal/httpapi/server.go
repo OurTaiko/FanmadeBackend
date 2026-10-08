@@ -68,11 +68,14 @@ func internal(w http.ResponseWriter, err error) {
 	problem(w, 503, "SERVICE_UNAVAILABLE", "服务暂时不可用，请稍后重试")
 }
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
+	return decodeLimit(w, r, v, 8192)
+}
+func decodeLimit(w http.ResponseWriter, r *http.Request, v any, limit int64) bool {
 	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 		problem(w, 415, "CONTENT_TYPE_INVALID", "请使用 JSON 请求")
 		return false
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 8192)
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	d := json.NewDecoder(r.Body)
 	d.DisallowUnknownFields()
 	if err := d.Decode(v); err != nil {
@@ -124,6 +127,21 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/v1/charts/{id}", s.editMetadata)
 	mux.HandleFunc("PUT /api/v1/charts/{id}/files", s.upload)
 	mux.HandleFunc("DELETE /api/v1/charts/{id}", s.remove)
+	mux.HandleFunc("PUT /api/v1/charts/{id}/vote", s.voteChart)
+	mux.HandleFunc("GET /api/v1/charts/{id}/comments", s.chartComments)
+	mux.HandleFunc("POST /api/v1/charts/{id}/comments", s.createComment)
+	mux.HandleFunc("GET /api/v1/comments/{id}", s.commentThread)
+	mux.HandleFunc("PATCH /api/v1/comments/{id}", s.editComment)
+	mux.HandleFunc("DELETE /api/v1/comments/{id}", s.deleteComment)
+	mux.HandleFunc("PUT /api/v1/comments/{id}/vote", s.voteComment)
+	mux.HandleFunc("GET /api/v1/users/{id}/comments", s.userComments)
+	mux.HandleFunc("GET /api/v1/me/notifications", s.listNotifications)
+	mux.HandleFunc("GET /api/v1/me/notifications/unread", s.unreadNotifications)
+	mux.HandleFunc("POST /api/v1/me/notifications/read", s.readAllNotifications)
+	mux.HandleFunc("PATCH /api/v1/me/notifications/{id}", s.markNotification)
+	mux.HandleFunc("DELETE /api/v1/me/notifications/{id}", s.dismissNotification)
+	mux.HandleFunc("GET /api/v1/me/notification-settings", s.notificationSettings)
+	mux.HandleFunc("PUT /api/v1/me/notification-settings", s.updateNotificationSettings)
 	mux.HandleFunc("GET /api/v1/charts/{id}/{kind}", s.download)
 	mux.HandleFunc("GET /api/v1/charts/{id}/audio", s.streamAudio)
 	mux.HandleFunc("GET /api/v1/charts/{id}/resources", s.resourceLinks)

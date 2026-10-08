@@ -8,6 +8,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+const chartScoreSQL = `COALESCE((SELECT upvotes-downvotes FROM chart_stats WHERE chart_id=c.id),0)`
+
 // gameSearch returns one ordered snapshot without web-only enrichment.
 func (s *Server) gameSearch(w http.ResponseWriter, r *http.Request) {
 	s.searchCharts(w, r, "", true)
@@ -48,8 +50,8 @@ func (s *Server) searchCharts(w http.ResponseWriter, r *http.Request, owner stri
 		}
 	}
 	order := r.URL.Query().Get("order")
-	if order != "" && order != "default" && order != "unfc" && order != "unperfect" {
-		problem(w, 400, "QUERY_INVALID", "顺序必须为 default / unfc / unperfect")
+	if order != "" && order != "default" && order != "unfc" && order != "unperfect" && order != "hot" && order != "top" && order != "comments" {
+		problem(w, 400, "QUERY_INVALID", "顺序必须为 default / unfc / unperfect / hot / top / comments")
 		return
 	}
 	userID := ""
@@ -79,9 +81,23 @@ func (s *Server) searchCharts(w http.ResponseWriter, r *http.Request, owner stri
 	 AND NOT EXISTS(SELECT 1 FROM scores sc WHERE sc.user_id=$5 AND sc.song_id=c.id
 	 AND sc.difficulty=d.course AND sc.bad=0 AND (sc.good>0 OR sc.ok>0)
 	 AND ($6::text='unfc' OR sc.ok=0)))) DESC, c.created_at DESC,c.id DESC`
+	// Reddit's "hot": the vote score counts logarithmically against age, so
+	// every tenfold score keeps a song ranked as high as one 12.5 hours newer.
+	switch order {
+	case "hot":
+		ordering = ` ORDER BY sign(` + chartScoreSQL + `)*log(greatest(abs(` + chartScoreSQL + `),1))+extract(epoch FROM c.created_at)/45000 DESC, c.created_at DESC,c.id DESC`
+	case "top":
+		ordering = ` ORDER BY ` + chartScoreSQL + ` DESC, c.created_at DESC,c.id DESC`
+	case "comments":
+		ordering = ` ORDER BY COALESCE((SELECT comment_count FROM chart_stats WHERE chart_id=c.id),0) DESC, c.created_at DESC,c.id DESC`
+	}
 	args := []any{q, owner, course, level, userID, order}
+	if order == "hot" || order == "top" || order == "comments" {
+		// Only the personal ordering refers to the viewer and order parameters.
+		args = args[:4]
+	}
 	if !all {
-		ordering += ` LIMIT 12 OFFSET $7`
+		ordering += ` LIMIT 12 OFFSET $` + strconv.Itoa(len(args)+1)
 		args = append(args, (page-1)*12)
 	}
 	rows, e := s.DB.Query(r.Context(), chartSelect+where+ordering, args...)

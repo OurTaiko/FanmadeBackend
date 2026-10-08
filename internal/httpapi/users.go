@@ -21,6 +21,9 @@ type PublicUser struct {
 	LastActiveAt *time.Time `json:"lastActiveAt"`
 	ChartCount   int64      `json:"chartCount"`
 	ScoreCount   int64      `json:"scoreCount"`
+	CommentCount int64      `json:"commentCount"`
+	// Karma counts other users' votes on the user's songs and comments.
+	Karma int64 `json:"karma"`
 }
 
 type UserDirectory struct {
@@ -34,7 +37,10 @@ type UserDirectory struct {
 const publicUserColumns = `u.id,u.first_login_at,u.last_active_at,
  (SELECT count(*) FROM charts c WHERE c.owner_id=u.id AND ` + publishedChart + `),
  (SELECT count(*) FROM scores sc JOIN charts c ON c.id=sc.song_id
- WHERE sc.user_id=u.id AND ` + publishedChart + `)`
+ WHERE sc.user_id=u.id AND ` + publishedChart + `),
+ (SELECT count(*) FROM comments m JOIN charts c ON c.id=m.chart_id WHERE m.author_id=u.id AND ` + visibleComment + `),
+ (SELECT COALESCE(sum(v.value),0) FROM comment_votes v JOIN comments m ON m.id=v.comment_id WHERE m.author_id=u.id AND v.user_id<>u.id)+
+ (SELECT COALESCE(sum(v.value),0) FROM chart_votes v JOIN charts c ON c.id=v.chart_id WHERE c.owner_id=u.id AND v.user_id<>u.id)`
 
 type UserSpace struct {
 	User              PublicUser `json:"user"`
@@ -50,7 +56,7 @@ func (s *Server) userSpace(w http.ResponseWriter, r *http.Request) {
 	result := UserSpace{ProfilesAvailable: true}
 	u := &result.User
 	err := s.DB.QueryRow(r.Context(), `SELECT `+publicUserColumns+` FROM users u WHERE u.id=$1`, id).
-		Scan(&u.ID, &u.FirstLoginAt, &u.LastActiveAt, &u.ChartCount, &u.ScoreCount)
+		Scan(&u.ID, &u.FirstLoginAt, &u.LastActiveAt, &u.ChartCount, &u.ScoreCount, &u.CommentCount, &u.Karma)
 	if errors.Is(err, pgx.ErrNoRows) {
 		problem(w, 404, "USER_NOT_FOUND", "用户不存在")
 		return
@@ -129,7 +135,7 @@ func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 	ids := []string{}
 	for rows.Next() {
 		var user PublicUser
-		if err = rows.Scan(&user.ID, &user.FirstLoginAt, &user.LastActiveAt, &user.ChartCount, &user.ScoreCount); err != nil {
+		if err = rows.Scan(&user.ID, &user.FirstLoginAt, &user.LastActiveAt, &user.ChartCount, &user.ScoreCount, &user.CommentCount, &user.Karma); err != nil {
 			rows.Close()
 			internal(w, err)
 			return

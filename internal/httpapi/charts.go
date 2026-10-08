@@ -37,8 +37,14 @@ type Chart struct {
 	TJAHash           string    `json:"tjaHash"`
 	AudioHash         string    `json:"audioHash"`
 	AudioSize         int64     `json:"audioSize"`
-	TJAKey            string    `json:"-"`
-	AudioKey          string    `json:"-"`
+	// Votes and comments; MyVote is only filled for the signed-in detail view.
+	Score        int    `json:"score"`
+	Upvotes      int    `json:"upvotes"`
+	Downvotes    int    `json:"downvotes"`
+	CommentCount int    `json:"commentCount"`
+	MyVote       int    `json:"myVote"`
+	TJAKey       string `json:"-"`
+	AudioKey     string `json:"-"`
 	tja.Metadata
 }
 
@@ -49,15 +55,17 @@ const publishedChart = `c.status='published' AND NOT EXISTS (SELECT 1 FROM jsonb
 
 const chartSelect = `SELECT c.id,c.owner_id,''::text,c.description,c.created_at,c.duration,c.encoding,tf.original_filename,af.original_filename,tf.sha256,af.sha256,af.byte_size,tf.storage_key,af.storage_key,c.title,c.subtitle,c.bpm,c.offset_seconds,c.demo_start,c.wave_filename,c.title_translations,c.subtitle_translations,c.is_single,
  c.difficulties,
- c.category_flags,c.demo_end,COALESCE((SELECT storage_key FROM chart_resources WHERE chart_id=c.id AND kind='preview'),'')
+ c.category_flags,c.demo_end,COALESCE((SELECT storage_key FROM chart_resources WHERE chart_id=c.id AND kind='preview'),''),
+ COALESCE((SELECT upvotes FROM chart_stats WHERE chart_id=c.id),0),COALESCE((SELECT downvotes FROM chart_stats WHERE chart_id=c.id),0),COALESCE((SELECT comment_count FROM chart_stats WHERE chart_id=c.id),0)
  FROM charts c JOIN chart_resources tf ON tf.chart_id=c.id AND tf.kind='tja' JOIN chart_resources af ON af.chart_id=c.id AND af.kind='audio' `
 
 func readChart(row pgx.Row) (Chart, error) {
 	var c Chart
 	var difficulties []byte
 	var flags CategoryFlags
-	e := row.Scan(&c.ID, &c.OwnerID, &c.Uploader, &c.Description, &c.CreatedAt, &c.Duration, &c.Encoding, &c.TJAName, &c.AudioName, &c.TJAHash, &c.AudioHash, &c.AudioSize, &c.TJAKey, &c.AudioKey, &c.Title, &c.Subtitle, &c.BPM, &c.Offset, &c.DemoStart, &c.Wave, &c.TitleTranslations, &c.SubtitleTranslations, &c.IsSingle, &difficulties, &flags, &c.DemoEnd, &c.PreviewPath)
+	e := row.Scan(&c.ID, &c.OwnerID, &c.Uploader, &c.Description, &c.CreatedAt, &c.Duration, &c.Encoding, &c.TJAName, &c.AudioName, &c.TJAHash, &c.AudioHash, &c.AudioSize, &c.TJAKey, &c.AudioKey, &c.Title, &c.Subtitle, &c.BPM, &c.Offset, &c.DemoStart, &c.Wave, &c.TitleTranslations, &c.SubtitleTranslations, &c.IsSingle, &difficulties, &flags, &c.DemoEnd, &c.PreviewPath, &c.Upvotes, &c.Downvotes, &c.CommentCount)
 	if e == nil {
+		c.Score = c.Upvotes - c.Downvotes
 		c.CategoryIDs = flags.IDs()
 		e = json.Unmarshal(difficulties, &c.Difficulties)
 		c.Maker = difficultyMakers(c.Difficulties)
@@ -105,6 +113,13 @@ func (s *Server) detail(w http.ResponseWriter, r *http.Request) {
 	if e != nil {
 		internal(w, e)
 		return
+	}
+	if viewer := s.viewer(r); viewer != "" {
+		e = s.DB.QueryRow(r.Context(), `SELECT value FROM chart_votes WHERE chart_id=$1 AND user_id=$2`, c.ID, viewer).Scan(&c.MyVote)
+		if e != nil && !errors.Is(e, pgx.ErrNoRows) {
+			internal(w, e)
+			return
+		}
 	}
 	respond(w, 200, c)
 }
