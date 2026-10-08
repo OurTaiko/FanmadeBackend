@@ -69,7 +69,7 @@ func (s *Server) searchCharts(w http.ResponseWriter, r *http.Request, owner stri
 	 OR EXISTS(SELECT 1 FROM jsonb_each_text(c.subtitle_translations) t WHERE t.value ILIKE '%'||$1||'%')) AND ($2='' OR c.owner_id=$2) AND EXISTS(SELECT 1 FROM jsonb_to_recordset(c.difficulties) AS d(course text,level integer,maker text) WHERE ($3='' OR d.course=$3) AND ($4::int=-1 OR d.level=$4))`
 	var total int
 	if !all {
-		if e := s.DB.QueryRow(r.Context(), `SELECT count(*) FROM charts c JOIN users u ON u.id=c.owner_id`+where, q, owner, course, level).Scan(&total); e != nil {
+		if e := s.DB.QueryRow(r.Context(), `SELECT count(*) FROM charts c`+where, q, owner, course, level).Scan(&total); e != nil {
 			internal(w, e)
 			return
 		}
