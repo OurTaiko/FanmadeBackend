@@ -11,8 +11,7 @@ import (
 	"time"
 )
 
-// Resolve immediately before download. Never persist expiring signed URLs in
-// catalogs or forward the API bearer token to the separate object host.
+// Resolve current resources before download. Never forward API credentials to the object host.
 func (s *Server) resourceLinks(w http.ResponseWriter, r *http.Request) {
 	remote, ok := s.Config.Objects.(*objectstore.S3)
 	if !ok {
@@ -20,7 +19,7 @@ func (s *Server) resourceLinks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Keep every key/hash/size from one committed upload, even if a replacement
-	// commits while the signed manifest is being assembled.
+	// commits while the manifest is being assembled.
 	tx, e := s.DB.BeginTx(r.Context(), pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if e != nil {
 		internal(w, e)
@@ -45,6 +44,14 @@ func (s *Server) resourceLinks(w http.ResponseWriter, r *http.Request) {
 	}
 	resources := map[string]resource{}
 	add := func(kind, key, name, media, digest string, size int64) error {
+		public, e := remote.PublicURL(key)
+		if e != nil {
+			return e
+		}
+		if public != "" {
+			resources[kind] = resource{public, public, digest, size, media}
+			return nil
+		}
 		get, e := remote.Sign(r.Context(), key, "GET", name, media, 15*time.Minute)
 		if e != nil {
 			return e
@@ -109,5 +116,8 @@ func (s *Server) resourceLinks(w http.ResponseWriter, r *http.Request) {
 		internal(w, e)
 		return
 	}
-	respond(w, 200, map[string]any{"chartId": c.ID, "expiresAt": time.Now().UTC().Add(15 * time.Minute), "resources": resources})
+	// Legacy clients require expiresAt: this is the manifest refresh deadline,
+	// not an expiry on public CDN URLs.
+	public, _ := remote.PublicURL(c.TJAKey)
+	respond(w, 200, map[string]any{"urlsExpire": public == "", "chartId": c.ID, "expiresAt": time.Now().UTC().Add(15 * time.Minute), "resources": resources})
 }

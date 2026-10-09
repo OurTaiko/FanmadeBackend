@@ -52,6 +52,9 @@ func (s *Server) streamAudio(w http.ResponseWriter, r *http.Request) {
 		internal(w, err)
 		return
 	}
+	if s.redirectResource(w, r, key, "") {
+		return
+	}
 	f, err := s.Config.Objects.Open(r.Context(), key)
 	if err != nil {
 		internal(w, err)

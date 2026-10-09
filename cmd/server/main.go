@@ -43,7 +43,7 @@ func main() {
 	if err = migrate(ctx, pool, env("STORAGE_DIR", ".data/files")); err != nil {
 		log.Fatal(err)
 	}
-	sso, err := httpapi.NewSSO(httpapi.SSOConfig{Issuer: os.Getenv("SSO_ISSUER"), ConnectAddress: os.Getenv("SSO_CONNECT_ADDRESS"), ServiceID: os.Getenv("SSO_SERVICE_ID"), ServiceKey: os.Getenv("SSO_SERVICE_KEY"), ClientID: os.Getenv("SSO_CLIENT_ID"), ClientSecret: os.Getenv("SSO_CLIENT_SECRET"), RedirectURL: os.Getenv("SSO_REDIRECT_URL"), EncryptionKey: os.Getenv("SESSION_ENCRYPTION_KEY")})
+	sso, err := httpapi.NewSSO(httpapi.SSOConfig{Issuer: os.Getenv("SSO_ISSUER"), AvatarBaseURL: os.Getenv("SSO_AVATAR_BASE_URL"), ConnectAddress: os.Getenv("SSO_CONNECT_ADDRESS"), ServiceID: os.Getenv("SSO_SERVICE_ID"), ServiceKey: os.Getenv("SSO_SERVICE_KEY"), ClientID: os.Getenv("SSO_CLIENT_ID"), ClientSecret: os.Getenv("SSO_CLIENT_SECRET"), RedirectURL: os.Getenv("SSO_REDIRECT_URL"), EncryptionKey: os.Getenv("SESSION_ENCRYPTION_KEY")})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -79,6 +79,9 @@ func main() {
 		objects, err = objectstore.NewS3(storageCtx, os.Getenv("S3_BUCKET"), os.Getenv("AWS_REGION"), os.Getenv("S3_PREFIX"))
 		stop()
 		if err != nil {
+			log.Fatal(err)
+		}
+		if err = objects.(*objectstore.S3).SetPublicBaseURL(os.Getenv("S3_PUBLIC_BASE_URL")); err != nil {
 			log.Fatal(err)
 		}
 	} else if mode := os.Getenv("STORAGE_BACKEND"); mode != "" && mode != "local" {

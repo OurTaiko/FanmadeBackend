@@ -205,6 +205,9 @@ func (s *Server) download(w http.ResponseWriter, r *http.Request) {
 				internal(w, e)
 				return
 			}
+			if s.redirectResource(w, r, key, strings.TrimSuffix(c.TJAName, filepath.Ext(c.TJAName))+".zip") {
+				return
+			}
 			f, e := s.Config.Objects.Open(r.Context(), key)
 			if e != nil {
 				internal(w, e)
@@ -255,6 +258,9 @@ func (s *Server) download(w http.ResponseWriter, r *http.Request) {
 		key, name, contentType, etag = c.TJAKey, c.TJAName, "application/octet-stream", c.TJAHash
 	default:
 		problem(w, 404, "RESOURCE_NOT_FOUND", "资源不存在")
+		return
+	}
+	if s.redirectResource(w, r, key, name) {
 		return
 	}
 	f, e := s.Config.Objects.Open(r.Context(), key)

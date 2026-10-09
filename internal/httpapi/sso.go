@@ -28,6 +28,7 @@ type SSOConfig struct {
 	// Optional TCP destination for the issuer, e.g. sso:8090 inside Docker.
 	// The public issuer, HTTP Host and TLS certificate verification stay unchanged.
 	ConnectAddress string
+	AvatarBaseURL  string
 }
 type SSOClient struct {
 	config   SSOConfig
@@ -60,6 +61,13 @@ func NewSSO(cfg SSOConfig) (*SSOClient, error) {
 		if e != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "https" && !(u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1"))) {
 			return nil, errors.New("SSO URLs must use HTTPS (HTTP is allowed on loopback only)")
 		}
+	}
+	if cfg.AvatarBaseURL != "" {
+		u, err := url.Parse(cfg.AvatarBaseURL)
+		if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.ContainsAny(cfg.AvatarBaseURL, "\\\r\n\t ") {
+			return nil, errors.New("SSO_AVATAR_BASE_URL must be an HTTPS URL without credentials, query or fragment")
+		}
+		cfg.AvatarBaseURL = strings.TrimRight(cfg.AvatarBaseURL, "/")
 	}
 	key, e := hex.DecodeString(cfg.EncryptionKey)
 	if e != nil || len(key) != 32 {
@@ -174,16 +182,20 @@ func (c *SSOClient) identity(ctx context.Context, kind, token string) (User, err
 	return result.User, e
 }
 
-// avatarURL passes through only the SSO's own content-addressed avatar path for
-// this user, so a compromised or misconfigured upstream cannot inject other URLs.
+// Accept only this user's content-addressed avatar on the issuer or configured CDN.
 func (c *SSOClient) avatarURL(u User) string {
-	prefix := strings.TrimRight(c.config.Issuer, "/") + "/avatars/" + u.ID + "/"
-	rest, ok := strings.CutPrefix(u.AvatarURL, prefix)
-	digest, ext := strings.CutSuffix(rest, ".webp")
-	if !ok || !ext || len(digest) != 32 || strings.Trim(digest, "0123456789abcdef") != "" {
-		return ""
+	bases := []string{strings.TrimRight(c.config.Issuer, "/") + "/avatars"}
+	if c.config.AvatarBaseURL != "" {
+		bases = append(bases, strings.TrimRight(c.config.AvatarBaseURL, "/"))
 	}
-	return u.AvatarURL
+	for _, base := range bases {
+		rest, ok := strings.CutPrefix(u.AvatarURL, base+"/"+u.ID+"/")
+		digest, ext := strings.CutSuffix(rest, ".webp")
+		if ok && ext && len(digest) == 32 && strings.Trim(digest, "0123456789abcdef") == "" {
+			return u.AvatarURL
+		}
+	}
+	return ""
 }
 func validSubject(id string) bool {
 	b, e := hex.DecodeString(id)

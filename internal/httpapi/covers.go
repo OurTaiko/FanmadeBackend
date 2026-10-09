@@ -72,6 +72,9 @@ func (s *Server) getCover(w http.ResponseWriter, r *http.Request) {
 		problem(w, 404, "COVER_NOT_FOUND", "该封面已被替换")
 		return
 	}
+	if s.redirectResource(w, r, key, "") {
+		return
+	}
 	w.Header().Set("Content-Type", "image/webp")
 	w.Header().Set("Content-Disposition", `inline; filename="cover.webp"`)
 	w.Header().Set("Cache-Control", "public, no-cache")

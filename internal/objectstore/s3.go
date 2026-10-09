@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -21,6 +22,7 @@ import (
 type S3 struct {
 	Client         *s3.Client
 	Bucket, Prefix string
+	publicBaseURL  string
 }
 
 func NewS3(ctx context.Context, bucket, region, prefix string) (*S3, error) {
@@ -49,7 +51,7 @@ func (s *S3) Put(ctx context.Context, key string, body io.ReadSeeker, size int64
 	if e != nil || len(sum) != 32 {
 		return errors.New("SHA-256 required")
 	}
-	_, e = s.Client.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(s.Bucket), Key: k, Body: body, ContentLength: aws.Int64(size), ContentType: aws.String(media), ChecksumSHA256: aws.String(base64.StdEncoding.EncodeToString(sum)), Metadata: map[string]string{"sha256": digest}, IfNoneMatch: aws.String("*")})
+	_, e = s.Client.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(s.Bucket), Key: k, Body: body, ContentLength: aws.Int64(size), CacheControl: aws.String("public, max-age=60"), ContentType: aws.String(media), ChecksumSHA256: aws.String(base64.StdEncoding.EncodeToString(sum)), Metadata: map[string]string{"sha256": digest}, IfNoneMatch: aws.String("*")})
 	return e
 }
 func (s *S3) Delete(ctx context.Context, key string) error {
@@ -167,4 +169,31 @@ func (s *S3) Sign(ctx context.Context, key, method, name, media string, lifetime
 		return "", e
 	}
 	return v.URL, nil
+}
+
+// SetPublicBaseURL configures the CDN URL corresponding to Prefix, not the bucket root.
+func (s *S3) SetPublicBaseURL(raw string) error {
+	if raw == "" {
+		s.publicBaseURL = ""
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.ContainsAny(raw, "\\\r\n\t ") {
+		return errors.New("S3_PUBLIC_BASE_URL must be an HTTPS URL without credentials, query or fragment")
+	}
+	s.publicBaseURL = strings.TrimRight(u.String(), "/")
+	return nil
+}
+func (s *S3) PublicURL(key string) (string, error) {
+	if !ValidKey(key) {
+		return "", ErrKey
+	}
+	if s.publicBaseURL == "" {
+		return "", nil
+	}
+	parts := strings.Split(key, "/")
+	for i := range parts {
+		parts[i] = url.PathEscape(parts[i])
+	}
+	return s.publicBaseURL + "/" + strings.Join(parts, "/"), nil
 }
