@@ -1,0 +1,27 @@
+[Unit]
+Description=Validated SSO PostgreSQL backup to private S3
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=3h
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+EnvironmentFile=/etc/ourtaiko-sso/docker/sso.env
+EnvironmentFile=/etc/ourtaiko-sso/backup.env
+ExecStart=/usr/local/libexec/ourtaiko-fanmade-backup
+TimeoutStartSec=2h
+Restart=on-failure
+RestartSec=15min
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/backups/ourtaiko-sso

@@ -26,8 +26,9 @@ type S3 struct {
 func NewS3(ctx context.Context, bucket, region, prefix, database string) (*S3, error) {
 	prefix = strings.TrimSuffix(prefix, "/")
 	// Keep backup retention outside production resource objects, even after misconfiguration.
-	if bucket == "" || region == "" || !strings.HasPrefix(prefix, "fanmade/backups/") || strings.Contains(prefix, "..") || strings.ContainsAny(prefix, "\\,\n\r") || !databaseName.MatchString(database) {
-		return nil, errors.New("S3 backup requires bucket, region and a prefix under fanmade/backups/")
+	backupPrefix := strings.HasPrefix(prefix, "fanmade/backups/") || strings.HasPrefix(prefix, "sso/backups/")
+	if bucket == "" || region == "" || !backupPrefix || strings.Contains(prefix, "..") || strings.ContainsAny(prefix, "\\,\n\r") || !databaseName.MatchString(database) {
+		return nil, errors.New("S3 backup requires bucket, region and a prefix under fanmade/backups/ or sso/backups/")
 	}
 	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
 	if err != nil {

@@ -115,3 +115,30 @@ func TestS3RetentionOnlyDeletesExpiredBackupFiles(t *testing.T) {
 		t.Fatalf("unsafe retention: %v", deleted)
 	}
 }
+
+func TestS3BackupPrefixesExcludePublicResources(t *testing.T) {
+	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
+	for _, tc := range []struct {
+		prefix, database string
+		allowed          bool
+	}{
+		{"fanmade/backups/postgresql", "ourtaiko_fanmade", true},
+		{"sso/backups/postgresql/", "ourtaiko_sso", true},
+		{"sso/avatars", "ourtaiko_sso", false},
+		{"fanmade/objects", "ourtaiko_fanmade", false},
+		{"fanmade/production", "ourtaiko_fanmade", false},
+		{"sso/backups/../avatars", "ourtaiko_sso", false},
+		{"sso/backups-copy/postgresql", "ourtaiko_sso", false},
+		{"sso/backups/postgresql", "../ourtaiko_sso", false},
+	} {
+		t.Run(tc.prefix+"_"+tc.database, func(t *testing.T) {
+			s, err := NewS3(context.Background(), "private-test", "ap-northeast-1", tc.prefix, tc.database)
+			if (err == nil) != tc.allowed {
+				t.Fatalf("allowed=%t, error=%v", tc.allowed, err)
+			}
+			if err == nil && s.prefix != strings.TrimSuffix(tc.prefix, "/")+"/"+tc.database+"/" {
+				t.Fatalf("wrong database scope: %s", s.prefix)
+			}
+		})
+	}
+}

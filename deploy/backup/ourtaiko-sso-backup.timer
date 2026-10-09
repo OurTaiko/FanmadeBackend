@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily SSO database backup at 04:15 Asia/Tokyo
+
+[Timer]
+OnCalendar=*-*-* 04:15:00 Asia/Tokyo
+Persistent=true
+AccuracySec=1min
+Unit=ourtaiko-sso-backup.service
+
+[Install]
+WantedBy=timers.target
