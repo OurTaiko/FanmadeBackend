@@ -45,7 +45,7 @@ func TestBranchingBackfill(t *testing.T) {
 				// The stored file no longer matches the row: reported and retried, never guessed.
 				{"broken", "true", `[{"course":"Oni","level":3,"maker":""}]`, "broken.tja"},
 			} {
-				if _, err := tx.Exec(ctx, `INSERT INTO charts(id,owner_id,title,bpm,duration,encoding,wave_filename,demo_start,is_single,difficulties) VALUES($1,$2,$1,120,1,'utf-8','audio.ogg',0,$3::boolean,$4::jsonb)`, c.id, owner, c.single, c.difficulties); err != nil {
+				if _, err := tx.Exec(ctx, `INSERT INTO charts(id,owner_id,title,bpm,duration,wave_filename,demo_start,is_single,difficulties) VALUES($1,$2,$1,120,1,'audio.ogg',0,$3::boolean,$4::jsonb)`, c.id, owner, c.single, c.difficulties); err != nil {
 					t.Fatal(c.id, err)
 				}
 				if _, err := tx.Exec(ctx, `INSERT INTO chart_resources(chart_id,kind,storage_key,original_filename,sha256,byte_size,media_type) VALUES($1,'audio','audio','audio.ogg',repeat('b',64),1,'audio/ogg'),($1,'tja',$2,'song.tja',repeat('a',64),1,'application/octet-stream')`, c.id, c.tja); err != nil {
@@ -57,7 +57,7 @@ func TestBranchingBackfill(t *testing.T) {
 			}
 			// Archived unsupported metadata is left alone instead of failing the validator.
 			if _, err = pool.Exec(ctx, `BEGIN; ALTER TABLE charts DROP CONSTRAINT charts_difficulties_check;
- INSERT INTO charts(id,owner_id,title,bpm,duration,encoding,wave_filename,demo_start,difficulties) VALUES('archived','`+owner+`','archived',120,1,'utf-8','audio.ogg',0,'[{"course":"Tower","level":3,"maker":""}]');
+ INSERT INTO charts(id,owner_id,title,bpm,duration,wave_filename,demo_start,difficulties) VALUES('archived','`+owner+`','archived',120,1,'audio.ogg',0,'[{"course":"Tower","level":3,"maker":""}]');
  INSERT INTO chart_resources(chart_id,kind,storage_key,original_filename,sha256,byte_size,media_type) VALUES('archived','audio','audio','audio.ogg',repeat('b',64),1,'audio/ogg'),('archived','tja','broken.tja','song.tja',repeat('a',64),1,'application/octet-stream');
  SET CONSTRAINTS ALL IMMEDIATE;
  ALTER TABLE charts ADD CONSTRAINT charts_difficulties_check CHECK(valid_chart_difficulties(difficulties,is_single)) NOT VALID; COMMIT;`); err != nil {

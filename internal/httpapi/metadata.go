@@ -131,8 +131,8 @@ func translationReset(raw json.RawMessage) bool {
 	return false
 }
 func (s *Server) sourceTranslations(ctx context.Context, tx pgx.Tx, id string) (metadataTranslations, error) {
-	var key, encoding, wave string
-	if err := tx.QueryRow(ctx, `SELECT r.storage_key,c.encoding,c.wave_filename FROM charts c JOIN chart_resources r ON r.chart_id=c.id AND r.kind='tja' WHERE c.id=$1`, id).Scan(&key, &encoding, &wave); err != nil {
+	var key, wave string
+	if err := tx.QueryRow(ctx, `SELECT r.storage_key,c.wave_filename FROM charts c JOIN chart_resources r ON r.chart_id=c.id AND r.kind='tja' WHERE c.id=$1`, id).Scan(&key, &wave); err != nil {
 		return metadataTranslations{}, err
 	}
 	f, err := s.Config.Objects.Open(ctx, key)
@@ -147,7 +147,7 @@ func (s *Server) sourceTranslations(ctx context.Context, tx pgx.Tx, id string) (
 	if len(data) > tja.MaxTJA {
 		return metadataTranslations{}, fmt.Errorf("source TJA exceeds limit")
 	}
-	parsed, issue := tja.Parse(data, encoding, wave)
+	parsed, issue := tja.Parse(data, "utf-8", wave)
 	if issue != nil {
 		return metadataTranslations{}, issue
 	}

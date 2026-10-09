@@ -20,7 +20,7 @@ func TestLeaderboard(t *testing.T) {
 		}
 	}
 	_, err := pool.Exec(ctx, `BEGIN;
- INSERT INTO charts(id,owner_id,title,bpm,duration,encoding,wave_filename) VALUES('11111111111111111111111111111111','000000000000000000000000000003e8','Current',120,10,'utf-8','a.ogg'),('22222222222222222222222222222222','000000000000000000000000000003e8','Other',120,10,'utf-8','a.ogg');
+ INSERT INTO charts(id,owner_id,title,bpm,duration,wave_filename) VALUES('11111111111111111111111111111111','000000000000000000000000000003e8','Current',120,10,'a.ogg'),('22222222222222222222222222222222','000000000000000000000000000003e8','Other',120,10,'a.ogg');
  INSERT INTO chart_resources(chart_id,kind,storage_key,original_filename,sha256,byte_size,media_type) SELECT id,kind,kind,kind,repeat('a',64),1,'test' FROM charts CROSS JOIN unnest(ARRAY['tja','audio']) kind;
 	 UPDATE charts c SET difficulties=c.difficulties||d.items FROM (SELECT chart_id,jsonb_agg(jsonb_build_object('course',course,'level',level,'maker',maker)) items FROM (VALUES ('11111111111111111111111111111111','Oni',5,''),('11111111111111111111111111111111','Hard',5,''),('11111111111111111111111111111111','Easy',5,''),('11111111111111111111111111111111','Edit',5,''),('22222222222222222222222222222222','Oni',5,'')) v(chart_id,course,level,maker) GROUP BY chart_id) d WHERE c.id=d.chart_id;
 	 COMMIT;`)

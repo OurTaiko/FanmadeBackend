@@ -22,7 +22,7 @@ func TestPublicGameSearch(t *testing.T) {
 			t.Fatal(err)
 		}
 		id := fmt.Sprintf("%032d", i)
-		_, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id,title,bpm,duration,encoding,wave_filename,title_translations) VALUES($1,'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee','Search Song',120,10,'utf-8','test.ogg','{"ja":"検索曲"}')`, id)
+		_, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id,title,bpm,duration,wave_filename,title_translations) VALUES($1,'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee','Search Song',120,10,'test.ogg','{"ja":"検索曲"}')`, id)
 		if err == nil {
 			_, err = tx.Exec(ctx, `INSERT INTO chart_resources(chart_id,kind,storage_key,original_filename,sha256,byte_size,media_type) VALUES($1,'tja','tja','test.tja',repeat('a',64),1,'application/octet-stream'),($1,'audio','ogg','test.ogg',repeat('b',64),1,'audio/ogg')`, id)
 		}

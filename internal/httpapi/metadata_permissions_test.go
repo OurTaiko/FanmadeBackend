@@ -30,7 +30,7 @@ func TestMetadataAuthorOrAdmin(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback(ctx)
-	_, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id,title,bpm,duration,encoding,wave_filename) VALUES('chart','d46774d30dd13b92d9e536808da468a4','Original',120,10,'utf-8','a.ogg');
+	_, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id,title,bpm,duration,wave_filename) VALUES('chart','d46774d30dd13b92d9e536808da468a4','Original',120,10,'a.ogg');
  INSERT INTO chart_resources(chart_id,kind,storage_key,original_filename,sha256,byte_size,media_type) VALUES('chart','tja','t','t.tja',repeat('a',64),1,'application/octet-stream'),('chart','audio','a','a.ogg',repeat('b',64),1,'audio/ogg');`)
 	if err != nil {
 		t.Fatal(err)

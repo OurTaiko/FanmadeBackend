@@ -30,9 +30,9 @@ func TestDeleteChartRemovesScoresRowAndUnsharedFiles(t *testing.T) {
 		teststore.Seed(t, store, key, []byte("test file data"))
 	}
 	_, err := pool.Exec(ctx, `BEGIN;
- INSERT INTO charts(id,owner_id,title,bpm,duration,encoding,wave_filename,difficulties) VALUES
-  ('gone','`+owner+`','Gone',120,10,'utf-8','a.ogg','[{"course":"Oni","level":5,"maker":""}]'),
-  ('kept','`+owner+`','Kept',120,10,'utf-8','a.ogg','[{"course":"Oni","level":5,"maker":""}]');
+ INSERT INTO charts(id,owner_id,title,bpm,duration,wave_filename,difficulties) VALUES
+  ('gone','`+owner+`','Gone',120,10,'a.ogg','[{"course":"Oni","level":5,"maker":""}]'),
+  ('kept','`+owner+`','Kept',120,10,'a.ogg','[{"course":"Oni","level":5,"maker":""}]');
  INSERT INTO chart_resources(chart_id,kind,storage_key,original_filename,sha256,byte_size,media_type) VALUES
   ('gone','tja','gone/tja','a.tja',repeat('a',64),14,'text/plain'),
   ('gone','audio','shared','a.ogg',repeat('a',64),14,'audio/ogg'),

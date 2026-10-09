@@ -81,7 +81,7 @@ func (s *Server) backfillBranching(parent context.Context, id string) error {
 		return err
 	}
 	// The legacy parser accepts every stored file; it keeps P1/P2 out of the course name.
-	meta, issue := tja.ParseLegacy(data, c.Encoding, c.Wave)
+	meta, issue := tja.ParseLegacy(data, "utf-8", c.Wave)
 	if issue != nil {
 		return issue
 	}

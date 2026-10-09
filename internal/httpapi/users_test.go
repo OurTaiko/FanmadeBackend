@@ -172,7 +172,7 @@ func TestUserDirectoryPublicScopeAndStatistics(t *testing.T) {
 	defer tx.Rollback(ctx)
 	for i, status := range []string{"published", "published", "hidden", "deleted"} {
 		song := fmt.Sprintf("%032x", i+200)
-		if _, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id,status,title,bpm,duration,encoding,wave_filename) VALUES($1,$2,$3,'Public chart',120,10,'utf-8','fixture')`, song, ids[0], status); err != nil {
+		if _, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id,status,title,bpm,duration,wave_filename) VALUES($1,$2,$3,'Public chart',120,10,'fixture')`, song, ids[0], status); err != nil {
 			t.Fatal(err)
 		}
 		if _, err = tx.Exec(ctx, `INSERT INTO chart_resources(chart_id,kind,storage_key,original_filename,sha256,byte_size,media_type) SELECT $1,kind,$1||kind,'fixture',repeat('a',64),1,'test' FROM unnest(ARRAY['tja','audio']) kind`, song); err != nil {

@@ -83,7 +83,7 @@ func testAudioStreamHTTP(t *testing.T, remote bool) {
 				t.Fatal(err)
 			}
 			defer tx.Rollback(ctx)
-			if _, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id,title,bpm,duration,demo_start,encoding,wave_filename) VALUES($1,'89b6ef3a5cb57b6e04f74711d15a8a5f','Stream',120,120,30,'utf-8',$2)`, song, filename); err != nil {
+			if _, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id,title,bpm,duration,demo_start,wave_filename) VALUES($1,'89b6ef3a5cb57b6e04f74711d15a8a5f','Stream',120,120,30,$2)`, song, filename); err != nil {
 				t.Fatal(err)
 			}
 			if _, err = tx.Exec(ctx, `INSERT INTO chart_resources(chart_id,kind,storage_key,original_filename,sha256,byte_size,media_type) VALUES($1,'audio',$2,$2,$3,$4,'audio/test'),($1,'tja',$5,'a.tja',repeat('a',64),1,'application/octet-stream')`, song, filename, digest, len(data), tjaID); err != nil {

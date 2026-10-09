@@ -372,9 +372,9 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if _, e = tx.Exec(r.Context(), `INSERT INTO charts(id,owner_id,description,title,subtitle,bpm,offset_seconds,demo_start,duration,encoding,wave_filename,title_translations,subtitle_translations,is_single,difficulties,demo_end)
- VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
- ON CONFLICT(id) DO UPDATE SET title=EXCLUDED.title,subtitle=EXCLUDED.subtitle,bpm=EXCLUDED.bpm,offset_seconds=EXCLUDED.offset_seconds,demo_start=EXCLUDED.demo_start,demo_end=EXCLUDED.demo_end,duration=EXCLUDED.duration,encoding=EXCLUDED.encoding,wave_filename=EXCLUDED.wave_filename,title_translations=EXCLUDED.title_translations,subtitle_translations=EXCLUDED.subtitle_translations,is_single=EXCLUDED.is_single,difficulties=EXCLUDED.difficulties`, chartID, u.User.ID, fields["description"], meta.Title, meta.Subtitle, meta.BPM, meta.Offset, demoStart, duration, encoding, meta.Wave, meta.TitleTranslations, meta.SubtitleTranslations, meta.IsSingle, meta.Difficulties, demoEnd); e != nil {
+	if _, e = tx.Exec(r.Context(), `INSERT INTO charts(id,owner_id,description,title,subtitle,bpm,offset_seconds,demo_start,duration,wave_filename,title_translations,subtitle_translations,is_single,difficulties,demo_end)
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+ ON CONFLICT(id) DO UPDATE SET title=EXCLUDED.title,subtitle=EXCLUDED.subtitle,bpm=EXCLUDED.bpm,offset_seconds=EXCLUDED.offset_seconds,demo_start=EXCLUDED.demo_start,demo_end=EXCLUDED.demo_end,duration=EXCLUDED.duration,wave_filename=EXCLUDED.wave_filename,title_translations=EXCLUDED.title_translations,subtitle_translations=EXCLUDED.subtitle_translations,is_single=EXCLUDED.is_single,difficulties=EXCLUDED.difficulties`, chartID, u.User.ID, fields["description"], meta.Title, meta.Subtitle, meta.BPM, meta.Offset, demoStart, duration, meta.Wave, meta.TitleTranslations, meta.SubtitleTranslations, meta.IsSingle, meta.Difficulties, demoEnd); e != nil {
 		internal(w, e)
 		return
 	}

@@ -51,7 +51,7 @@ func TestPreviewLifecycle(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer tx.Rollback(ctx)
-			if _, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id,title,bpm,duration,encoding,wave_filename,demo_start,difficulties) VALUES('song',$1,'Test',120,0.5,'utf-8','audio.ogg',0.1,'[{"course":"Oni","level":5,"maker":"A"}]')`, owner); err != nil {
+			if _, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id,title,bpm,duration,wave_filename,demo_start,difficulties) VALUES('song',$1,'Test',120,0.5,'audio.ogg',0.1,'[{"course":"Oni","level":5,"maker":"A"}]')`, owner); err != nil {
 				t.Fatal(err)
 			}
 			if _, err = tx.Exec(ctx, `INSERT INTO chart_resources(chart_id,kind,storage_key,original_filename,sha256,byte_size,media_type) VALUES('song','audio','audio','audio.ogg',$1,$2,'audio/ogg'),('song','tja','tja','song.tja',repeat('a',64),1,'application/octet-stream')`, hash(string(source)), len(source)); err != nil {

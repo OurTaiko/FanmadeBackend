@@ -32,7 +32,7 @@ func TestSupportedCoursesAPI(t *testing.T) {
 	}
 	defer tx.Rollback(ctx)
 	for i, id := range ids {
-		_, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id,title,bpm,duration,encoding,wave_filename) VALUES($1,'89b6ef3a5cb57b6e04f74711d15a8a5f',$2,120,10,'utf-8','music.ogg')`, id, "Chart "+courses[i])
+		_, err = tx.Exec(ctx, `INSERT INTO charts(id,owner_id,title,bpm,duration,wave_filename) VALUES($1,'89b6ef3a5cb57b6e04f74711d15a8a5f',$2,120,10,'music.ogg')`, id, "Chart "+courses[i])
 		if err != nil {
 			t.Fatal(err)
 		}
